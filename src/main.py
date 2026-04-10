@@ -108,6 +108,7 @@ def _run_cycle() -> str:
 
     state = StateManager()
     recorder = AudioRecorder(device=audio_device)
+    log.info("Mikrofon: %s", recorder.device_name)
     transcriber = Transcriber(
         model_size=config["model_size"],
         language=config["language"],
@@ -235,6 +236,7 @@ def _run_cycle() -> str:
         state, on_quit,
         hotkey_str=config["hotkey"],
         backend_name=backend_name,
+        mic_name=recorder.device_name,
         on_open_settings=on_open_settings,
         on_open_log=on_open_log,
     )

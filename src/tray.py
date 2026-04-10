@@ -40,11 +40,12 @@ def _create_icon(color, size=64):
 
 class TrayApp:
     def __init__(self, state_manager, on_quit, hotkey_str="", backend_name="",
-                 on_open_settings=None, on_open_log=None):
+                 mic_name="", on_open_settings=None, on_open_log=None):
         self.state_manager = state_manager
         self.on_quit = on_quit
         self.hotkey_str = hotkey_str
         self.backend_name = backend_name
+        self.mic_name = mic_name
         self.on_open_settings = on_open_settings
         self.on_open_log = on_open_log
         self._icons = {s: _create_icon(c) for s, c in STATE_COLORS.items()}
@@ -59,6 +60,10 @@ class TrayApp:
             items.append(pystray.MenuItem(
                 f"Hotkey: {self.hotkey_str.upper().replace('+', ' + ')}",
                 None, enabled=False))
+        if self.mic_name:
+            # Truncate long mic names
+            mic_display = self.mic_name if len(self.mic_name) <= 35 else self.mic_name[:32] + "..."
+            items.append(pystray.MenuItem(f"Mikrofon: {mic_display}", None, enabled=False))
         items.append(pystray.Menu.SEPARATOR)
         if self.on_open_settings:
             items.append(pystray.MenuItem("Einstellungen", self._open_settings))

@@ -26,10 +26,56 @@ class AudioRecorder:
         self._device = device
         self._session_id = uuid.uuid4().hex[:8]
         self._actual_rate = SAMPLE_RATE
+        self._device_name = self._resolve_device_name()
+
+    def _resolve_device_name(self) -> str:
+        """Gibt einen lesbaren Namen des aktiven Devices zurueck."""
+        try:
+            if self._device is None:
+                info = sd.query_devices(kind="input")
+                return f"Standard ({info['name'].strip()})"
+            info = sd.query_devices(self._device)
+            return info["name"].strip()
+        except Exception:
+            return "Unbekannt"
+
+    @property
+    def device_name(self) -> str:
+        return self._device_name
 
     def _callback(self, indata, frames, time_info, status):
         if self._recording:
             self._buffer.append(indata.copy())
+
+    def _try_open_stream(self, samplerate: int, use_auto_convert: bool) -> bool:
+        """Versucht einen InputStream zu oeffnen. Returns True bei Erfolg."""
+        extra = None
+        if use_auto_convert:
+            try:
+                extra = sd.WasapiSettings(auto_convert=True)
+            except Exception:
+                extra = None
+
+        try:
+            self._stream = sd.InputStream(
+                samplerate=samplerate,
+                channels=CHANNELS,
+                dtype=DTYPE,
+                device=self._device,
+                callback=self._callback,
+                extra_settings=extra,
+            )
+            self._stream.start()
+            self._actual_rate = samplerate
+            return True
+        except Exception as e:
+            if self._stream:
+                try:
+                    self._stream.close()
+                except Exception:
+                    pass
+                self._stream = None
+            return False
 
     def start_recording(self):
         with self._lock:
@@ -38,51 +84,42 @@ class AudioRecorder:
 
             # Native Rate des Geraets ermitteln
             try:
-                dev_info = sd.query_devices(
-                    self._device if self._device is not None else None,
-                    kind="input",
+                dev_info = (
+                    sd.query_devices(self._device)
+                    if self._device is not None
+                    else sd.query_devices(kind="input")
                 )
                 native_rate = int(dev_info["default_samplerate"])
             except Exception:
                 native_rate = 48000
 
-            # Fallback-Kaskade: 16000 → native → 48000 → 44100
+            # Strategie 1: WASAPI auto_convert mit 16 kHz (beste Loesung)
+            if self._try_open_stream(SAMPLE_RATE, use_auto_convert=True):
+                log.info("Mikrofon '%s' @ %d Hz (WASAPI auto-convert)",
+                         self._device_name, SAMPLE_RATE)
+                return
+
+            # Strategie 2: Fallback ohne auto_convert, verschiedene Raten
+            # Bei nativer Rate: Aufnahme + manuelles Resample in stop_recording()
             candidates = []
-            for r in (SAMPLE_RATE, native_rate, 48000, 44100):
+            for r in (native_rate, 48000, 44100, SAMPLE_RATE):
                 if r not in candidates:
                     candidates.append(r)
 
-            last_error = None
             for rate in candidates:
-                try:
-                    self._stream = sd.InputStream(
-                        samplerate=rate,
-                        channels=CHANNELS,
-                        dtype=DTYPE,
-                        device=self._device,
-                        callback=self._callback,
-                    )
-                    self._stream.start()
-                    self._actual_rate = rate
+                if self._try_open_stream(rate, use_auto_convert=False):
                     if rate != SAMPLE_RATE:
-                        log.info(
-                            "Mikrofon nutzt %d Hz (wird zu %d Hz resampled)",
-                            rate, SAMPLE_RATE,
-                        )
+                        log.info("Mikrofon '%s' @ %d Hz (wird zu %d Hz resampled)",
+                                 self._device_name, rate, SAMPLE_RATE)
+                    else:
+                        log.info("Mikrofon '%s' @ %d Hz",
+                                 self._device_name, rate)
                     return
-                except Exception as e:
-                    last_error = e
-                    if self._stream:
-                        try:
-                            self._stream.close()
-                        except Exception:
-                            pass
-                        self._stream = None
-                    continue
 
             self._recording = False
             raise RuntimeError(
-                f"Mikrofon unterstuetzt keine nutzbare Sample-Rate: {last_error}"
+                f"Mikrofon '{self._device_name}' unterstuetzt keine nutzbare Sample-Rate. "
+                f"Versuche Standard-Device in den Einstellungen."
             )
 
     def stop_recording(self) -> str | None:

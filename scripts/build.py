@@ -15,16 +15,22 @@ def build():
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm",
+        "--clean",                  # Cache loeschen fuer sauberen Build
         "--onefile",                # EINE .exe
         "--windowed",               # Keine Konsole
         "--name", "VoZii",
         "--icon", os.path.join(BASE_DIR, "src", "vozii.ico"),
         "--add-data", f"{os.path.join(BASE_DIR, 'config.default.yaml')};.",
+        # tkinter — wird von customtkinter UND settings_gui.py gebraucht
+        "--hidden-import", "tkinter",
+        "--hidden-import", "tkinter.ttk",
+        "--hidden-import", "tkinter.messagebox",
         "--hidden-import", "pynput.keyboard._win32",
         "--hidden-import", "pynput.mouse._win32",
         "--hidden-import", "PIL._tkinter_finder",
         "--collect-submodules", "pynput",
         "--collect-all", "customtkinter",
+        "--collect-all", "tkinter",
         os.path.join(BASE_DIR, "src", "main.py"),
     ]
 

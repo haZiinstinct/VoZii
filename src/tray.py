@@ -1,6 +1,6 @@
 """VoZii System Tray — haZii Design."""
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 import pystray
 from src.state import AppState
 from src.theme import BRAND
@@ -13,20 +13,27 @@ STATE_COLORS = {
 }
 
 
+def _hex_to_rgb(hex_color):
+    h = hex_color.lstrip("#")
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+
 def _create_icon(color, size=64):
-    """Modernes VoZii Icon — abgerundetes Quadrat mit V."""
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    """Sauberes VoZii Icon — V auf solidem Hintergrund, keine Transparenz-Artefakte."""
+    bg = _hex_to_rgb(BRAND["bg"])
+    fg = _hex_to_rgb(color)
+
+    img = Image.new("RGB", (size, size), bg)
     draw = ImageDraw.Draw(img)
 
-    # Abgerundetes Quadrat als Background
-    m = 2
-    draw.rounded_rectangle([m, m, size - m, size - m], radius=14,
-                           fill="#0a0a0f", outline=color, width=3)
-
-    # "V" in der Mitte
+    # V zeichnen
     cx, cy = size // 2, size // 2
-    draw.line([(cx - 14, cy - 12), (cx, cy + 14)], fill=color, width=4)
-    draw.line([(cx + 14, cy - 12), (cx, cy + 14)], fill=color, width=4)
+    lw = max(2, size // 10)
+    ox = size * 35 // 100
+    oy = size * 30 // 100
+
+    draw.line([(cx - ox, cy - oy), (cx, cy + oy)], fill=fg, width=lw)
+    draw.line([(cx + ox, cy - oy), (cx, cy + oy)], fill=fg, width=lw)
 
     return img
 
@@ -48,8 +55,9 @@ class TrayApp:
                   AppState.TRANSCRIBING: "Transkribiere...", AppState.ERROR: "Fehler"}
         items = [pystray.MenuItem(f"VoZii — {labels.get(st, '?')}", None, enabled=False)]
         if self.hotkey_str:
-            items.append(pystray.MenuItem(f"Hotkey: {self.hotkey_str.upper().replace('+', ' + ')}",
-                                          None, enabled=False))
+            items.append(pystray.MenuItem(
+                f"Hotkey: {self.hotkey_str.upper().replace('+', ' + ')}",
+                None, enabled=False))
         items.append(pystray.Menu.SEPARATOR)
         if self.on_open_settings:
             items.append(pystray.MenuItem("Einstellungen", self._open_settings))

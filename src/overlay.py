@@ -26,7 +26,6 @@ class RecordingOverlay:
         self._root.overrideredirect(True)
         self._root.attributes("-topmost", True)
         self._root.attributes("-alpha", 0.9)
-        # Aus Taskbar verstecken
         self._root.attributes("-toolwindow", True)
         self._root.configure(bg=BRAND["card"])
 
@@ -66,6 +65,18 @@ class RecordingOverlay:
             self._root.deiconify()
         else:
             self._root.withdraw()
+
+    def flash_error(self, msg: str = "ERR"):
+        """Zeigt das Overlay 3 Sekunden rot mit Fehler-Text."""
+        if not self._root: return
+        self._root.after(0, lambda: self._show_error(msg))
+
+    def _show_error(self, msg: str):
+        if not self._root: return
+        self._bar.configure(fg=BRAND["red"])
+        self._label.configure(text="ERR", fg=BRAND["red"])
+        self._root.deiconify()
+        self._root.after(3000, self._root.withdraw)
 
     def stop(self):
         if self._root:

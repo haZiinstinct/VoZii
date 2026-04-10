@@ -1,8 +1,12 @@
+import logging
 import os
 import re
 import subprocess
 
 from src.paths import BASE_DIR
+from src.downloader import MODEL_MIN_SIZES
+
+log = logging.getLogger(__name__)
 
 WHISPER_CLI = os.path.join(BASE_DIR, "whisper-cpp", "whisper-cli.exe")
 MODELS_DIR = os.path.join(BASE_DIR, "whisper-cpp", "models")
@@ -21,12 +25,19 @@ class Transcriber:
         self.model_path = os.path.join(MODELS_DIR, MODEL_FILES.get(model_size, "ggml-small.bin"))
 
     def is_ready(self) -> bool:
-        return os.path.isfile(WHISPER_CLI) and os.path.isfile(self.model_path)
+        if not os.path.isfile(WHISPER_CLI):
+            return False
+        if not os.path.isfile(self.model_path):
+            return False
+        min_size = MODEL_MIN_SIZES.get(self.model_size, 0)
+        if os.path.getsize(self.model_path) < min_size:
+            return False
+        return True
 
     def transcribe(self, wav_path: str) -> str:
         if not self.is_ready():
             raise FileNotFoundError(
-                f"whisper-cli.exe oder Modell nicht gefunden.\n"
+                f"whisper-cli.exe oder Modell nicht gefunden/corrupt.\n"
                 f"CLI: {WHISPER_CLI}\nModell: {self.model_path}"
             )
 
@@ -49,17 +60,18 @@ class Transcriber:
                 errors="replace",
                 timeout=60,
                 creationflags=subprocess.CREATE_NO_WINDOW,
-                cwd=os.path.dirname(WHISPER_CLI),  # Run from whisper-cpp dir for DLL resolution
+                cwd=os.path.dirname(WHISPER_CLI),
             )
         except subprocess.TimeoutExpired:
-            print("[WHISPER] Timeout nach 60s")
+            log.warning("whisper-cli Timeout nach 60s")
             return ""
         except FileNotFoundError as e:
-            print(f"[WHISPER] Nicht gefunden: {e}")
+            log.error("whisper-cli nicht gefunden: %s", e)
             return ""
 
         if result.returncode != 0:
-            print(f"[WHISPER] Fehler (code {result.returncode}): {result.stderr[:200]}")
+            log.error("whisper-cli Fehler (code %d): %s",
+                      result.returncode, result.stderr[:500])
             return ""
 
         text = result.stdout.strip()
@@ -76,4 +88,8 @@ class Transcriber:
             return f"whisper-cli.exe fehlt: {WHISPER_CLI}"
         if not os.path.isfile(self.model_path):
             return f"Modell fehlt: {self.model_path}"
+        min_size = MODEL_MIN_SIZES.get(self.model_size, 0)
+        actual = os.path.getsize(self.model_path)
+        if actual < min_size:
+            return f"Modell unvollstaendig ({actual // 1048576} MB, erwartet >= {min_size // 1048576} MB)"
         return f"Bereit (Modell: {self.model_size}, Sprache: {self.language})"

@@ -1,6 +1,7 @@
+import logging
 import os
-import sys
 import queue
+import sys
 import threading
 import traceback
 
@@ -8,6 +9,7 @@ if not getattr(sys, "frozen", False):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.paths import BASE_DIR
+from src.logger import setup_logging, acquire_single_instance, get_log_path
 from src.state import AppState, StateManager
 from src.config import load_config, save_config
 from src.audio import AudioRecorder
@@ -19,8 +21,12 @@ from src.settings_gui import SettingsWindow
 from src.hardware import detect_gpu, get_backend_name
 from src.overlay import RecordingOverlay
 
+log = logging.getLogger(__name__)
+
 
 def show_error(title: str, msg: str):
+    """Zeigt Error-Dialog UND loggt ihn."""
+    log.error("%s: %s", title, msg)
     try:
         import tkinter as tk
         from tkinter import messagebox
@@ -29,11 +35,10 @@ def show_error(title: str, msg: str):
         messagebox.showerror(title, msg)
         root.destroy()
     except Exception:
-        print(f"[FEHLER] {title}: {msg}")
+        pass
 
 
 def play_tone(freq: int, duration_ms: int):
-    """Spielt einen angenehmeren Ton (niedrigere Frequenz, kuerzer)."""
     try:
         import winsound
         winsound.Beep(freq, duration_ms)
@@ -43,35 +48,41 @@ def play_tone(freq: int, duration_ms: int):
 
 def main():
     """Hauptschleife: Settings → Run → Fehler/Stop → zurueck zu Settings."""
+    setup_logging()
+    log.info("=" * 40)
+    log.info("VoZii Start (PID %d)", os.getpid())
+
+    if not acquire_single_instance():
+        show_error("VoZii", "VoZii laeuft bereits.\n\nPruefe das Tray-Icon unten rechts.")
+        log.warning("Zweite Instanz blockiert")
+        return
+
     while True:
         try:
             action = _run_cycle()
             if action == "quit":
                 break
-            # action == "settings" → loop continues, zeigt Settings erneut
         except Exception:
+            log.exception("_run_cycle crashed")
             show_error("VoZii — Fehler", traceback.format_exc())
-            # Nach Fehler: zurueck zu Settings statt Absturz
             continue
 
-    print("[OK] VoZii beendet.")
+    log.info("VoZii beendet")
 
 
 def _run_cycle() -> str:
     """Ein Zyklus: Settings zeigen → Tool laufen → 'quit' oder 'settings' zurueckgeben."""
     config = load_config()
 
-    # Hardware erkennen
     gpu_type, gpu_name = detect_gpu()
     if config.get("gpu_type", "auto") != "auto":
         gpu_type = config["gpu_type"]
     backend_name = get_backend_name(gpu_type)
 
-    print(f"[OK] GPU: {gpu_name or 'CPU'} ({backend_name})")
+    log.info("GPU: %s (%s)", gpu_name or "CPU", backend_name)
 
     available_devices = AudioRecorder.list_input_devices()
 
-    # Settings-Fenster anzeigen
     settings = SettingsWindow(
         config=config,
         gpu_info=(gpu_type, gpu_name),
@@ -81,7 +92,7 @@ def _run_cycle() -> str:
     result = settings.run()
 
     if result is None:
-        return "quit"  # User hat geschlossen
+        return "quit"
 
     config = result
     save_config(config)
@@ -103,16 +114,14 @@ def _run_cycle() -> str:
     )
 
     if not transcriber.is_ready():
-        show_error(
-            "VoZii — Setup fehlt",
-            f"{transcriber.get_status()}\n\nBitte Modell herunterladen.",
-        )
-        return "settings"  # Zurueck zu Settings
+        status = transcriber.get_status()
+        log.error("Transcriber nicht bereit: %s", status)
+        show_error("VoZii — Setup fehlt", f"{status}\n\nBitte Modell herunterladen.")
+        return "settings"
 
-    print(f"[OK] {transcriber.get_status()}")
-    print(f"[OK] Hotkey: {config['hotkey']}")
+    log.info("Transcriber: %s", transcriber.get_status())
+    log.info("Hotkey: %s", config["hotkey"])
 
-    # Overlay
     overlay = None
     if config.get("show_overlay", True):
         overlay = RecordingOverlay()
@@ -133,25 +142,40 @@ def _run_cycle() -> str:
         if use_sound:
             threading.Thread(target=play_tone, args=(880, 60), daemon=True).start()
 
+    def notify_error(msg: str):
+        """Kurzes visuelles Feedback fuer Fehler."""
+        if overlay:
+            overlay.flash_error(msg)
+
     def on_activate():
-        if state.state == AppState.TRANSCRIBING:
-            return
-        state.set_state(AppState.RECORDING)
-        beep_start()
-        recorder.start_recording()
-        print("[REC] Aufnahme...")
+        try:
+            if state.state == AppState.TRANSCRIBING:
+                return
+            state.set_state(AppState.RECORDING)
+            beep_start()
+            recorder.start_recording()
+            log.info("Aufnahme gestartet")
+        except Exception:
+            log.exception("on_activate fehlgeschlagen")
+            state.set_state(AppState.IDLE)
+            notify_error("Aufnahme-Start fehlgeschlagen")
 
     def on_deactivate():
-        if state.state != AppState.RECORDING:
-            return
-        wav_path = recorder.stop_recording()
-        if wav_path:
-            state.set_state(AppState.TRANSCRIBING)
-            print(f"[REC] Gespeichert: {wav_path}")
-            audio_queue.put(wav_path)
-        else:
-            print("[REC] Zu kurz, ignoriert.")
+        try:
+            if state.state != AppState.RECORDING:
+                return
+            wav_path = recorder.stop_recording()
+            if wav_path:
+                state.set_state(AppState.TRANSCRIBING)
+                audio_queue.put(wav_path)
+            else:
+                state.set_state(AppState.IDLE)
+        except Exception:
+            log.exception("on_deactivate fehlgeschlagen")
             state.set_state(AppState.IDLE)
+            notify_error("Aufnahme-Stopp fehlgeschlagen")
+
+    error_count = [0]
 
     def transcription_worker():
         while not shutdown_event.is_set():
@@ -162,11 +186,18 @@ def _run_cycle() -> str:
             try:
                 text = transcriber.transcribe(wav_path)
                 if text:
-                    print(f"[TEXT] {text}")
+                    log.info("Transkribiert: %d Zeichen", len(text))
                     insert_text(text, restore_clipboard=config.get("restore_clipboard", True))
                     beep_done()
-            except Exception as e:
-                print(f"[FEHLER] {e}")
+                    error_count[0] = 0
+                else:
+                    log.warning("Transkription leer")
+            except Exception:
+                log.exception("Transkription fehlgeschlagen")
+                error_count[0] += 1
+                if error_count[0] >= 2:
+                    notify_error("Transkription fehlgeschlagen")
+                    error_count[0] = 0
             finally:
                 try:
                     os.remove(wav_path)
@@ -181,14 +212,17 @@ def _run_cycle() -> str:
             overlay.stop()
 
     def on_open_settings():
-        """Tray: Einstellungen → Stop + zurueck zu Settings."""
         return_to_settings.set()
         on_quit()
 
-    # Worker starten
+    def on_open_log():
+        try:
+            os.startfile(get_log_path())
+        except Exception:
+            log.exception("Konnte Log nicht oeffnen")
+
     threading.Thread(target=transcription_worker, daemon=True).start()
 
-    # Hotkey starten
     hotkey_mgr = HotkeyManager(
         hotkey_str=config["hotkey"],
         on_activate=on_activate,
@@ -197,20 +231,20 @@ def _run_cycle() -> str:
     )
     hotkey_mgr.start()
 
-    # Tray starten (blockiert)
     tray = TrayApp(
         state, on_quit,
         hotkey_str=config["hotkey"],
         backend_name=backend_name,
         on_open_settings=on_open_settings,
+        on_open_log=on_open_log,
     )
-    print("[OK] VoZii laeuft.")
+    log.info("VoZii laeuft")
     tray.run()
 
     shutdown_event.set()
 
     if return_to_settings.is_set():
-        return "settings"  # Zurueck zu Settings
+        return "settings"
     return "quit"
 
 
@@ -231,7 +265,7 @@ def _set_auto_start(enabled: bool):
                 pass
         winreg.CloseKey(key)
     except Exception:
-        pass
+        log.exception("Autostart-Konfiguration fehlgeschlagen")
 
 
 if __name__ == "__main__":

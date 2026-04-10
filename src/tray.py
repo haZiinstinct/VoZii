@@ -40,12 +40,13 @@ def _create_icon(color, size=64):
 
 class TrayApp:
     def __init__(self, state_manager, on_quit, hotkey_str="", backend_name="",
-                 on_open_settings=None):
+                 on_open_settings=None, on_open_log=None):
         self.state_manager = state_manager
         self.on_quit = on_quit
         self.hotkey_str = hotkey_str
         self.backend_name = backend_name
         self.on_open_settings = on_open_settings
+        self.on_open_log = on_open_log
         self._icons = {s: _create_icon(c) for s, c in STATE_COLORS.items()}
         self._icon = None
 
@@ -61,6 +62,8 @@ class TrayApp:
         items.append(pystray.Menu.SEPARATOR)
         if self.on_open_settings:
             items.append(pystray.MenuItem("Einstellungen", self._open_settings))
+        if self.on_open_log:
+            items.append(pystray.MenuItem("Log oeffnen", self._open_log))
         items.append(pystray.MenuItem("Beenden", self._quit))
         return pystray.Menu(*items)
 
@@ -68,6 +71,13 @@ class TrayApp:
         if self.on_open_settings:
             self.on_open_settings()
             icon.stop()
+
+    def _open_log(self, icon, item):
+        if self.on_open_log:
+            try:
+                self.on_open_log()
+            except Exception:
+                pass
 
     def _quit(self, icon, item):
         self.on_quit()

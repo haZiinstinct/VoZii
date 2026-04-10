@@ -1,10 +1,14 @@
+import logging
 import os
 import tempfile
 import threading
+import uuid
 
 import numpy as np
 import sounddevice as sd
 from scipy.io import wavfile
+
+log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
 CHANNELS = 1
@@ -19,6 +23,7 @@ class AudioRecorder:
         self._lock = threading.Lock()
         self._recording = False
         self._device = device
+        self._session_id = uuid.uuid4().hex[:8]
 
     def _callback(self, indata, frames, time_info, status):
         if self._recording:
@@ -41,8 +46,11 @@ class AudioRecorder:
         with self._lock:
             self._recording = False
             if self._stream:
-                self._stream.stop()
-                self._stream.close()
+                try:
+                    self._stream.stop()
+                    self._stream.close()
+                except Exception:
+                    log.exception("Fehler beim Schliessen des Audio-Streams")
                 self._stream = None
             if not self._buffer:
                 return None
@@ -53,7 +61,11 @@ class AudioRecorder:
             return None
 
         audio_int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
-        tmp_path = os.path.join(tempfile.gettempdir(), "vozii_recording.wav")
+        # Eindeutiger Pfad pro Session — robust gegen parallele Instanzen
+        tmp_path = os.path.join(
+            tempfile.gettempdir(),
+            f"vozii_rec_{os.getpid()}_{self._session_id}.wav",
+        )
         wavfile.write(tmp_path, SAMPLE_RATE, audio_int16)
         return tmp_path
 
@@ -63,7 +75,6 @@ class AudioRecorder:
         devices = sd.query_devices()
         apis = sd.query_hostapis()
 
-        # Find WASAPI API index
         wasapi_idx = None
         for i, api in enumerate(apis):
             if "WASAPI" in api["name"]:
@@ -76,7 +87,6 @@ class AudioRecorder:
         for i, dev in enumerate(devices):
             if dev["max_input_channels"] <= 0:
                 continue
-            # Only WASAPI devices (if available)
             if wasapi_idx is not None and dev.get("hostapi") != wasapi_idx:
                 continue
             name = dev["name"].strip()
@@ -84,7 +94,6 @@ class AudioRecorder:
                 continue
             result.append({"index": i, "name": name})
 
-        # Fallback: if WASAPI filter returned nothing, show all
         if not result:
             for i, dev in enumerate(devices):
                 if dev["max_input_channels"] > 0:

@@ -7,6 +7,7 @@ import uuid
 import numpy as np
 import sounddevice as sd
 from scipy.io import wavfile
+from scipy.signal import resample_poly
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class AudioRecorder:
         self._recording = False
         self._device = device
         self._session_id = uuid.uuid4().hex[:8]
+        self._actual_rate = SAMPLE_RATE
 
     def _callback(self, indata, frames, time_info, status):
         if self._recording:
@@ -33,14 +35,55 @@ class AudioRecorder:
         with self._lock:
             self._buffer = []
             self._recording = True
-            self._stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype=DTYPE,
-                device=self._device,
-                callback=self._callback,
+
+            # Native Rate des Geraets ermitteln
+            try:
+                dev_info = sd.query_devices(
+                    self._device if self._device is not None else None,
+                    kind="input",
+                )
+                native_rate = int(dev_info["default_samplerate"])
+            except Exception:
+                native_rate = 48000
+
+            # Fallback-Kaskade: 16000 → native → 48000 → 44100
+            candidates = []
+            for r in (SAMPLE_RATE, native_rate, 48000, 44100):
+                if r not in candidates:
+                    candidates.append(r)
+
+            last_error = None
+            for rate in candidates:
+                try:
+                    self._stream = sd.InputStream(
+                        samplerate=rate,
+                        channels=CHANNELS,
+                        dtype=DTYPE,
+                        device=self._device,
+                        callback=self._callback,
+                    )
+                    self._stream.start()
+                    self._actual_rate = rate
+                    if rate != SAMPLE_RATE:
+                        log.info(
+                            "Mikrofon nutzt %d Hz (wird zu %d Hz resampled)",
+                            rate, SAMPLE_RATE,
+                        )
+                    return
+                except Exception as e:
+                    last_error = e
+                    if self._stream:
+                        try:
+                            self._stream.close()
+                        except Exception:
+                            pass
+                        self._stream = None
+                    continue
+
+            self._recording = False
+            raise RuntimeError(
+                f"Mikrofon unterstuetzt keine nutzbare Sample-Rate: {last_error}"
             )
-            self._stream.start()
 
     def stop_recording(self) -> str | None:
         with self._lock:
@@ -57,11 +100,15 @@ class AudioRecorder:
             audio = np.concatenate(self._buffer, axis=0).flatten()
             self._buffer = []
 
-        if len(audio) < SAMPLE_RATE * MIN_DURATION:
+        # Mindestlaenge basierend auf der tatsaechlichen Rate pruefen
+        if len(audio) < self._actual_rate * MIN_DURATION:
             return None
 
+        # Resample zu 16 kHz falls noetig (Whisper braucht zwingend 16 kHz)
+        if self._actual_rate != SAMPLE_RATE:
+            audio = resample_poly(audio, SAMPLE_RATE, self._actual_rate).astype(np.float32)
+
         audio_int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
-        # Eindeutiger Pfad pro Session — robust gegen parallele Instanzen
         tmp_path = os.path.join(
             tempfile.gettempdir(),
             f"vozii_rec_{os.getpid()}_{self._session_id}.wav",

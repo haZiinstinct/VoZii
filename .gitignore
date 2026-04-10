@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+whisper-cpp/
+*.wav
+*.tmp
+dist/
+build/
+*.spec
+config.yaml
+.claude/

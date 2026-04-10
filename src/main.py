@@ -8,6 +8,7 @@ import traceback
 if not getattr(sys, "frozen", False):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src import __version__
 from src.paths import BASE_DIR
 from src.logger import setup_logging, acquire_single_instance, get_log_path
 from src.state import AppState, StateManager
@@ -50,7 +51,7 @@ def main():
     """Hauptschleife: Settings → Run → Fehler/Stop → zurueck zu Settings."""
     setup_logging()
     log.info("=" * 40)
-    log.info("VoZii Start (PID %d)", os.getpid())
+    log.info("VoZii %s Start (PID %d)", __version__, os.getpid())
 
     if not acquire_single_instance():
         show_error("VoZii", "VoZii laeuft bereits.\n\nPruefe das Tray-Icon unten rechts.")
@@ -188,7 +189,7 @@ def _run_cycle() -> str:
                 text = transcriber.transcribe(wav_path)
                 if text:
                     log.info("Transkribiert: %d Zeichen", len(text))
-                    insert_text(text, restore_clipboard=config.get("restore_clipboard", True))
+                    insert_text(text)
                     beep_done()
                     error_count[0] = 0
                 else:

@@ -1,17 +1,21 @@
 """VoZii Settings — Clean, minimal, borderless, haZii Design."""
 
+import logging
 import os
 import threading
 
 import customtkinter as ctk
 from pynput import keyboard, mouse
 
+from src import __version__
 from src.theme import BRAND, FONT_BODY, FONT_MONO
 from src.hotkey import key_to_name, mouse_button_to_name
 from src.downloader import (
     is_binary_installed, is_model_installed,
     download_and_extract_binary, download_model,
 )
+
+log = logging.getLogger(__name__)
 
 ctk.set_appearance_mode("dark")
 
@@ -64,6 +68,8 @@ class SettingsWindow:
         tb.bind("<B1-Motion>", self._do_drag)
         ctk.CTkLabel(tb, text="VoZii", font=(FONT_MONO, 22, "bold"),
                      text_color=BRAND["cyan"]).pack(side="left")
+        ctk.CTkLabel(tb, text=f"v{__version__}", font=(FONT_MONO, 10),
+                     text_color=BRAND["text_dim"]).pack(side="left", padx=(6, 0), pady=(6, 0))
         ctk.CTkButton(tb, text="×", width=28, height=28, font=(FONT_MONO, 16),
                       fg_color="transparent", text_color=BRAND["text_dim"],
                       hover_color=BRAND["red"], corner_radius=14,
@@ -293,8 +299,10 @@ class SettingsWindow:
     def _stop_listeners(self):
         for l in (self._kb_listener, self._mouse_listener):
             if l:
-                try: l.stop()
-                except: pass
+                try:
+                    l.stop()
+                except Exception as e:
+                    log.warning("Listener stop failed: %s", e)
         self._kb_listener = self._mouse_listener = None
 
     # Save / Cancel

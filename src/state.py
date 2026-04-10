@@ -6,7 +6,6 @@ class AppState(enum.Enum):
     IDLE = "idle"
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
-    ERROR = "error"
 
 
 class StateManager:

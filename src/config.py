@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 
@@ -5,13 +6,14 @@ import yaml
 
 from src.paths import BASE_DIR
 
+log = logging.getLogger(__name__)
+
 DEFAULT_CONFIG = {
     "hotkey": "ctrl+shift+space",
     "mode": "push_to_talk",
     "language": "de",
     "model_size": "small",
     "audio_feedback": True,
-    "restore_clipboard": True,
     "gpu_type": "auto",
     "audio_device": None,
     "show_overlay": True,
@@ -32,7 +34,8 @@ def load_config() -> dict:
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             user_config = yaml.safe_load(f) or {}
-    except Exception:
+    except Exception as e:
+        log.warning("Config corrupt, using defaults: %s", e)
         user_config = {}
 
     config = dict(DEFAULT_CONFIG)

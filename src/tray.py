@@ -9,7 +9,6 @@ STATE_COLORS = {
     AppState.IDLE: BRAND["cyan"],
     AppState.RECORDING: BRAND["red"],
     AppState.TRANSCRIBING: BRAND["amber"],
-    AppState.ERROR: BRAND["text_dim"],
 }
 
 
@@ -54,7 +53,7 @@ class TrayApp:
     def _build_menu(self):
         st = self.state_manager.state
         labels = {AppState.IDLE: "Bereit", AppState.RECORDING: "Aufnahme...",
-                  AppState.TRANSCRIBING: "Transkribiere...", AppState.ERROR: "Fehler"}
+                  AppState.TRANSCRIBING: "Transkribiere..."}
         items = [pystray.MenuItem(f"VoZii — {labels.get(st, '?')}", None, enabled=False)]
         if self.hotkey_str:
             items.append(pystray.MenuItem(

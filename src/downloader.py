@@ -1,5 +1,6 @@
 """VoZii Download-Manager — mit Resume-Support fuer abgebrochene Downloads."""
 
+import logging
 import os
 import shutil
 import urllib.request
@@ -7,6 +8,8 @@ import zipfile
 
 from src.paths import BASE_DIR
 from src.hardware import get_binary_url
+
+log = logging.getLogger(__name__)
 
 WHISPER_DIR = os.path.join(BASE_DIR, "whisper-cpp")
 MODELS_DIR = os.path.join(WHISPER_DIR, "models")
@@ -23,7 +26,6 @@ MODEL_FILES = {
     "medium": "ggml-medium.bin",
 }
 
-# Expected model sizes for integrity check (approximate, in bytes)
 MODEL_MIN_SIZES = {
     "tiny": 70_000_000,
     "small": 450_000_000,
@@ -32,11 +34,10 @@ MODEL_MIN_SIZES = {
 
 
 def download_file(url, dest, progress_callback=None):
-    """Download mit Resume-Support (.part Datei)."""
+    """Download mit Resume-Support (.part Datei). Raised RuntimeError bei Fehler."""
     part_path = dest + ".part"
     existing = 0
 
-    # Resume: wenn .part existiert, weiterladen
     if os.path.exists(part_path):
         existing = os.path.getsize(part_path)
 
@@ -44,21 +45,28 @@ def download_file(url, dest, progress_callback=None):
     if existing > 0:
         req.add_header("Range", f"bytes={existing}-")
 
-    resp = urllib.request.urlopen(req)
-    total = int(resp.headers.get("Content-Length", 0)) + existing
+    try:
+        resp = urllib.request.urlopen(req)
+    except Exception as e:
+        raise RuntimeError(f"Verbindung fehlgeschlagen: {e}")
 
+    total = int(resp.headers.get("Content-Length", 0)) + existing
     mode = "ab" if existing > 0 else "wb"
     downloaded = existing
 
-    with open(part_path, mode) as f:
-        while True:
-            chunk = resp.read(65536)
-            if not chunk:
-                break
-            f.write(chunk)
-            downloaded += len(chunk)
-            if progress_callback and total > 0:
-                progress_callback(downloaded, total)
+    try:
+        with open(part_path, mode) as f:
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                f.write(chunk)
+                downloaded += len(chunk)
+                if progress_callback and total > 0:
+                    progress_callback(downloaded, total)
+    except OSError as e:
+        # Disk voll, Permission-Fehler etc.
+        raise RuntimeError(f"Schreiben fehlgeschlagen (evtl. Festplatte voll): {e}")
 
     # Download fertig → .part umbenennen
     if os.path.exists(dest):
@@ -78,8 +86,15 @@ def download_and_extract_binary(gpu_type, progress_callback=None):
     download_file(url, zip_path, progress_callback)
 
     extract_dir = os.path.join(WHISPER_DIR, "_extract")
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        zf.extractall(extract_dir)
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(extract_dir)
+    except (zipfile.BadZipFile, OSError) as e:
+        log.error("ZIP extract fehlgeschlagen: %s", e)
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        raise RuntimeError(f"Download ist beschaedigt. Bitte erneut versuchen: {e}")
 
     for root, _, files in os.walk(extract_dir):
         for f in files:
@@ -123,6 +138,5 @@ def is_model_installed(model_size):
     path = os.path.join(MODELS_DIR, filename)
     if not os.path.isfile(path):
         return False
-    # Check if file is complete (not truncated)
     min_size = MODEL_MIN_SIZES.get(model_size, 0)
     return os.path.getsize(path) >= min_size

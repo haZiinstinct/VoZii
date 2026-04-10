@@ -4,7 +4,6 @@ mode: "push_to_talk"       # push_to_talk oder toggle
 language: "de"             # de, en, auto
 model_size: "small"        # tiny, small, medium
 audio_feedback: true       # Beep bei Start/Stop
-restore_clipboard: true    # Clipboard nach Paste wiederherstellen
 gpu_type: "auto"           # auto, nvidia, amd, cpu
 audio_device: null         # null = Systemstandard
 show_overlay: true         # Recording-Indikator anzeigen

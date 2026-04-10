@@ -1,9 +1,12 @@
 """VoZii Recording-Overlay — schlank, unsichtbar in Taskbar."""
 
+import logging
 import threading
 import tkinter as tk
 from src.theme import BRAND, FONT_MONO
 from src.state import AppState
+
+log = logging.getLogger(__name__)
 
 
 class RecordingOverlay:
@@ -80,5 +83,7 @@ class RecordingOverlay:
 
     def stop(self):
         if self._root:
-            try: self._root.after(0, self._root.destroy)
-            except: pass
+            try:
+                self._root.after(0, self._root.destroy)
+            except Exception as e:
+                log.warning("Overlay destroy failed: %s", e)

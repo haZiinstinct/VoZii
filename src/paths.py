@@ -1,20 +1,19 @@
-"""Central path resolution — works in dev mode AND as PyInstaller .exe."""
+"""Pfad-Aufloesung — funktioniert in Dev, --onedir UND --onefile Modus."""
 
 import os
 import sys
 
 
 def get_base_dir() -> str:
-    """Return the project root directory.
-    - Dev mode: parent of src/
-    - PyInstaller: directory containing VoiceToText.exe
+    """Gibt das Verzeichnis zurueck wo config.yaml und whisper-cpp/ liegen.
+    - Dev: Projektordner (parent von src/)
+    - PyInstaller --onedir: Ordner mit VoZii.exe
+    - PyInstaller --onefile: Ordner mit VoZii.exe (NICHT der Temp-Ordner)
     """
     if getattr(sys, "frozen", False):
-        # Running as PyInstaller bundle
+        # .exe Modus — immer der Ordner wo die .exe liegt
         return os.path.dirname(sys.executable)
-    else:
-        # Running as script: src/ -> project root
-        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 BASE_DIR = get_base_dir()

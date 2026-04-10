@@ -1,22 +1,22 @@
-"""VoZii Build — standalone .exe ohne sichtbare Konsole."""
+"""VoZii Build — eine einzige standalone .exe."""
 
 import os
-import shutil
 import subprocess
 import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DIST_DIR = os.path.join(BASE_DIR, "dist", "VoZii")
 
 
 def build():
     print("=" * 40)
-    print("  VoZii — Build")
+    print("  VoZii — Build (Single .exe)")
     print("=" * 40)
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--noconfirm", "--onedir", "--windowed",
+        "--noconfirm",
+        "--onefile",                # EINE .exe
+        "--windowed",               # Keine Konsole
         "--name", "VoZii",
         "--icon", os.path.join(BASE_DIR, "src", "vozii.ico"),
         "--add-data", f"{os.path.join(BASE_DIR, 'config.default.yaml')};.",
@@ -33,26 +33,13 @@ def build():
         print("[FEHLER] Build fehlgeschlagen!")
         sys.exit(1)
 
-    # Config kopieren
-    for f in ("config.default.yaml",):
-        src = os.path.join(BASE_DIR, f)
-        if os.path.isfile(src):
-            shutil.copy2(src, os.path.join(DIST_DIR, f))
-
-    # whisper-cpp kopieren wenn vorhanden (optional fuer Entwickler)
-    whisper_src = os.path.join(BASE_DIR, "whisper-cpp")
-    whisper_dst = os.path.join(DIST_DIR, "whisper-cpp")
-    if os.path.isdir(whisper_src):
-        if os.path.exists(whisper_dst):
-            shutil.rmtree(whisper_dst)
-        shutil.copytree(whisper_src, whisper_dst)
-
-    size = sum(os.path.getsize(os.path.join(r, f))
-               for r, _, fs in os.walk(DIST_DIR) for f in fs)
-
-    print(f"\n  Fertig: {DIST_DIR}")
-    print(f"  Groesse: {size // 1048576} MB")
-    print(f"  Starten: VoZii.exe")
+    exe_path = os.path.join(BASE_DIR, "dist", "VoZii.exe")
+    if os.path.isfile(exe_path):
+        size_mb = os.path.getsize(exe_path) / (1024 * 1024)
+        print(f"\n  Fertig: {exe_path}")
+        print(f"  Groesse: {size_mb:.0f} MB")
+        print(f"\n  Diese eine Datei an Kollegen schicken!")
+        print(f"  whisper-cpp + Modell werden beim ersten Start geladen.")
 
 
 if __name__ == "__main__":

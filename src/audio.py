@@ -16,6 +16,9 @@ CHANNELS = 1
 DTYPE = "float32"
 MIN_DURATION = 0.3
 
+# Raten die viele USB-Mikrofone unterstuetzen
+FALLBACK_RATES = [SAMPLE_RATE, 48000, 44100, 32000, 22050, 16000]
+
 
 class AudioRecorder:
     def __init__(self, device=None):
@@ -29,7 +32,6 @@ class AudioRecorder:
         self._device_name = self._resolve_device_name()
 
     def _resolve_device_name(self) -> str:
-        """Gibt einen lesbaren Namen des aktiven Devices zurueck."""
         try:
             if self._device is None:
                 info = sd.query_devices(kind="input")
@@ -47,28 +49,20 @@ class AudioRecorder:
         if self._recording:
             self._buffer.append(indata.copy())
 
-    def _try_open_stream(self, samplerate: int, use_auto_convert: bool) -> bool:
+    def _try_stream(self, device, samplerate: int) -> bool:
         """Versucht einen InputStream zu oeffnen. Returns True bei Erfolg."""
-        extra = None
-        if use_auto_convert:
-            try:
-                extra = sd.WasapiSettings(auto_convert=True)
-            except Exception:
-                extra = None
-
         try:
             self._stream = sd.InputStream(
                 samplerate=samplerate,
                 channels=CHANNELS,
                 dtype=DTYPE,
-                device=self._device,
+                device=device,
                 callback=self._callback,
-                extra_settings=extra,
             )
             self._stream.start()
             self._actual_rate = samplerate
             return True
-        except Exception as e:
+        except Exception:
             if self._stream:
                 try:
                     self._stream.close()
@@ -77,49 +71,61 @@ class AudioRecorder:
                 self._stream = None
             return False
 
+    def _get_native_rate(self, device) -> int:
+        try:
+            if device is None:
+                info = sd.query_devices(kind="input")
+            else:
+                info = sd.query_devices(device)
+            return int(info["default_samplerate"])
+        except Exception:
+            return 48000
+
+    def _try_device(self, device) -> bool:
+        """Versucht alle Raten fuer ein bestimmtes Device durchzugehen."""
+        native = self._get_native_rate(device)
+        rates = []
+        # Native Rate zuerst (funktioniert fast immer)
+        if native not in rates:
+            rates.append(native)
+        for r in FALLBACK_RATES:
+            if r not in rates:
+                rates.append(r)
+
+        for rate in rates:
+            if self._try_stream(device, rate):
+                return True
+        return False
+
     def start_recording(self):
         with self._lock:
             self._buffer = []
             self._recording = True
 
-            # Native Rate des Geraets ermitteln
-            try:
-                dev_info = (
-                    sd.query_devices(self._device)
-                    if self._device is not None
-                    else sd.query_devices(kind="input")
-                )
-                native_rate = int(dev_info["default_samplerate"])
-            except Exception:
-                native_rate = 48000
-
-            # Strategie 1: WASAPI auto_convert mit 16 kHz (beste Loesung)
-            if self._try_open_stream(SAMPLE_RATE, use_auto_convert=True):
-                log.info("Mikrofon '%s' @ %d Hz (WASAPI auto-convert)",
-                         self._device_name, SAMPLE_RATE)
+            # Strategie 1: Gewaehltes Device
+            if self._try_device(self._device):
+                log.info("Mikrofon '%s' @ %d Hz%s",
+                         self._device_name, self._actual_rate,
+                         " (wird zu 16000 Hz resampled)" if self._actual_rate != SAMPLE_RATE else "")
                 return
 
-            # Strategie 2: Fallback ohne auto_convert, verschiedene Raten
-            # Bei nativer Rate: Aufnahme + manuelles Resample in stop_recording()
-            candidates = []
-            for r in (native_rate, 48000, 44100, SAMPLE_RATE):
-                if r not in candidates:
-                    candidates.append(r)
-
-            for rate in candidates:
-                if self._try_open_stream(rate, use_auto_convert=False):
-                    if rate != SAMPLE_RATE:
-                        log.info("Mikrofon '%s' @ %d Hz (wird zu %d Hz resampled)",
-                                 self._device_name, rate, SAMPLE_RATE)
-                    else:
-                        log.info("Mikrofon '%s' @ %d Hz",
-                                 self._device_name, rate)
+            # Strategie 2: Fallback auf Default-Device wenn spezifisches Device fehlschlaegt
+            if self._device is not None:
+                log.warning("Device '%s' nicht nutzbar, fallback auf Standard", self._device_name)
+                if self._try_device(None):
+                    try:
+                        info = sd.query_devices(kind="input")
+                        fallback_name = info["name"].strip()
+                        log.info("Fallback Mikrofon '%s' @ %d Hz%s",
+                                 fallback_name, self._actual_rate,
+                                 " (wird zu 16000 Hz resampled)" if self._actual_rate != SAMPLE_RATE else "")
+                    except Exception:
+                        pass
                     return
 
             self._recording = False
             raise RuntimeError(
-                f"Mikrofon '{self._device_name}' unterstuetzt keine nutzbare Sample-Rate. "
-                f"Versuche Standard-Device in den Einstellungen."
+                f"Mikrofon '{self._device_name}' und Standard-Device liefern keine nutzbare Sample-Rate."
             )
 
     def stop_recording(self) -> str | None:
@@ -137,11 +143,9 @@ class AudioRecorder:
             audio = np.concatenate(self._buffer, axis=0).flatten()
             self._buffer = []
 
-        # Mindestlaenge basierend auf der tatsaechlichen Rate pruefen
         if len(audio) < self._actual_rate * MIN_DURATION:
             return None
 
-        # Resample zu 16 kHz falls noetig (Whisper braucht zwingend 16 kHz)
         if self._actual_rate != SAMPLE_RATE:
             audio = resample_poly(audio, SAMPLE_RATE, self._actual_rate).astype(np.float32)
 
@@ -155,29 +159,48 @@ class AudioRecorder:
 
     @staticmethod
     def list_input_devices() -> list[dict]:
-        """Nur WASAPI Input-Geraete — sauber, keine Duplikate."""
+        """Input Devices mit Bevorzugung von DirectSound (robusteste Rate-Konvertierung).
+
+        Reihenfolge:
+        1. DirectSound (voller Name, immer Rate-Konvertierung)
+        2. MME (Fallback, Namen auf 32 Zeichen begrenzt)
+        3. WASAPI (als letztes, strenge Rate-Regeln)
+        """
         devices = sd.query_devices()
         apis = sd.query_hostapis()
 
-        wasapi_idx = None
-        for i, api in enumerate(apis):
-            if "WASAPI" in api["name"]:
-                wasapi_idx = i
-                break
+        # Host API indices nach Bevorzugung
+        preferred_apis = []
+        for api_name in ("DirectSound", "MME", "WASAPI"):
+            for i, api in enumerate(apis):
+                if api_name in api["name"]:
+                    preferred_apis.append(i)
+                    break
 
+        skip = {"primary", "prim", "mapper", "default", "loopback", "soundmapper",
+                "soundaufnahmetreiber"}
+        seen_names = set()
         result = []
-        skip = {"primary", "mapper", "default", "loopback"}
 
-        for i, dev in enumerate(devices):
-            if dev["max_input_channels"] <= 0:
-                continue
-            if wasapi_idx is not None and dev.get("hostapi") != wasapi_idx:
-                continue
-            name = dev["name"].strip()
-            if any(s in name.lower() for s in skip):
-                continue
-            result.append({"index": i, "name": name})
+        # Iteriere ueber Host APIs in Praeferenz-Reihenfolge
+        for api_idx in preferred_apis:
+            for i, dev in enumerate(devices):
+                if dev["max_input_channels"] <= 0:
+                    continue
+                if dev.get("hostapi") != api_idx:
+                    continue
+                name = dev["name"].strip()
+                lower = name.lower()
+                if any(s in lower for s in skip):
+                    continue
+                # Dedup per vollem Namen (inkl. Klammer-Inhalt) — sonst verlieren
+                # wir verschiedene Devices die alle "Microphone (...)" heissen
+                if lower in seen_names:
+                    continue
+                seen_names.add(lower)
+                result.append({"index": i, "name": name})
 
+        # Fallback: wenn nichts gefunden, zeige ALLE input devices
         if not result:
             for i, dev in enumerate(devices):
                 if dev["max_input_channels"] > 0:

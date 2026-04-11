@@ -16,7 +16,7 @@ from src.downloader import (
 )
 from src.text_processor import (
     check_ollama, get_ollama_state, install_ollama, pull_model,
-    is_ollama_installed, start_ollama, DEFAULT_MODEL,
+    is_ollama_installed, start_ollama, stop_ollama, DEFAULT_MODEL,
 )
 
 log = logging.getLogger(__name__)
@@ -161,11 +161,25 @@ class SettingsWindow:
         )
         self.mode_btn.pack(fill="x", pady=(0, 4))
 
-        # Ollama Status-Label (sichtbar ausser waehrend Download)
+        # Ollama Status-Row: Label + Mini-Button (Start/Stop)
+        self.ollama_status_row = ctk.CTkFrame(c, fg_color="transparent")
+        self.ollama_status_row.pack(fill="x", pady=(0, 2))
+
         self.ollama_status_label = ctk.CTkLabel(
-            c, text="", font=(FONT_BODY, 11), text_color=BRAND["text_dim"],
+            self.ollama_status_row, text="", font=(FONT_BODY, 11),
+            text_color=BRAND["text_dim"], anchor="w",
         )
-        self.ollama_status_label.pack(anchor="w", pady=(0, 2))
+        self.ollama_status_label.pack(side="left", fill="x", expand=True)
+
+        self.ollama_mini_btn = ctk.CTkButton(
+            self.ollama_status_row, text="", width=28, height=22,
+            font=(FONT_MONO, 11),
+            fg_color="transparent", text_color=BRAND["text_dim"],
+            border_width=1, border_color=BRAND["border"],
+            hover_color=BRAND["card_hover"], corner_radius=6,
+            command=self._handle_ollama_mini_btn,
+        )
+        # Wird in _render_ollama_section() gepackt je nach state
 
         # Action-Button (Install/Start/Pull) - nur wenn noetig
         self.ollama_action_btn = ctk.CTkButton(
@@ -340,7 +354,7 @@ class SettingsWindow:
 
         if self._ollama_busy:
             # Waehrend Install/Pull: zeige Download-Frame
-            self.ollama_status_label.pack_forget()
+            self.ollama_status_row.pack_forget()
             self.ollama_action_btn.pack_forget()
             if not self.ollama_dl_frame.winfo_ismapped():
                 self.ollama_dl_frame.pack(fill="x", pady=(4, 0))
@@ -350,11 +364,27 @@ class SettingsWindow:
         if self.ollama_dl_frame.winfo_ismapped():
             self.ollama_dl_frame.pack_forget()
 
-        # Status-Label wieder zeigen
-        if not self.ollama_status_label.winfo_ismapped():
-            self.ollama_status_label.pack(anchor="w", pady=(0, 2))
+        # Status-Row wieder zeigen
+        if not self.ollama_status_row.winfo_ismapped():
+            self.ollama_status_row.pack(fill="x", pady=(0, 2))
 
         state = self._ollama_state
+
+        # Mini-Button State: ▶ fuer Start, ■ fuer Stop, versteckt bei not_installed
+        if state in ("ready", "no_model"):
+            self.ollama_mini_btn.configure(
+                text="■", text_color=BRAND["text_dim"], hover_color=BRAND["red"],
+            )
+            if not self.ollama_mini_btn.winfo_ismapped():
+                self.ollama_mini_btn.pack(side="right", padx=(6, 0))
+        elif state == "installed_not_running":
+            self.ollama_mini_btn.configure(
+                text="▶", text_color=BRAND["text_dim"], hover_color=BRAND["green"],
+            )
+            if not self.ollama_mini_btn.winfo_ismapped():
+                self.ollama_mini_btn.pack(side="right", padx=(6, 0))
+        else:
+            self.ollama_mini_btn.pack_forget()
 
         if state == "ready":
             self.ollama_status_label.configure(
@@ -382,9 +412,7 @@ class SettingsWindow:
             )
             self.mode_btn.configure(state="disabled")
             self.mode_var.set("Aus")
-            self.ollama_action_btn.configure(text="Ollama starten")
-            if not self.ollama_action_btn.winfo_ismapped():
-                self.ollama_action_btn.pack(fill="x", pady=(4, 0))
+            self.ollama_action_btn.pack_forget()
 
         else:  # not_installed
             self.ollama_status_label.configure(
@@ -396,6 +424,18 @@ class SettingsWindow:
             self.ollama_action_btn.configure(text="Ollama installieren (~600 MB)")
             if not self.ollama_action_btn.winfo_ismapped():
                 self.ollama_action_btn.pack(fill="x", pady=(4, 0))
+
+    def _handle_ollama_mini_btn(self):
+        """Mini-Button: Start (wenn nicht gestartet) oder Stop (wenn laeuft)."""
+        if self._ollama_busy:
+            return
+        state = self._ollama_state
+        if state == "installed_not_running":
+            self._handle_ollama_start()
+        elif state in ("ready", "no_model"):
+            stop_ollama()
+            self._refresh_ollama_state()
+            self._render_ollama_section()
 
     def _handle_ollama_action(self):
         """Dispatcht auf Start/Install/Pull je nach State."""
@@ -577,10 +617,6 @@ class SettingsWindow:
             "audio_device": None if self.mic_var.get() == "Standard" else self.mic_var.get(),
             "post_processing_mode": mode_reverse.get(self.mode_var.get(), "off"),
         })
-        # Ollama model automatisch anpassen falls gespeichertes Model nicht verfuegbar
-        if self._ollama_running and self._ollama_models:
-            if self.config.get("ollama_model") not in self._ollama_models:
-                self.config["ollama_model"] = self._ollama_models[0]
         self._result = self.config
         self._stop_listeners()
         self.root.destroy()

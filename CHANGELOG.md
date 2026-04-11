@@ -7,6 +7,23 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.3.1] — 2026-04-11
+
+### Fixed
+- **Kritisch: Tool startete nicht mehr nach Klick auf "Starten"** — `_save()` referenzierte `self._ollama_running` und `self._ollama_models`, die in v1.3.0 durch `self._ollama_state` ersetzt wurden. AttributeError crashte den Save-Callback stumm, Settings-Fenster schloss sich aber Tool lief nicht.
+
+### Added
+- **Start/Stop Mini-Button** rechts neben dem Ollama-Status:
+  - `▶` (Start) wenn Ollama installiert aber nicht gestartet
+  - `■` (Stop) wenn Ollama läuft (egal ob Modell da ist)
+  - Hover-Farbe: Grün für Start, Rot für Stop
+- `stop_ollama()` in `text_processor.py` — beendet "ollama app.exe" + "ollama.exe" via taskkill
+
+### Changed
+- State `installed_not_running`: Kein großer "Ollama starten" Button mehr, stattdessen der kompakte Mini-Button (weniger Redundanz)
+
+---
+
 ## [1.3.0] — 2026-04-11
 
 ### Added

@@ -144,6 +144,27 @@ def get_ollama_state(required_model: str = DEFAULT_MODEL) -> str:
     return "not_installed"
 
 
+def stop_ollama() -> bool:
+    """Beendet Ollama via taskkill (GUI-App + CLI serve).
+
+    Returns True wenn mindestens ein Prozess beendet wurde.
+    """
+    success = False
+    for proc_name in ("ollama app.exe", "ollama.exe"):
+        try:
+            result = subprocess.run(
+                ["taskkill", "/f", "/im", proc_name],
+                capture_output=True, text=True, timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode == 0:
+                success = True
+                log.info("Beendet: %s", proc_name)
+        except Exception as e:
+            log.debug("Konnte %s nicht beenden: %s", proc_name, e)
+    return success
+
+
 def start_ollama(ollama_path: str, timeout: int = 30) -> bool:
     """Startet Ollama (bevorzugt GUI app, fallback auf 'ollama serve').
 

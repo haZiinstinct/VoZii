@@ -7,6 +7,34 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.4.0] — 2026-04-11
+
+### Changed — Neue Modus-Struktur (Genspark Speakly Style)
+
+**Vorher (4 Modi):** Aus / Clean / Format / Prompt
+**Jetzt (3 Modi):** Aus / **Smart** / Prompt
+
+**Warum?** Der Clean-Modus fühlte sich redundant an — Whisper selbst lässt oft schon Füllwörter aus. Der Format-Modus war zu rigide (fixes Markdown). Inspiriert von [Genspark Speakly](https://speakly.ai/) haben wir beide zu einem intelligenten **Smart-Modus** zusammengefasst.
+
+### Neu: Smart-Modus
+
+Ein einziger intelligenter Modus der alles kann:
+- Füllwörter entfernen + Grammatik korrigieren
+- **Context-aware Formatierung** — erkennt automatisch ob der Text eine Liste, Absätze oder ein einfacher Satz sein soll
+- **Voice Commands erkennen** — sag "als Liste", "als Email", "Überschrift", "als Code", "neuer Absatz" und der Smart-Modus befolgt den Command (und entfernt ihn aus dem Output!)
+
+**Beispiele:**
+- *"ähm ich wollte halt sagen dass das tool super funktioniert"* → "Ich wollte sagen, dass das Tool super funktioniert."
+- *"ich brauche folgende zutaten als Liste mehl zucker butter eier"* → Bullet-Liste mit Mehl, Zucker, Butter, Eier (ohne "als Liste")
+- *"schreibe als Email an Tom dass wir morgen treffen"* → formeller Email-Text
+- *"Überschrift Projektplan Q2 dann darunter eine Liste mit meilensteinen"* → `# Projektplan Q2` + Liste
+
+### Migration
+
+Alte Config-Werte werden **automatisch migriert**: wenn `post_processing_mode: clean` oder `format` → wird auf `smart` gesetzt und in der config.yaml gespeichert. Kein manuelles Eingreifen nötig.
+
+---
+
 ## [1.3.2] — 2026-04-11
 
 ### Fixed

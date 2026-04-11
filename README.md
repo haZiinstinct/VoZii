@@ -79,10 +79,12 @@ VoZii kann transkribierten Text automatisch korrigieren und formatieren — komp
 3. Live-Progress mit Speed-Anzeige und **Abbrechen-Button**
 4. Fertig — Modi können gewählt werden
 
-**Die 4 Modi:**
+**Die 3 Modi:**
 - **Aus** — Roher Whisper-Output (Standard)
-- **Clean** — Füllwörter weg, Grammatik-Fix, Interpunktion
-- **Format** — Clean + Markdown-Struktur (Überschriften, Listen, Fettschrift)
+- **Smart** — Intelligentes Cleanup + context-aware Formatierung + Voice Commands
+  - Entfernt Füllwörter und korrigiert Grammatik automatisch
+  - Erkennt Voice Commands im gesprochenen Text: *"als Liste"*, *"als Email"*, *"Überschrift"*, *"als Code"*, *"neuer Absatz"*
+  - Ohne Command: formatiert intelligent je nach Inhalt (Listen, Absätze, einfache Sätze)
 - **Prompt** — verwandelt gesprochenen Text in einen perfekten AI-Prompt
 
 Ohne Ollama funktioniert VoZii normal weiter (Raw Whisper-Output). Bei Fehlern (Ollama nicht erreichbar, Timeout etc.) fällt VoZii automatisch auf den Raw-Text zurück — nie Datenverlust.

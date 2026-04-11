@@ -42,6 +42,14 @@ def load_config() -> dict:
 
     config = dict(DEFAULT_CONFIG)
     config.update(user_config)
+
+    # Migration v1.3.x -> v1.4.0: clean/format -> smart
+    if config.get("post_processing_mode") in ("clean", "format"):
+        log.info("Migration: post_processing_mode %s -> smart",
+                 config["post_processing_mode"])
+        config["post_processing_mode"] = "smart"
+        save_config(config)
+
     return config
 
 

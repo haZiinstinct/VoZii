@@ -148,11 +148,11 @@ class SettingsWindow:
 
         # NACHBEARBEITUNG
         self._heading(c, "Nachbearbeitung")
-        mode_map = {"off": "Aus", "clean": "Clean", "format": "Format", "prompt": "Prompt"}
+        mode_map = {"off": "Aus", "smart": "Smart", "prompt": "Prompt"}
         current_mode = mode_map.get(self.config.get("post_processing_mode", "off"), "Aus")
         self.mode_var = ctk.StringVar(value=current_mode)
         self.mode_btn = ctk.CTkSegmentedButton(
-            c, values=["Aus", "Clean", "Format", "Prompt"], variable=self.mode_var,
+            c, values=["Aus", "Smart", "Prompt"], variable=self.mode_var,
             font=(FONT_BODY, 13), selected_color=BRAND["cyan"],
             selected_hover_color=BRAND["cyan_dim"], unselected_color=BRAND["card"],
             unselected_hover_color=BRAND["card_hover"],
@@ -618,7 +618,7 @@ class SettingsWindow:
     # Save / Cancel
     def _save(self):
         lang_map = {"Deutsch": "de", "English": "en", "Auto": "auto"}
-        mode_reverse = {"Aus": "off", "Clean": "clean", "Format": "format", "Prompt": "prompt"}
+        mode_reverse = {"Aus": "off", "Smart": "smart", "Prompt": "prompt"}
         self.config.update({
             "language": lang_map.get(self.lang_var.get(), "de"),
             "model_size": self._get_model_size(),

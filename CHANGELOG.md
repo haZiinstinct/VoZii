@@ -7,6 +7,34 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.3.0] — 2026-04-11
+
+### Added
+- **4-State Ollama-Erkennung** statt 3 States:
+  - `ready` — Ollama läuft, Modell da
+  - `no_model` — Ollama läuft, Modell fehlt → Button "Modell laden"
+  - `installed_not_running` — **NEU!** Ollama installiert, nicht gestartet → Button "Ollama starten"
+  - `not_installed` — Ollama nicht installiert → Button "Ollama installieren"
+- `is_ollama_installed()` in `text_processor.py` — erkennt Ollama via `shutil.which()` + bekannte Install-Pfade (`%LOCALAPPDATA%\Programs\Ollama`)
+- `start_ollama()` in `text_processor.py` — startet die GUI-App (bevorzugt) oder `ollama serve`, pollt API bis erreichbar
+- **Cancel-Button während Install/Pull** — immer sichtbar, bricht Download graceful ab (löscht temp Dateien)
+- **Verbesserte Download-Anzeige:**
+  - Große Prozent-Anzeige (20px Mono, Cyan)
+  - Dickere Progress-Bar (8px statt 4px)
+  - Live Speed (MB/s) alle 200ms aktualisiert
+  - Detail-Zeile: "650 MB / 2048 MB · 12.3 MB/s · Status"
+
+### Changed
+- `install_ollama()` und `pull_model()` akzeptieren jetzt `cancel_event` Parameter (threading.Event)
+- Chunked Download statt `urlretrieve()` für Cancel-Support + Speed-Tracking
+- UI-Widget `ollama_dl_frame` als dedicated Download-Container
+
+### Fixed
+- Wenn Ollama installiert ist aber nicht läuft, wird VoZii nicht mehr fälschlicherweise "nicht installiert" zeigen
+- Abgebrochene Downloads hinterlassen keine `.part` Dateien mehr
+
+---
+
 ## [1.2.0] — 2026-04-11
 
 ### Added

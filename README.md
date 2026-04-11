@@ -72,8 +72,11 @@ VoZii kann transkribierten Text automatisch korrigieren und formatieren — komp
 
 **One-Click-Setup direkt aus VoZii:**
 1. Settings öffnen → **Nachbearbeitung**
-2. Button **"Ollama einrichten"** klicken
-3. VoZii lädt Installer, startet ihn (Windows-Wizard), lädt Modell automatisch
+2. Je nach State klickst du einen Button:
+   - **"Ollama installieren"** — wenn Ollama fehlt
+   - **"Ollama starten"** — wenn installiert, aber nicht gestartet
+   - **"Modell laden (2 GB)"** — wenn nur das Modell fehlt
+3. Live-Progress mit Speed-Anzeige und **Abbrechen-Button**
 4. Fertig — Modi können gewählt werden
 
 **Die 4 Modi:**

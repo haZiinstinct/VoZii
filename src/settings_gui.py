@@ -15,7 +15,8 @@ from src.downloader import (
     download_and_extract_binary, download_model,
 )
 from src.text_processor import (
-    check_ollama, get_ollama_state, install_ollama, pull_model, DEFAULT_MODEL,
+    check_ollama, get_ollama_state, install_ollama, pull_model,
+    is_ollama_installed, start_ollama, DEFAULT_MODEL,
 )
 
 log = logging.getLogger(__name__)
@@ -46,18 +47,13 @@ class SettingsWindow:
         self._downloading = False
         self._cancel_download = threading.Event()
         self._ollama_busy = False
+        self._ollama_cancel = None  # threading.Event during install/pull
         self._refresh_ollama_state()
 
     def _refresh_ollama_state(self):
-        """Refresh Ollama status: state ∈ {ready, no_model, not_installed}."""
-        self._ollama_running, self._ollama_models = check_ollama()
+        """Refresh Ollama status: ready / no_model / installed_not_running / not_installed."""
         required_model = self.config.get("ollama_model", DEFAULT_MODEL)
-        if not self._ollama_running:
-            self._ollama_state = "not_installed"
-        elif required_model not in self._ollama_models:
-            self._ollama_state = "no_model"
-        else:
-            self._ollama_state = "ready"
+        self._ollama_state = get_ollama_state(required_model)
 
     def run(self):
         self.root = ctk.CTk()
@@ -165,29 +161,59 @@ class SettingsWindow:
         )
         self.mode_btn.pack(fill="x", pady=(0, 4))
 
-        # Ollama Status + Action
+        # Ollama Status-Label (sichtbar ausser waehrend Download)
         self.ollama_status_label = ctk.CTkLabel(
             c, text="", font=(FONT_BODY, 11), text_color=BRAND["text_dim"],
         )
         self.ollama_status_label.pack(anchor="w", pady=(0, 2))
 
+        # Action-Button (Install/Start/Pull) - nur wenn noetig
         self.ollama_action_btn = ctk.CTkButton(
-            c, text="", height=32, font=(FONT_BODY, 12, "bold"),
+            c, text="", height=34, font=(FONT_BODY, 13, "bold"),
             fg_color=BRAND["cyan"], text_color=BRAND["bg"],
             hover_color=BRAND["cyan_dim"], corner_radius=8,
             command=self._handle_ollama_action,
         )
-        # Wird erst gepackt wenn noetig (siehe _render_ollama_section)
 
-        self.ollama_progress = ctk.CTkProgressBar(
-            c, progress_color=BRAND["cyan"],
-            fg_color=BRAND["card"], height=4, corner_radius=2,
+        # Download-Container (erscheint waehrend Install/Pull)
+        self.ollama_dl_frame = ctk.CTkFrame(c, fg_color="transparent")
+
+        # Grosse Prozent-Anzeige
+        self.ollama_percent_label = ctk.CTkLabel(
+            self.ollama_dl_frame, text="0%",
+            font=(FONT_MONO, 20, "bold"), text_color=BRAND["cyan"],
         )
+        self.ollama_percent_label.pack(anchor="w")
+
+        # Progress-Bar (groesser)
+        self.ollama_progress = ctk.CTkProgressBar(
+            self.ollama_dl_frame, progress_color=BRAND["cyan"],
+            fg_color=BRAND["card"], height=8, corner_radius=4,
+        )
+        self.ollama_progress.pack(fill="x", pady=(2, 4))
         self.ollama_progress.set(0)
+
+        # Detail-Zeile: "650 MB / 2 GB · 12 MB/s · Status"
+        self.ollama_detail_label = ctk.CTkLabel(
+            self.ollama_dl_frame, text="",
+            font=(FONT_BODY, 11), text_color=BRAND["text_dim"],
+        )
+        self.ollama_detail_label.pack(anchor="w", pady=(0, 6))
+
+        # Cancel-Button
+        self.ollama_cancel_btn = ctk.CTkButton(
+            self.ollama_dl_frame, text="Abbrechen",
+            height=30, font=(FONT_BODY, 12),
+            fg_color="transparent", text_color=BRAND["text_dim"],
+            border_width=1, border_color=BRAND["border"],
+            hover_color=BRAND["red"], corner_radius=8,
+            command=self._cancel_ollama_action,
+        )
+        self.ollama_cancel_btn.pack(fill="x")
 
         self._render_ollama_section()
         # Spacer nach Section
-        self._ollama_spacer = ctk.CTkFrame(c, fg_color="transparent", height=10)
+        self._ollama_spacer = ctk.CTkFrame(c, fg_color="transparent", height=14)
         self._ollama_spacer.pack()
 
         # MIKROFON
@@ -309,26 +335,28 @@ class SettingsWindow:
     # --- Ollama Section Rendering + Handlers ---
 
     def _render_ollama_section(self):
-        """Rendert Status-Label und optional Action-Button je nach Ollama-State."""
+        """Rendert UI je nach State: ready/no_model/installed_not_running/not_installed/busy."""
         required = self.config.get("ollama_model", DEFAULT_MODEL)
 
         if self._ollama_busy:
-            # Waehrend Install/Pull: zeige Progress-Bar statt Status
+            # Waehrend Install/Pull: zeige Download-Frame
             self.ollama_status_label.pack_forget()
             self.ollama_action_btn.pack_forget()
-            if not self.ollama_progress.winfo_ismapped():
-                self.ollama_progress.pack(fill="x", pady=(0, 2))
+            if not self.ollama_dl_frame.winfo_ismapped():
+                self.ollama_dl_frame.pack(fill="x", pady=(4, 0))
             return
 
-        # Nicht busy: Progress-Bar verstecken
-        if self.ollama_progress.winfo_ismapped():
-            self.ollama_progress.pack_forget()
+        # Nicht busy: Download-Frame verstecken
+        if self.ollama_dl_frame.winfo_ismapped():
+            self.ollama_dl_frame.pack_forget()
 
-        # Status-Label wieder sichtbar
+        # Status-Label wieder zeigen
         if not self.ollama_status_label.winfo_ismapped():
             self.ollama_status_label.pack(anchor="w", pady=(0, 2))
 
-        if self._ollama_state == "ready":
+        state = self._ollama_state
+
+        if state == "ready":
             self.ollama_status_label.configure(
                 text=f"●  Ollama bereit  ·  {required}",
                 text_color=BRAND["green"],
@@ -336,14 +364,25 @@ class SettingsWindow:
             self.mode_btn.configure(state="normal")
             self.ollama_action_btn.pack_forget()
 
-        elif self._ollama_state == "no_model":
+        elif state == "no_model":
             self.ollama_status_label.configure(
                 text=f"○  Modell '{required}' fehlt",
                 text_color=BRAND["text_dim"],
             )
             self.mode_btn.configure(state="disabled")
             self.mode_var.set("Aus")
-            self.ollama_action_btn.configure(text=f"Modell herunterladen (2 GB)")
+            self.ollama_action_btn.configure(text="Modell laden (2 GB)")
+            if not self.ollama_action_btn.winfo_ismapped():
+                self.ollama_action_btn.pack(fill="x", pady=(4, 0))
+
+        elif state == "installed_not_running":
+            self.ollama_status_label.configure(
+                text="⏸  Ollama installiert, nicht gestartet",
+                text_color=BRAND["amber"],
+            )
+            self.mode_btn.configure(state="disabled")
+            self.mode_var.set("Aus")
+            self.ollama_action_btn.configure(text="Ollama starten")
             if not self.ollama_action_btn.winfo_ismapped():
                 self.ollama_action_btn.pack(fill="x", pady=(4, 0))
 
@@ -354,68 +393,119 @@ class SettingsWindow:
             )
             self.mode_btn.configure(state="disabled")
             self.mode_var.set("Aus")
-            self.ollama_action_btn.configure(text="Ollama einrichten (3 GB gesamt)")
+            self.ollama_action_btn.configure(text="Ollama installieren (~600 MB)")
             if not self.ollama_action_btn.winfo_ismapped():
                 self.ollama_action_btn.pack(fill="x", pady=(4, 0))
 
     def _handle_ollama_action(self):
-        """Startet Install oder Pull je nach aktuellem State."""
+        """Dispatcht auf Start/Install/Pull je nach State."""
         if self._ollama_busy:
             return
-        self._ollama_busy = True
-        self._render_ollama_section()
-        self._ollama_progress_msg("Starte...")
 
         state = self._ollama_state
+
+        if state == "installed_not_running":
+            self._handle_ollama_start()
+            return
+
+        # Install oder Pull → busy + cancel_event
+        self._ollama_busy = True
+        self._ollama_cancel = threading.Event()
+        self._render_ollama_section()
+        self._update_ollama_progress(0, 0, "Starte...", 0)
+
         required = self.config.get("ollama_model", DEFAULT_MODEL)
 
         def run():
             try:
                 if state == "not_installed":
-                    # Vollstaendiges Setup: Installer + Pull
-                    install_ollama(progress_callback=self._on_ollama_progress)
-                    self._ollama_progress_msg(f"Lade Modell {required}...")
-                    pull_model(required, progress_callback=self._on_ollama_progress)
+                    install_ollama(
+                        progress_callback=self._on_ollama_progress,
+                        cancel_event=self._ollama_cancel,
+                    )
+                    if self._ollama_cancel.is_set():
+                        raise InterruptedError
+                    pull_model(
+                        required,
+                        progress_callback=self._on_ollama_progress,
+                        cancel_event=self._ollama_cancel,
+                    )
                 elif state == "no_model":
-                    # Nur Pull
-                    pull_model(required, progress_callback=self._on_ollama_progress)
+                    pull_model(
+                        required,
+                        progress_callback=self._on_ollama_progress,
+                        cancel_event=self._ollama_cancel,
+                    )
                 self.root.after(0, self._ollama_action_done)
+            except InterruptedError:
+                self.root.after(0, lambda: self._ollama_action_fail("Abgebrochen"))
             except Exception as e:
                 self.root.after(0, lambda: self._ollama_action_fail(str(e)))
 
         threading.Thread(target=run, daemon=True).start()
 
-    def _on_ollama_progress(self, completed, total, status):
-        """Thread-safe Progress-Update fuer Ollama."""
+    def _handle_ollama_start(self):
+        """Ollama starten (kein Download noetig)."""
+        self._ollama_busy = True
+        self._render_ollama_section()
+        self._update_ollama_progress(0, 0, "Starte Ollama...", 0)
+        # Cancel waehrend Start macht keinen Sinn, aber Event trotzdem anlegen
+        self._ollama_cancel = threading.Event()
+
+        def run():
+            ollama_path = is_ollama_installed()
+            if not ollama_path:
+                self.root.after(0, lambda: self._ollama_action_fail("Ollama nicht gefunden"))
+                return
+            if start_ollama(ollama_path):
+                self.root.after(0, self._ollama_action_done)
+            else:
+                self.root.after(0, lambda: self._ollama_action_fail("Ollama-Start fehlgeschlagen"))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _cancel_ollama_action(self):
+        """User klickt Cancel - setzt das Event."""
+        if self._ollama_cancel is not None:
+            self._ollama_cancel.set()
+            self.ollama_cancel_btn.configure(text="Bricht ab...", state="disabled")
+
+    def _on_ollama_progress(self, completed, total, status, speed):
+        """Thread-safe Progress-Update."""
+        self.root.after(0, lambda: self._update_ollama_progress(completed, total, status, speed))
+
+    def _update_ollama_progress(self, completed, total, status, speed):
+        """Aktualisiert Download-UI: %, Progress-Bar, Detail-Zeile."""
         if total > 0:
             frac = completed / total
+            percent = int(frac * 100)
             mb_done = completed // 1048576
             mb_total = total // 1048576
-            text = f"{status}  ·  {mb_done} / {mb_total} MB"
+            if speed > 0:
+                speed_mb = speed / 1048576
+                detail = f"{mb_done} / {mb_total} MB  ·  {speed_mb:.1f} MB/s  ·  {status}"
+            else:
+                detail = f"{mb_done} / {mb_total} MB  ·  {status}"
         else:
             frac = 0
-            text = status
-        self.root.after(0, lambda: self.ollama_progress.set(frac))
-        self.root.after(0, lambda: self._ollama_progress_msg(text))
+            percent = 0
+            detail = status
 
-    def _ollama_progress_msg(self, text):
-        """Setzt den Status-Text unter der Progress-Bar."""
-        # Text-Label temporaer sichtbar, aber ueber Progress-Bar
-        if not self.ollama_status_label.winfo_ismapped():
-            self.ollama_status_label.pack(anchor="w", pady=(2, 0))
-        self.ollama_status_label.configure(text=text, text_color=BRAND["text_dim"])
+        self.ollama_percent_label.configure(text=f"{percent}%")
+        self.ollama_progress.set(frac)
+        self.ollama_detail_label.configure(text=detail)
 
     def _ollama_action_done(self):
         self._ollama_busy = False
+        self._ollama_cancel = None
+        self.ollama_cancel_btn.configure(text="Abbrechen", state="normal")
         self._refresh_ollama_state()
         self._render_ollama_section()
-        self.ollama_status_label.configure(
-            text=f"●  Ollama bereit  ·  {self.config.get('ollama_model', DEFAULT_MODEL)}",
-            text_color=BRAND["green"],
-        )
 
     def _ollama_action_fail(self, msg):
         self._ollama_busy = False
+        self._ollama_cancel = None
+        self.ollama_cancel_btn.configure(text="Abbrechen", state="normal")
         self._refresh_ollama_state()
         self._render_ollama_section()
         self.ollama_status_label.configure(text=f"Fehler: {msg}", text_color=BRAND["red"])

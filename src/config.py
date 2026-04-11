@@ -18,6 +18,8 @@ DEFAULT_CONFIG = {
     "audio_device": None,
     "show_overlay": True,
     "auto_start": False,
+    "post_processing_mode": "off",
+    "ollama_model": "llama3.2:3b",
 }
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")

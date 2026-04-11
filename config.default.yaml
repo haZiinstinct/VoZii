@@ -1,10 +1,12 @@
 # VoZii — Voice-to-Text by haZii
 hotkey: "ctrl+shift+space"
-mode: "push_to_talk"       # push_to_talk oder toggle
-language: "de"             # de, en, auto
-model_size: "small"        # tiny, small, medium
-audio_feedback: true       # Beep bei Start/Stop
-gpu_type: "auto"           # auto, nvidia, amd, cpu
-audio_device: null         # null = Systemstandard
-show_overlay: true         # Recording-Indikator anzeigen
-auto_start: false          # Mit Windows starten
+mode: "push_to_talk"            # push_to_talk oder toggle
+language: "de"                  # de, en, auto
+model_size: "small"             # tiny, small, medium
+audio_feedback: true            # Beep bei Start/Stop
+gpu_type: "auto"                # auto, nvidia, amd, cpu
+audio_device: null              # null = Systemstandard
+show_overlay: true              # Recording-Indikator anzeigen
+auto_start: false               # Mit Windows starten
+post_processing_mode: "off"     # off, clean, format, prompt (braucht Ollama)
+ollama_model: "llama3.2:3b"     # Ollama Modell fuer Post-Processing

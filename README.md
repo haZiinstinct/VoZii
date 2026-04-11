@@ -17,6 +17,7 @@ Made by [haZii](https://hazii.org)
 - **Clipboard-Fallback** — Text bleibt immer in der Zwischenablage
 - **Single-File .exe** (62 MB), keine Installation erforderlich
 - **Dark UI** im haZii Corporate Design
+- **Nachbearbeitung via Ollama (optional)** — Clean, Format, Prompt-Modi
 
 ## Installation
 
@@ -64,6 +65,25 @@ Made by [haZii](https://hazii.org)
 **Zu langsam?**
 → Settings → Modell → "Tiny" wählen (15-20x schneller als Medium)
 → Oder GPU-Treiber updaten
+
+## Nachbearbeitung via Ollama (optional)
+
+VoZii kann transkribierten Text automatisch korrigieren und formatieren — komplett lokal via [Ollama](https://ollama.com).
+
+**Setup:**
+1. [Ollama installieren](https://ollama.com/download) (Windows-Installer)
+2. Terminal öffnen: `ollama pull llama3.2:3b` (~2 GB Download)
+3. VoZii Settings → **Nachbearbeitung** → gewünschten Modus wählen
+
+**Modi:**
+- **Aus** — Roher Whisper-Output (Standard)
+- **Clean** — Füllwörter weg, Grammatik-Fix, Interpunktion
+- **Format** — Clean + Markdown-Struktur (Überschriften, Listen, Fettschrift)
+- **Prompt** — verwandelt gesprochenen Text in einen perfekten AI-Prompt
+
+**Ohne Ollama:** Section ist deaktiviert, VoZii funktioniert normal weiter (Raw Whisper-Output).
+
+Bei Fehlern (Ollama nicht erreichbar, Timeout etc.) fällt VoZii automatisch auf den Raw-Text zurück — du verlierst nie Daten.
 
 ## Datenschutz
 

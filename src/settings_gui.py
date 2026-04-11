@@ -14,6 +14,7 @@ from src.downloader import (
     is_binary_installed, is_model_installed,
     download_and_extract_binary, download_model,
 )
+from src.text_processor import check_ollama
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class SettingsWindow:
         self._drag_x = self._drag_y = 0
         self._downloading = False
         self._cancel_download = threading.Event()
+        self._ollama_running, self._ollama_models = check_ollama()
 
     def run(self):
         self.root = ctk.CTk()
@@ -49,7 +51,7 @@ class SettingsWindow:
         self.root.attributes("-topmost", True)
         self.root.configure(fg_color=BRAND["bg"])
 
-        w, h = 440, 580
+        w, h = 440, 680
         sx = (self.root.winfo_screenwidth() - w) // 2
         sy = (self.root.winfo_screenheight() - h) // 2
         self.root.geometry(f"{w}x{h}+{sx}+{sy}")
@@ -133,6 +135,36 @@ class SettingsWindow:
                                unselected_hover_color=BRAND["card_hover"],
                                text_color=BRAND["text_bright"], fg_color=BRAND["card"],
                                corner_radius=8).pack(fill="x", pady=(0, 14))
+
+        # NACHBEARBEITUNG
+        self._heading(c, "Nachbearbeitung")
+        mode_map = {"off": "Aus", "clean": "Clean", "format": "Format", "prompt": "Prompt"}
+        current_mode = mode_map.get(self.config.get("post_processing_mode", "off"), "Aus")
+        self.mode_var = ctk.StringVar(value=current_mode)
+        self.mode_btn = ctk.CTkSegmentedButton(
+            c, values=["Aus", "Clean", "Format", "Prompt"], variable=self.mode_var,
+            font=(FONT_BODY, 13), selected_color=BRAND["cyan"],
+            selected_hover_color=BRAND["cyan_dim"], unselected_color=BRAND["card"],
+            unselected_hover_color=BRAND["card_hover"],
+            text_color=BRAND["text_bright"], fg_color=BRAND["card"],
+            corner_radius=8,
+        )
+        self.mode_btn.pack(fill="x", pady=(0, 4))
+
+        if self._ollama_running:
+            model_name = self.config.get("ollama_model", "llama3.2:3b")
+            if model_name not in self._ollama_models and self._ollama_models:
+                model_name = self._ollama_models[0]
+            status_text = f"●  Ollama bereit  ·  {model_name}"
+            status_color = BRAND["green"]
+        else:
+            status_text = "○  Ollama nicht gefunden — ollama.com/download"
+            status_color = BRAND["text_dim"]
+            self.mode_btn.configure(state="disabled")
+            self.mode_var.set("Aus")
+
+        ctk.CTkLabel(c, text=status_text, font=(FONT_BODY, 11),
+                     text_color=status_color).pack(anchor="w", pady=(0, 14))
 
         # MIKROFON
         self._heading(c, "Mikrofon")
@@ -308,13 +340,19 @@ class SettingsWindow:
     # Save / Cancel
     def _save(self):
         lang_map = {"Deutsch": "de", "English": "en", "Auto": "auto"}
+        mode_reverse = {"Aus": "off", "Clean": "clean", "Format": "format", "Prompt": "prompt"}
         self.config.update({
             "language": lang_map.get(self.lang_var.get(), "de"),
             "model_size": self._get_model_size(),
             "show_overlay": self.overlay_var.get(),
             "auto_start": self.autostart_var.get(),
             "audio_device": None if self.mic_var.get() == "Standard" else self.mic_var.get(),
+            "post_processing_mode": mode_reverse.get(self.mode_var.get(), "off"),
         })
+        # Ollama model automatisch anpassen falls gespeichertes Model nicht verfuegbar
+        if self._ollama_running and self._ollama_models:
+            if self.config.get("ollama_model") not in self._ollama_models:
+                self.config["ollama_model"] = self._ollama_models[0]
         self._result = self.config
         self._stop_listeners()
         self.root.destroy()

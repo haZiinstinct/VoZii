@@ -21,6 +21,7 @@ from src.tray import TrayApp
 from src.settings_gui import SettingsWindow
 from src.hardware import detect_gpu, get_backend_name
 from src.overlay import RecordingOverlay
+from src.text_processor import TextProcessor
 
 log = logging.getLogger(__name__)
 
@@ -114,6 +115,11 @@ def _run_cycle() -> str:
         model_size=config["model_size"],
         language=config["language"],
     )
+    text_processor = TextProcessor(
+        mode=config.get("post_processing_mode", "off"),
+        model=config.get("ollama_model", "llama3.2:3b"),
+    )
+    log.info("Post-processing: %s", text_processor.mode)
 
     if not transcriber.is_ready():
         status = transcriber.get_status()
@@ -187,6 +193,8 @@ def _run_cycle() -> str:
                 continue
             try:
                 text = transcriber.transcribe(wav_path)
+                if text:
+                    text = text_processor.process(text)
                 if text:
                     log.info("Transkribiert: %d Zeichen", len(text))
                     insert_text(text)

@@ -485,24 +485,34 @@ class SettingsWindow:
         threading.Thread(target=run, daemon=True).start()
 
     def _handle_ollama_start(self):
-        """Ollama starten (kein Download noetig)."""
-        self._ollama_busy = True
-        self._render_ollama_section()
-        self._update_ollama_progress(0, 0, "Starte Ollama...", 0)
-        # Cancel waehrend Start macht keinen Sinn, aber Event trotzdem anlegen
-        self._ollama_cancel = threading.Event()
+        """Ollama starten — kein Download-UI, nur Status-Text."""
+        # KEIN _ollama_busy=True → kein Layout-Shift
+        self.ollama_mini_btn.configure(state="disabled")
+        self.ollama_status_label.configure(
+            text="⏵  Starte Ollama...", text_color=BRAND["amber"],
+        )
 
         def run():
             ollama_path = is_ollama_installed()
             if not ollama_path:
-                self.root.after(0, lambda: self._ollama_action_fail("Ollama nicht gefunden"))
+                self.root.after(0, lambda: self._on_start_done(False, "Ollama nicht gefunden"))
                 return
-            if start_ollama(ollama_path):
-                self.root.after(0, self._ollama_action_done)
-            else:
-                self.root.after(0, lambda: self._ollama_action_fail("Ollama-Start fehlgeschlagen"))
+            ok = start_ollama(ollama_path)
+            self.root.after(0, lambda: self._on_start_done(ok, None))
 
         threading.Thread(target=run, daemon=True).start()
+
+    def _on_start_done(self, ok: bool, err: str | None):
+        """Callback nach Ollama-Start."""
+        self.ollama_mini_btn.configure(state="normal")
+        if ok:
+            self._refresh_ollama_state()
+            self._render_ollama_section()
+        else:
+            self._refresh_ollama_state()
+            self._render_ollama_section()
+            if err:
+                self.ollama_status_label.configure(text=f"Fehler: {err}", text_color=BRAND["red"])
 
     def _cancel_ollama_action(self):
         """User klickt Cancel - setzt das Event."""

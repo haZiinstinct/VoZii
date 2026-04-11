@@ -7,6 +7,18 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.3.2] — 2026-04-11
+
+### Fixed
+- **Layout-Shift beim Ollama-Start:** Klick auf Mini-Button "▶" triggerte das große Download-UI (100px hoch), die gesamte Settings-Anzeige rutschte nach unten. Jetzt wird beim Start nur der Status-Text aktualisiert, kein Layout-Shift.
+- **Overlay-Indikator "hängt" während Post-Processing:** Wenn Ollama den Text verarbeitet (kann bei großen Texten mehrere Sekunden dauern), blieb das Overlay statisch auf "· · ·" stehen. Jetzt animiert das Overlay die Dots (Zyklus: · → · · → · · · → · ·) alle 300ms, zeigt klar dass das Tool noch arbeitet.
+
+### Changed
+- `_handle_ollama_start()` nutzt nicht mehr `_ollama_busy = True` — der Start ist keine Download-Operation und braucht kein Download-UI
+- `RecordingOverlay._apply()` startet Animation-Loop bei TRANSCRIBING state
+
+---
+
 ## [1.3.1] — 2026-04-11
 
 ### Fixed

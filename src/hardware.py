@@ -1,8 +1,9 @@
 """GPU-Erkennung und whisper.cpp Binary-URL Mapping."""
 
+import logging
 import subprocess
 
-from src.paths import BASE_DIR
+log = logging.getLogger(__name__)
 
 # whisper.cpp pre-built binaries fuer verschiedene GPUs
 BINARY_URLS = {
@@ -25,43 +26,68 @@ BACKEND_DLLS = {
 }
 
 
+def _try_wmic() -> str | None:
+    """Versuch 1: wmic (schnell, aber in neueren Win11 deprecated)."""
+    try:
+        result = subprocess.run(
+            ["wmic", "path", "win32_videocontroller", "get", "name"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=5, creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout
+    except Exception:
+        pass
+    return None
+
+
+def _try_powershell() -> str | None:
+    """Versuch 2: PowerShell Get-CimInstance (funktioniert ohne wmic)."""
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=10, creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout
+    except Exception:
+        pass
+    return None
+
+
 def detect_gpu() -> tuple[str, str]:
-    """Erkennt die GPU via WMI. Returns (gpu_type, gpu_name).
+    """Erkennt die GPU via WMI/PowerShell. Returns (gpu_type, gpu_name).
 
     gpu_type: 'nvidia', 'amd', oder 'cpu'
     gpu_name: z.B. 'NVIDIA GeForce RTX 4070' oder 'AMD Radeon RX 6750 XT'
     """
-    try:
-        result = subprocess.run(
-            ["wmic", "path", "win32_videocontroller", "get", "name"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        output = result.stdout
-    except Exception:
+    output = _try_wmic()
+    if not output:
+        log.info("wmic nicht verfuegbar, versuche PowerShell...")
+        output = _try_powershell()
+    if not output:
+        log.warning("GPU-Erkennung fehlgeschlagen, fallback auf CPU")
         return ("cpu", "")
 
-    lines = [line.strip() for line in output.splitlines() if line.strip() and line.strip().lower() != "name"]
+    lines = [line.strip() for line in output.splitlines()
+             if line.strip() and line.strip().lower() != "name"]
 
-    # Prioritaet: NVIDIA > AMD > CPU
-    nvidia_gpu = ""
-    amd_gpu = ""
-
+    # Prioritaet: nvidia > amd > intel (als cpu) > cpu
+    for line in lines:
+        if "NVIDIA" in line.upper():
+            return ("nvidia", line)
     for line in lines:
         upper = line.upper()
-        if "NVIDIA" in upper:
-            nvidia_gpu = line
-        elif "AMD" in upper or "RADEON" in upper:
-            amd_gpu = line
+        if "AMD" in upper or "RADEON" in upper:
+            return ("amd", line)
+    for line in lines:
+        upper = line.upper()
+        if "INTEL" in upper:
+            # Intel GPUs (iGPU oder ARC) → CPU-Binary (kein dediziertes Intel-Binary verfuegbar)
+            return ("cpu", line)
 
-    if nvidia_gpu:
-        return ("nvidia", nvidia_gpu)
-    if amd_gpu:
-        return ("amd", amd_gpu)
     return ("cpu", lines[0] if lines else "")
 
 

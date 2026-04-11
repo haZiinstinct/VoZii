@@ -7,6 +7,35 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.2.0] — 2026-04-11
+
+### Added
+- **One-Click Ollama Setup** — kein Terminal, kein manueller Download
+  - Smart Nachbearbeitungs-Section mit 3 States
+  - **Nicht installiert:** Button "Ollama einrichten (3 GB gesamt)" lädt Installer, startet ihn, wartet bis API bereit, lädt Modell
+  - **Modell fehlt:** Button "Modell herunterladen (2 GB)" nutzt Ollama Pull API mit Streaming-Progress
+  - **Bereit:** Status "● Ollama bereit · llama3.2:3b"
+  - Live Progress-Bar während Install/Pull
+- `install_ollama()` in `text_processor.py` — Auto-Download + Auto-Start des Windows-Installers
+- `pull_model()` in `text_processor.py` — nutzt `POST /api/pull` mit Streaming für Live-Progress
+- `get_ollama_state()` — zentrale State-Detection
+
+### Changed (Multi-Hardware Robustness)
+- **`hardware.py`**: PowerShell-Fallback via `Get-CimInstance Win32_VideoController`
+  - Fixt Systeme auf neueren Windows 11 Builds wo `wmic` deprecated/nicht installiert ist
+  - Intel GPUs werden explizit als CPU-Fallback behandelt (mit Log-Info)
+- **`paths.py`**: Schreibbarkeits-Check + Fallback auf `%LOCALAPPDATA%\VoZii`
+  - Fixt Installation in read-only Ordnern (`C:\Program Files\`, OneDrive, etc.)
+  - `config.yaml`, `vozii.log`, `whisper-cpp/` landen automatisch in `%LOCALAPPDATA%\VoZii` wenn .exe-Ordner nicht schreibbar
+
+### Technical
+- Keine neue Dependency — `urllib.request`, `subprocess`, `tempfile` (alles stdlib)
+- Ollama-Installer: `https://ollama.com/download/OllamaSetup.exe` (kein Admin nötig)
+- Installer-Timeout: 180s (für langsame Systeme)
+- Progress-Updates thread-safe via `root.after(0, ...)`
+
+---
+
 ## [1.1.0] — 2026-04-11
 
 ### Added

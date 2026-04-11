@@ -70,20 +70,23 @@ Made by [haZii](https://hazii.org)
 
 VoZii kann transkribierten Text automatisch korrigieren und formatieren — komplett lokal via [Ollama](https://ollama.com).
 
-**Setup:**
-1. [Ollama installieren](https://ollama.com/download) (Windows-Installer)
-2. Terminal öffnen: `ollama pull llama3.2:3b` (~2 GB Download)
-3. VoZii Settings → **Nachbearbeitung** → gewünschten Modus wählen
+**One-Click-Setup direkt aus VoZii:**
+1. Settings öffnen → **Nachbearbeitung**
+2. Button **"Ollama einrichten"** klicken
+3. VoZii lädt Installer, startet ihn (Windows-Wizard), lädt Modell automatisch
+4. Fertig — Modi können gewählt werden
 
-**Modi:**
+**Die 4 Modi:**
 - **Aus** — Roher Whisper-Output (Standard)
 - **Clean** — Füllwörter weg, Grammatik-Fix, Interpunktion
 - **Format** — Clean + Markdown-Struktur (Überschriften, Listen, Fettschrift)
 - **Prompt** — verwandelt gesprochenen Text in einen perfekten AI-Prompt
 
-**Ohne Ollama:** Section ist deaktiviert, VoZii funktioniert normal weiter (Raw Whisper-Output).
+Ohne Ollama funktioniert VoZii normal weiter (Raw Whisper-Output). Bei Fehlern (Ollama nicht erreichbar, Timeout etc.) fällt VoZii automatisch auf den Raw-Text zurück — nie Datenverlust.
 
-Bei Fehlern (Ollama nicht erreichbar, Timeout etc.) fällt VoZii automatisch auf den Raw-Text zurück — du verlierst nie Daten.
+**Manuelle Installation** (falls der One-Click-Setup nicht klappt):
+- [Ollama herunterladen](https://ollama.com/download)
+- Terminal: `ollama pull llama3.2:3b`
 
 ## Datenschutz
 

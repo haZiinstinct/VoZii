@@ -14,7 +14,9 @@ from src.downloader import (
     is_binary_installed, is_model_installed,
     download_and_extract_binary, download_model,
 )
-from src.text_processor import check_ollama
+from src.text_processor import (
+    check_ollama, get_ollama_state, install_ollama, pull_model, DEFAULT_MODEL,
+)
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +45,19 @@ class SettingsWindow:
         self._drag_x = self._drag_y = 0
         self._downloading = False
         self._cancel_download = threading.Event()
+        self._ollama_busy = False
+        self._refresh_ollama_state()
+
+    def _refresh_ollama_state(self):
+        """Refresh Ollama status: state ∈ {ready, no_model, not_installed}."""
         self._ollama_running, self._ollama_models = check_ollama()
+        required_model = self.config.get("ollama_model", DEFAULT_MODEL)
+        if not self._ollama_running:
+            self._ollama_state = "not_installed"
+        elif required_model not in self._ollama_models:
+            self._ollama_state = "no_model"
+        else:
+            self._ollama_state = "ready"
 
     def run(self):
         self.root = ctk.CTk()
@@ -151,20 +165,30 @@ class SettingsWindow:
         )
         self.mode_btn.pack(fill="x", pady=(0, 4))
 
-        if self._ollama_running:
-            model_name = self.config.get("ollama_model", "llama3.2:3b")
-            if model_name not in self._ollama_models and self._ollama_models:
-                model_name = self._ollama_models[0]
-            status_text = f"●  Ollama bereit  ·  {model_name}"
-            status_color = BRAND["green"]
-        else:
-            status_text = "○  Ollama nicht gefunden — ollama.com/download"
-            status_color = BRAND["text_dim"]
-            self.mode_btn.configure(state="disabled")
-            self.mode_var.set("Aus")
+        # Ollama Status + Action
+        self.ollama_status_label = ctk.CTkLabel(
+            c, text="", font=(FONT_BODY, 11), text_color=BRAND["text_dim"],
+        )
+        self.ollama_status_label.pack(anchor="w", pady=(0, 2))
 
-        ctk.CTkLabel(c, text=status_text, font=(FONT_BODY, 11),
-                     text_color=status_color).pack(anchor="w", pady=(0, 14))
+        self.ollama_action_btn = ctk.CTkButton(
+            c, text="", height=32, font=(FONT_BODY, 12, "bold"),
+            fg_color=BRAND["cyan"], text_color=BRAND["bg"],
+            hover_color=BRAND["cyan_dim"], corner_radius=8,
+            command=self._handle_ollama_action,
+        )
+        # Wird erst gepackt wenn noetig (siehe _render_ollama_section)
+
+        self.ollama_progress = ctk.CTkProgressBar(
+            c, progress_color=BRAND["cyan"],
+            fg_color=BRAND["card"], height=4, corner_radius=2,
+        )
+        self.ollama_progress.set(0)
+
+        self._render_ollama_section()
+        # Spacer nach Section
+        self._ollama_spacer = ctk.CTkFrame(c, fg_color="transparent", height=10)
+        self._ollama_spacer.pack()
 
         # MIKROFON
         self._heading(c, "Mikrofon")
@@ -281,6 +305,120 @@ class SettingsWindow:
         self.progress.set(0)
         self.progress_text.configure(text=msg, text_color=BRAND["red"])
         self._update_dl_button()
+
+    # --- Ollama Section Rendering + Handlers ---
+
+    def _render_ollama_section(self):
+        """Rendert Status-Label und optional Action-Button je nach Ollama-State."""
+        required = self.config.get("ollama_model", DEFAULT_MODEL)
+
+        if self._ollama_busy:
+            # Waehrend Install/Pull: zeige Progress-Bar statt Status
+            self.ollama_status_label.pack_forget()
+            self.ollama_action_btn.pack_forget()
+            if not self.ollama_progress.winfo_ismapped():
+                self.ollama_progress.pack(fill="x", pady=(0, 2))
+            return
+
+        # Nicht busy: Progress-Bar verstecken
+        if self.ollama_progress.winfo_ismapped():
+            self.ollama_progress.pack_forget()
+
+        # Status-Label wieder sichtbar
+        if not self.ollama_status_label.winfo_ismapped():
+            self.ollama_status_label.pack(anchor="w", pady=(0, 2))
+
+        if self._ollama_state == "ready":
+            self.ollama_status_label.configure(
+                text=f"●  Ollama bereit  ·  {required}",
+                text_color=BRAND["green"],
+            )
+            self.mode_btn.configure(state="normal")
+            self.ollama_action_btn.pack_forget()
+
+        elif self._ollama_state == "no_model":
+            self.ollama_status_label.configure(
+                text=f"○  Modell '{required}' fehlt",
+                text_color=BRAND["text_dim"],
+            )
+            self.mode_btn.configure(state="disabled")
+            self.mode_var.set("Aus")
+            self.ollama_action_btn.configure(text=f"Modell herunterladen (2 GB)")
+            if not self.ollama_action_btn.winfo_ismapped():
+                self.ollama_action_btn.pack(fill="x", pady=(4, 0))
+
+        else:  # not_installed
+            self.ollama_status_label.configure(
+                text="○  Ollama nicht installiert",
+                text_color=BRAND["text_dim"],
+            )
+            self.mode_btn.configure(state="disabled")
+            self.mode_var.set("Aus")
+            self.ollama_action_btn.configure(text="Ollama einrichten (3 GB gesamt)")
+            if not self.ollama_action_btn.winfo_ismapped():
+                self.ollama_action_btn.pack(fill="x", pady=(4, 0))
+
+    def _handle_ollama_action(self):
+        """Startet Install oder Pull je nach aktuellem State."""
+        if self._ollama_busy:
+            return
+        self._ollama_busy = True
+        self._render_ollama_section()
+        self._ollama_progress_msg("Starte...")
+
+        state = self._ollama_state
+        required = self.config.get("ollama_model", DEFAULT_MODEL)
+
+        def run():
+            try:
+                if state == "not_installed":
+                    # Vollstaendiges Setup: Installer + Pull
+                    install_ollama(progress_callback=self._on_ollama_progress)
+                    self._ollama_progress_msg(f"Lade Modell {required}...")
+                    pull_model(required, progress_callback=self._on_ollama_progress)
+                elif state == "no_model":
+                    # Nur Pull
+                    pull_model(required, progress_callback=self._on_ollama_progress)
+                self.root.after(0, self._ollama_action_done)
+            except Exception as e:
+                self.root.after(0, lambda: self._ollama_action_fail(str(e)))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_ollama_progress(self, completed, total, status):
+        """Thread-safe Progress-Update fuer Ollama."""
+        if total > 0:
+            frac = completed / total
+            mb_done = completed // 1048576
+            mb_total = total // 1048576
+            text = f"{status}  ·  {mb_done} / {mb_total} MB"
+        else:
+            frac = 0
+            text = status
+        self.root.after(0, lambda: self.ollama_progress.set(frac))
+        self.root.after(0, lambda: self._ollama_progress_msg(text))
+
+    def _ollama_progress_msg(self, text):
+        """Setzt den Status-Text unter der Progress-Bar."""
+        # Text-Label temporaer sichtbar, aber ueber Progress-Bar
+        if not self.ollama_status_label.winfo_ismapped():
+            self.ollama_status_label.pack(anchor="w", pady=(2, 0))
+        self.ollama_status_label.configure(text=text, text_color=BRAND["text_dim"])
+
+    def _ollama_action_done(self):
+        self._ollama_busy = False
+        self._refresh_ollama_state()
+        self._render_ollama_section()
+        self.ollama_status_label.configure(
+            text=f"●  Ollama bereit  ·  {self.config.get('ollama_model', DEFAULT_MODEL)}",
+            text_color=BRAND["green"],
+        )
+
+    def _ollama_action_fail(self, msg):
+        self._ollama_busy = False
+        self._refresh_ollama_state()
+        self._render_ollama_section()
+        self.ollama_status_label.configure(text=f"Fehler: {msg}", text_color=BRAND["red"])
 
     # Hotkey Recording
     def _start_recording(self):

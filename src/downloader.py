@@ -8,6 +8,7 @@ import zipfile
 
 from src.paths import BASE_DIR
 from src.hardware import get_binary_url
+from src.platform_utils import IS_WINDOWS, find_whisper_cli
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +77,11 @@ def download_file(url, dest, progress_callback=None):
 
 
 def download_and_extract_binary(gpu_type, progress_callback=None):
+    # macOS/Linux: kein Windows-Zip. Das Binary kommt von Homebrew
+    # (`brew install whisper-cpp`) oder liegt gebuendelt vor.
+    if not IS_WINDOWS:
+        return find_whisper_cli(WHISPER_DIR) is not None
+
     os.makedirs(WHISPER_DIR, exist_ok=True)
     cli_path = os.path.join(WHISPER_DIR, "whisper-cli.exe")
     if os.path.isfile(cli_path):
@@ -130,7 +136,7 @@ def download_model(model_size, progress_callback=None):
 
 
 def is_binary_installed():
-    return os.path.isfile(os.path.join(WHISPER_DIR, "whisper-cli.exe"))
+    return find_whisper_cli(WHISPER_DIR) is not None
 
 
 def is_model_installed(model_size):

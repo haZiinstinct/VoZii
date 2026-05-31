@@ -9,6 +9,8 @@ import tempfile
 import time
 import urllib.request
 
+from src.platform_utils import SUBPROCESS_FLAGS, IS_WINDOWS, IS_MAC
+
 log = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434"
@@ -113,18 +115,27 @@ def is_ollama_installed() -> str | None:
     Returns:
         Pfad zur ollama executable, oder None wenn nicht gefunden.
     """
-    # 1. PATH check
+    # 1. PATH check (greift auf macOS bei Homebrew-Installation)
     path = shutil.which("ollama")
     if path:
         return path
 
-    # 2. Standard Windows Install-Locations
-    local_appdata = os.environ.get("LOCALAPPDATA", "")
-    candidates = [
-        os.path.join(local_appdata, "Programs", "Ollama", "ollama app.exe"),
-        os.path.join(local_appdata, "Programs", "Ollama", "ollama.exe"),
-        r"C:\Program Files\Ollama\ollama.exe",
-    ]
+    # 2. Standard Install-Locations je Plattform
+    if IS_WINDOWS:
+        local_appdata = os.environ.get("LOCALAPPDATA", "")
+        candidates = [
+            os.path.join(local_appdata, "Programs", "Ollama", "ollama app.exe"),
+            os.path.join(local_appdata, "Programs", "Ollama", "ollama.exe"),
+            r"C:\Program Files\Ollama\ollama.exe",
+        ]
+    elif IS_MAC:
+        candidates = [
+            "/opt/homebrew/bin/ollama",
+            "/usr/local/bin/ollama",
+            "/Applications/Ollama.app/Contents/Resources/ollama",
+        ]
+    else:
+        candidates = ["/usr/local/bin/ollama", "/usr/bin/ollama"]
     for p in candidates:
         if p and os.path.isfile(p):
             return p
@@ -149,23 +160,36 @@ def get_ollama_state(required_model: str = DEFAULT_MODEL) -> str:
 
 
 def stop_ollama() -> bool:
-    """Beendet Ollama via taskkill (GUI-App + CLI serve).
+    """Beendet Ollama (GUI-App + CLI serve).
 
     Returns True wenn mindestens ein Prozess beendet wurde.
     """
     success = False
-    for proc_name in ("ollama app.exe", "ollama.exe"):
+    if IS_WINDOWS:
+        for proc_name in ("ollama app.exe", "ollama.exe"):
+            try:
+                result = subprocess.run(
+                    ["taskkill", "/f", "/im", proc_name],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=SUBPROCESS_FLAGS,
+                )
+                if result.returncode == 0:
+                    success = True
+                    log.info("Beendet: %s", proc_name)
+            except Exception as e:
+                log.debug("Konnte %s nicht beenden: %s", proc_name, e)
+    else:
+        # macOS/Linux: 'ollama serve' per pkill beenden
         try:
             result = subprocess.run(
-                ["taskkill", "/f", "/im", proc_name],
+                ["pkill", "-x", "ollama"],
                 capture_output=True, text=True, timeout=5,
-                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             if result.returncode == 0:
                 success = True
-                log.info("Beendet: %s", proc_name)
+                log.info("Beendet: ollama")
         except Exception as e:
-            log.debug("Konnte %s nicht beenden: %s", proc_name, e)
+            log.debug("Konnte ollama nicht beenden: %s", e)
     return success
 
 
@@ -176,12 +200,12 @@ def start_ollama(ollama_path: str, timeout: int = 30) -> bool:
     """
     log.info("Starte Ollama: %s", ollama_path)
     try:
-        if "ollama app.exe" in ollama_path.lower():
+        if IS_WINDOWS and "ollama app.exe" in ollama_path.lower():
             subprocess.Popen([ollama_path])
         else:
             subprocess.Popen(
                 [ollama_path, "serve"],
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                creationflags=SUBPROCESS_FLAGS,
             )
     except Exception as e:
         log.error("Ollama start failed: %s", e)
@@ -206,6 +230,12 @@ def install_ollama(progress_callback=None, cancel_event=None) -> bool:
     progress_callback(completed, total, status_text, speed_bps)
     cancel_event: threading.Event, bei is_set() wird InterruptedError geworfen.
     """
+    if not IS_WINDOWS:
+        raise RuntimeError(
+            "Automatische Ollama-Installation nur unter Windows. "
+            "macOS: 'brew install ollama' oder https://ollama.com/download"
+        )
+
     installer_path = os.path.join(tempfile.gettempdir(), "OllamaSetup.exe")
 
     # Phase 1: Chunked Download

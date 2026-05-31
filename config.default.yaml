@@ -6,7 +6,8 @@ model_size: "small"             # tiny, small, medium
 audio_feedback: true            # Beep bei Start/Stop
 gpu_type: "auto"                # auto, nvidia, amd, cpu
 audio_device: null              # null = Systemstandard
-show_overlay: true              # Recording-Indikator anzeigen
-auto_start: false               # Mit Windows starten
+show_overlay: true              # Recording-Indikator (auf macOS automatisch deaktiviert)
+show_tray: true                 # Tray-/Menueleisten-Icon; auf macOS bei Problemen auf false
+auto_start: false               # Mit Windows starten (nur Windows)
 post_processing_mode: "off"     # off, clean, format, prompt (braucht Ollama)
 ollama_model: "llama3.2:3b"     # Ollama Modell fuer Post-Processing

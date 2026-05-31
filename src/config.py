@@ -17,6 +17,7 @@ DEFAULT_CONFIG = {
     "gpu_type": "auto",
     "audio_device": None,
     "show_overlay": True,
+    "show_tray": True,
     "auto_start": False,
     "post_processing_mode": "off",
     "ollama_model": "llama3.2:3b",

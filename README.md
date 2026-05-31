@@ -28,6 +28,47 @@ Made by [haZii](https://hazii.org)
 
 > **Windows SmartScreen Warnung?** Das ist normal bei unsignierten .exe-Dateien. Klick auf "Weitere Informationen" → "Trotzdem ausführen". Du kannst auch im Explorer Rechtsklick → Eigenschaften → "Zulassen" → Übernehmen.
 
+## macOS (aus dem Quellcode)
+
+VoZii läuft auf macOS (Apple Silicon + Intel) direkt aus dem Quellcode — es gibt (noch) keine fertige `.app`, du startest über Python. Schnellster Weg: das Setup-Skript.
+
+```bash
+bash scripts/setup-macos.sh          # Homebrew-Deps, venv, pip-Pakete
+source .venv/bin/activate
+python3 src/main.py
+```
+
+**Manuell**, falls gewünscht:
+
+```bash
+brew install python-tk@3.12 portaudio whisper-cpp   # whisper-cli mit Metal-Beschleunigung
+brew install ollama                                  # OPTIONAL, nur für die Nachbearbeitung
+python3.12 -m venv .venv && source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python3 src/main.py
+```
+
+### Berechtigungen (zwingend)
+
+Ohne diese drei Rechte fürs Terminal (bzw. iTerm) funktioniert der Kern-Loop nicht — **Systemeinstellungen → Datenschutz & Sicherheit:**
+
+| Recht | wofür | Symptom wenn es fehlt |
+|---|---|---|
+| **Mikrofon** | Aufnahme | leere / keine Transkription |
+| **Eingabeüberwachung** | globaler Hotkey (pynput) | Hotkey löst nichts aus |
+| **Bedienungshilfen** | Einfügen via Cmd+V (pyautogui) | Text landet nur in der Zwischenablage |
+
+Nach dem Aktivieren das Terminal **komplett beenden und neu starten**.
+
+### Unterschiede zu Windows
+
+- **whisper.cpp** kommt über `brew install whisper-cpp` (Metal-beschleunigtes `whisper-cli`). Das **Sprachmodell** lädt VoZii wie gewohnt in der App herunter.
+- Das **Aufnahme-Overlay** ist auf macOS deaktiviert — Start/Stopp wird per **Ton** signalisiert.
+- **Autostart** ist auf macOS nicht verfügbar.
+- **Menüleisten-Icon:** falls es Probleme macht, in `config.yaml` `show_tray: false` setzen → reiner Hotkey-Modus (Beenden mit `Ctrl+C` im Terminal).
+- Zwingend einen **Python mit Tk 8.6** nutzen (Homebrew `python-tk` / python.org), **nicht** das alte System-Python.
+
 ## Nutzung
 
 **Push-to-Talk:**

@@ -165,13 +165,14 @@ class AudioRecorder:
         1. DirectSound (voller Name, immer Rate-Konvertierung)
         2. MME (Fallback, Namen auf 32 Zeichen begrenzt)
         3. WASAPI (als letztes, strenge Rate-Regeln)
+        4. Core Audio (macOS — einzige Host-API dort)
         """
         devices = sd.query_devices()
         apis = sd.query_hostapis()
 
         # Host API indices nach Bevorzugung
         preferred_apis = []
-        for api_name in ("DirectSound", "MME", "WASAPI"):
+        for api_name in ("DirectSound", "MME", "WASAPI", "Core Audio"):
             for i, api in enumerate(apis):
                 if api_name in api["name"]:
                     preferred_apis.append(i)

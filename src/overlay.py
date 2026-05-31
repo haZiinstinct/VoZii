@@ -5,6 +5,7 @@ import threading
 import tkinter as tk
 from src.theme import BRAND, FONT_MONO
 from src.state import AppState
+from src.platform_utils import IS_MAC, IS_WINDOWS
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +27,10 @@ class RecordingOverlay:
         self._anim_active = False
 
     def start(self):
+        # macOS: kein Tk in einem Hintergrund-Thread (Cocoa erlaubt GUI nur im
+        # Main-Thread). Overlay deaktiviert — Aufnahme-Feedback kommt vom Beep.
+        if IS_MAC:
+            return
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         self._ready.wait(timeout=3)
@@ -35,7 +40,8 @@ class RecordingOverlay:
         self._root.overrideredirect(True)
         self._root.attributes("-topmost", True)
         self._root.attributes("-alpha", 0.9)
-        self._root.attributes("-toolwindow", True)
+        if IS_WINDOWS:
+            self._root.attributes("-toolwindow", True)
         self._root.configure(bg=BRAND["card"])
 
         w, h = 100, 26

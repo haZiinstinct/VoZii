@@ -18,6 +18,7 @@ from src.text_processor import (
     check_ollama, get_ollama_state, install_ollama, pull_model,
     is_ollama_installed, start_ollama, stop_ollama, DEFAULT_MODEL,
 )
+from src.platform_utils import IS_WINDOWS
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +58,12 @@ class SettingsWindow:
 
     def run(self):
         self.root = ctk.CTk()
-        self.root.overrideredirect(True)
+        # macOS: randloses overrideredirect-Fenster ist dort nicht fokussier-/
+        # verschiebbar → normales Titelfenster verwenden.
+        if IS_WINDOWS:
+            self.root.overrideredirect(True)
+        else:
+            self.root.title(f"VoZii v{__version__}")
         self.root.attributes("-topmost", True)
         self.root.configure(fg_color=BRAND["bg"])
 
@@ -254,10 +260,11 @@ class SettingsWindow:
                       button_hover_color=BRAND["text"]).pack(anchor="w", pady=(0, 6))
 
         self.autostart_var = ctk.BooleanVar(value=self.config.get("auto_start", False))
-        ctk.CTkSwitch(c, text="Mit Windows starten", variable=self.autostart_var,
-                      font=(FONT_BODY, 13), text_color=BRAND["text"],
-                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
-                      button_hover_color=BRAND["text"]).pack(anchor="w", pady=(0, 16))
+        if IS_WINDOWS:
+            ctk.CTkSwitch(c, text="Mit Windows starten", variable=self.autostart_var,
+                          font=(FONT_BODY, 13), text_color=BRAND["text"],
+                          progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
+                          button_hover_color=BRAND["text"]).pack(anchor="w", pady=(0, 16))
 
         # START
         ctk.CTkButton(c, text="Starten", height=44, font=(FONT_BODY, 16, "bold"),

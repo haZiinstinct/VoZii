@@ -1,5 +1,7 @@
 """VoZii — haZii Corporate Design Farbpalette und Fonts."""
 
+from src.platform_utils import IS_MAC
+
 # haZii Brand Colors (extrahiert aus hazii.org)
 BRAND = {
     "bg": "#0a0a0f",
@@ -17,9 +19,13 @@ BRAND = {
     "green": "#22c55e",
 }
 
-# Fonts — Inter fuer Body, JetBrains Mono fuer Brand/Code
-FONT_BODY = "Segoe UI"       # Windows fallback (Inter nicht vorinstalliert)
-FONT_MONO = "Consolas"       # Windows fallback (JetBrains Mono nicht vorinstalliert)
+# Fonts — plattformabhaengig (Tk faellt bei fehlender Schrift still zurueck)
+if IS_MAC:
+    FONT_BODY = "SF Pro Text"    # macOS System-Font
+    FONT_MONO = "Menlo"          # macOS Monospace
+else:
+    FONT_BODY = "Segoe UI"       # Windows (Inter nicht vorinstalliert)
+    FONT_MONO = "Consolas"       # Windows (JetBrains Mono nicht vorinstalliert)
 
 APP_NAME = "VoZii"
 APP_SUBTITLE = "Voice-to-Text by haZii"

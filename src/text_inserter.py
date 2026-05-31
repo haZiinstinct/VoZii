@@ -3,6 +3,8 @@ import time
 import pyautogui
 import pyperclip
 
+from src.platform_utils import paste_hotkey
+
 
 def insert_text(text: str):
     """Text an Cursorposition einfuegen. Text bleibt IMMER in Zwischenablage als Fallback."""
@@ -13,6 +15,6 @@ def insert_text(text: str):
     time.sleep(0.05)
 
     try:
-        pyautogui.hotkey("ctrl", "v")
+        pyautogui.hotkey(*paste_hotkey())
     except Exception:
         pass  # Kein fokussiertes Textfeld — Text ist trotzdem in Zwischenablage

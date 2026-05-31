@@ -22,6 +22,7 @@ from src.settings_gui import SettingsWindow
 from src.hardware import detect_gpu, get_backend_name
 from src.overlay import RecordingOverlay
 from src.text_processor import TextProcessor
+from src.platform_utils import play_beep, open_path, IS_WINDOWS
 
 log = logging.getLogger(__name__)
 
@@ -36,14 +37,6 @@ def show_error(title: str, msg: str):
         root.withdraw()
         messagebox.showerror(title, msg)
         root.destroy()
-    except Exception:
-        pass
-
-
-def play_tone(freq: int, duration_ms: int):
-    try:
-        import winsound
-        winsound.Beep(freq, duration_ms)
     except Exception:
         pass
 
@@ -144,11 +137,11 @@ def _run_cycle() -> str:
 
     def beep_start():
         if use_sound:
-            threading.Thread(target=play_tone, args=(600, 80), daemon=True).start()
+            threading.Thread(target=play_beep, args=("start",), daemon=True).start()
 
     def beep_done():
         if use_sound:
-            threading.Thread(target=play_tone, args=(880, 60), daemon=True).start()
+            threading.Thread(target=play_beep, args=("done",), daemon=True).start()
 
     def notify_error(msg: str):
         """Kurzes visuelles Feedback fuer Fehler."""
@@ -226,10 +219,7 @@ def _run_cycle() -> str:
         on_quit()
 
     def on_open_log():
-        try:
-            os.startfile(get_log_path())
-        except Exception:
-            log.exception("Konnte Log nicht oeffnen")
+        open_path(get_log_path())
 
     threading.Thread(target=transcription_worker, daemon=True).start()
 
@@ -241,16 +231,27 @@ def _run_cycle() -> str:
     )
     hotkey_mgr.start()
 
-    tray = TrayApp(
-        state, on_quit,
-        hotkey_str=config["hotkey"],
-        backend_name=backend_name,
-        mic_name=recorder.device_name,
-        on_open_settings=on_open_settings,
-        on_open_log=on_open_log,
-    )
-    log.info("VoZii laeuft")
-    tray.run()
+    if config.get("show_tray", True):
+        tray = TrayApp(
+            state, on_quit,
+            hotkey_str=config["hotkey"],
+            backend_name=backend_name,
+            mic_name=recorder.device_name,
+            on_open_settings=on_open_settings,
+            on_open_log=on_open_log,
+        )
+        log.info("VoZii laeuft")
+        tray.run()
+    else:
+        # Kein Tray (macOS-Rueckfallebene): Hauptthread am Leben halten, bis
+        # Quit-Event oder Ctrl+C. Polling, damit Ctrl+C zuverlaessig durchkommt.
+        log.info("VoZii laeuft (ohne Tray, Hotkey-Modus) — Beenden mit Ctrl+C")
+        try:
+            while not shutdown_event.wait(0.5):
+                pass
+        except KeyboardInterrupt:
+            log.info("KeyboardInterrupt — beende")
+        on_quit()
 
     shutdown_event.set()
 
@@ -260,6 +261,8 @@ def _run_cycle() -> str:
 
 
 def _set_auto_start(enabled: bool):
+    if not IS_WINDOWS:
+        return  # Autostart nur unter Windows (macOS/Linux nicht im Scope)
     try:
         import winreg
         key = winreg.OpenKey(

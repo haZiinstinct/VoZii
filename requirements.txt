@@ -8,3 +8,10 @@ pystray==0.19.5
 PyYAML==6.0.3
 scipy==1.17.1
 sounddevice==0.5.5
+
+# macOS-only: von pynput/PyAutoGUI/pystray fuer Tastatur, Maus und Tray benoetigt.
+# pip waehlt automatisch die zur Python-Version passende pyobjc-Release.
+pyobjc-core>=10.3 ; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10.3 ; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10.3 ; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices>=10.3 ; sys_platform == "darwin"

@@ -3,6 +3,8 @@
 import logging
 import subprocess
 
+from src.platform_utils import SUBPROCESS_FLAGS, IS_MAC
+
 log = logging.getLogger(__name__)
 
 # whisper.cpp pre-built binaries fuer verschiedene GPUs
@@ -16,6 +18,7 @@ BACKEND_NAMES = {
     "nvidia": "CUDA 12.4",
     "amd": "Vulkan",
     "cpu": "CPU (BLAS)",
+    "metal": "Metal",
 }
 
 # DLLs die auf den korrekten Backend hinweisen
@@ -32,7 +35,7 @@ def _try_wmic() -> str | None:
         result = subprocess.run(
             ["wmic", "path", "win32_videocontroller", "get", "name"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=5, creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=5, creationflags=SUBPROCESS_FLAGS,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout
@@ -48,7 +51,7 @@ def _try_powershell() -> str | None:
             ["powershell", "-NoProfile", "-Command",
              "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=10, creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=10, creationflags=SUBPROCESS_FLAGS,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout
@@ -63,6 +66,10 @@ def detect_gpu() -> tuple[str, str]:
     gpu_type: 'nvidia', 'amd', oder 'cpu'
     gpu_name: z.B. 'NVIDIA GeForce RTX 4070' oder 'AMD Radeon RX 6750 XT'
     """
+    if IS_MAC:
+        # macOS: whisper.cpp (Homebrew) nutzt Metal automatisch; kein WMI/PowerShell.
+        return ("metal", "Apple GPU (Metal)")
+
     output = _try_wmic()
     if not output:
         log.info("wmic nicht verfuegbar, versuche PowerShell...")

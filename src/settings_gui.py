@@ -29,6 +29,48 @@ MODEL_LABELS = {
 }
 
 
+def _fmt_eta(seconds: float) -> str:
+    if seconds < 90:
+        return f"~{int(seconds)} s"
+    return f"~{int(round(seconds / 60))} min"
+
+
+class Tooltip:
+    """Hover-Tooltip im Card-Design (tkinter-Toplevel, randlos)."""
+
+    def __init__(self, widget, text: str):
+        self.widget = widget
+        self.text = text
+        self._tip = None
+        try:
+            widget.bind("<Enter>", self._show, add="+")
+            widget.bind("<Leave>", self._hide, add="+")
+            widget.bind("<ButtonPress>", self._hide, add="+")
+        except NotImplementedError:
+            # CTkSegmentedButton & Co. unterstuetzen bind() nicht — dann eben
+            # kein Tooltip fuer dieses Widget
+            pass
+
+    def _show(self, _e=None):
+        if self._tip is not None:
+            return
+        import tkinter as tk
+        self._tip = tk.Toplevel(self.widget)
+        self._tip.overrideredirect(True)
+        self._tip.attributes("-topmost", True)
+        tk.Label(self._tip, text=self.text, bg=BRAND["card_hover"], fg=BRAND["text"],
+                 font=(FONT_BODY, 10), justify="left", padx=10, pady=6,
+                 wraplength=300).pack()
+        x = self.widget.winfo_rootx() + 10
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self._tip.geometry(f"+{x}+{y}")
+
+    def _hide(self, _e=None):
+        if self._tip is not None:
+            self._tip.destroy()
+            self._tip = None
+
+
 class SettingsWindow:
 
     def __init__(self, config, gpu_info, backend_name, available_devices):
@@ -60,7 +102,8 @@ class SettingsWindow:
         self.root.attributes("-topmost", True)
         self.root.configure(fg_color=BRAND["bg"])
 
-        w, h = 440, 780
+        w = 440
+        h = min(820, self.root.winfo_screenheight() - 80)
         sx = (self.root.winfo_screenwidth() - w) // 2
         sy = (self.root.winfo_screenheight() - h) // 2
         self.root.geometry(f"{w}x{h}+{sx}+{sy}")
@@ -86,11 +129,19 @@ class SettingsWindow:
                       hover_color=BRAND["red"], corner_radius=14,
                       command=self._cancel).pack(side="right")
 
-        ctk.CTkLabel(inner, text=f"{self.backend_name}  ·  {self.gpu_name or 'CPU'}",
-                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"]
-                     ).pack(anchor="w", padx=24, pady=(2, 16))
+        # Backend-Info als Pill-Badge (hazii.org-Stil)
+        badge = ctk.CTkFrame(inner, fg_color=BRAND["card"], corner_radius=12,
+                             border_width=1, border_color=BRAND["border"])
+        badge.pack(anchor="w", padx=24, pady=(2, 16))
+        ctk.CTkLabel(badge, text=f"{self.backend_name}  ·  {self.gpu_name or 'CPU'}",
+                     font=(FONT_MONO, 11), text_color=BRAND["text_dim"]
+                     ).pack(padx=10, pady=2)
 
-        c = ctk.CTkFrame(inner, fg_color="transparent")
+        # Auf kleinen Bildschirmen scrollbar statt abgeschnitten
+        if h < 820:
+            c = ctk.CTkScrollableFrame(inner, fg_color="transparent")
+        else:
+            c = ctk.CTkFrame(inner, fg_color="transparent")
         c.pack(fill="both", expand=True, padx=24)
 
         # HOTKEY
@@ -157,13 +208,32 @@ class SettingsWindow:
                                text_color=BRAND["text_bright"], fg_color=BRAND["card"],
                                corner_radius=8).pack(fill="x", pady=(0, 14))
 
-        # NACHBEARBEITUNG
-        self._heading(c, "Nachbearbeitung")
+        # NACHBEARBEITUNG — einklappbar (optional, braucht Ollama)
+        self._ollama_collapsed = self.config.get("post_processing_mode", "off") == "off"
+        self._ollama_header = ctk.CTkFrame(c, fg_color="transparent", cursor="hand2")
+        self._ollama_header.pack(fill="x", pady=(0, 4))
+        self._ollama_arrow = ctk.CTkLabel(
+            self._ollama_header, text="▾" if not self._ollama_collapsed else "▸",
+            font=(FONT_BODY, 12, "bold"), text_color=BRAND["text_dim"], width=14)
+        self._ollama_arrow.pack(side="left")
+        header_lbl = ctk.CTkLabel(self._ollama_header, text="NACHBEARBEITUNG (OPTIONAL)",
+                                  font=(FONT_BODY, 12, "bold"), text_color=BRAND["text_dim"])
+        header_lbl.pack(side="left", padx=(4, 0))
+        for widget in (self._ollama_header, self._ollama_arrow, header_lbl):
+            widget.bind("<Button-1>", self._toggle_ollama_section)
+        Tooltip(header_lbl, "Korrigiert und formatiert den transkribierten Text "
+                            "lokal via Ollama (KI-Modell). Ohne Ollama funktioniert "
+                            "VoZii ganz normal.")
+
+        self.ollama_container = ctk.CTkFrame(c, fg_color="transparent")
+        if not self._ollama_collapsed:
+            self.ollama_container.pack(fill="x", after=self._ollama_header)
+
         mode_map = {"off": "Aus", "smart": "Smart", "prompt": "Prompt"}
         current_mode = mode_map.get(self.config.get("post_processing_mode", "off"), "Aus")
         self.mode_var = ctk.StringVar(value=current_mode)
         self.mode_btn = ctk.CTkSegmentedButton(
-            c, values=["Aus", "Smart", "Prompt"], variable=self.mode_var,
+            self.ollama_container, values=["Aus", "Smart", "Prompt"], variable=self.mode_var,
             font=(FONT_BODY, 13), selected_color=BRAND["cyan"],
             selected_hover_color=BRAND["cyan_dim"], unselected_color=BRAND["card"],
             unselected_hover_color=BRAND["card_hover"],
@@ -171,9 +241,12 @@ class SettingsWindow:
             corner_radius=8,
         )
         self.mode_btn.pack(fill="x", pady=(0, 4))
+        Tooltip(self.mode_btn, "Smart: entfernt Fuellwoerter, korrigiert Grammatik, "
+                               "formatiert (Listen, Absaetze, Voice-Commands).\n"
+                               "Prompt: macht aus dem Gesprochenen einen praezisen AI-Prompt.")
 
         # Ollama Status-Row: Label + Mini-Button (Start/Stop)
-        self.ollama_status_row = ctk.CTkFrame(c, fg_color="transparent")
+        self.ollama_status_row = ctk.CTkFrame(self.ollama_container, fg_color="transparent")
         self.ollama_status_row.pack(fill="x", pady=(0, 2))
 
         self.ollama_status_label = ctk.CTkLabel(
@@ -192,16 +265,18 @@ class SettingsWindow:
         )
         # Wird in _render_ollama_section() gepackt je nach state
 
+        Tooltip(self.ollama_mini_btn, "Ollama-Prozess starten (▶) bzw. stoppen (■)")
+
         # Action-Button (Install/Start/Pull) - nur wenn noetig
         self.ollama_action_btn = ctk.CTkButton(
-            c, text="", height=34, font=(FONT_BODY, 13, "bold"),
+            self.ollama_container, text="", height=34, font=(FONT_BODY, 13, "bold"),
             fg_color=BRAND["cyan"], text_color=BRAND["bg"],
             hover_color=BRAND["cyan_dim"], corner_radius=8,
             command=self._handle_ollama_action,
         )
 
         # Download-Container (erscheint waehrend Install/Pull)
-        self.ollama_dl_frame = ctk.CTkFrame(c, fg_color="transparent")
+        self.ollama_dl_frame = ctk.CTkFrame(self.ollama_container, fg_color="transparent")
 
         # Grosse Prozent-Anzeige
         self.ollama_percent_label = ctk.CTkLabel(
@@ -251,18 +326,57 @@ class SettingsWindow:
                     cur_dev = d["name"]
                     break
         self.mic_var = ctk.StringVar(value=cur_dev)
-        ctk.CTkOptionMenu(c, values=devs, variable=self.mic_var, font=(FONT_BODY, 13),
-                          fg_color=BRAND["card"], button_color=BRAND["card_hover"],
+        mic_row = ctk.CTkFrame(c, fg_color="transparent")
+        mic_row.pack(fill="x", pady=(0, 4))
+        ctk.CTkOptionMenu(mic_row, values=devs, variable=self.mic_var, font=(FONT_BODY, 13),
+                          width=280, fg_color=BRAND["card"], button_color=BRAND["card_hover"],
                           button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
                           dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
-                          text_color=BRAND["text"], corner_radius=8).pack(fill="x", pady=(0, 14))
+                          text_color=BRAND["text"], corner_radius=8).pack(side="left")
+        self._mic_testing = False
+        self.mic_test_btn = ctk.CTkButton(
+            mic_row, text="Testen", width=80, height=30, font=(FONT_BODY, 12),
+            fg_color=BRAND["card"], text_color=BRAND["text"],
+            hover_color=BRAND["card_hover"], corner_radius=8,
+            border_width=1, border_color=BRAND["border"],
+            command=self._test_microphone)
+        self.mic_test_btn.pack(side="right")
+        Tooltip(self.mic_test_btn, "3 Sekunden aufnehmen und den Pegel anzeigen — "
+                                   "so weisst du sofort, ob das Mikrofon funktioniert.")
+
+        # Live-Pegel waehrend des Tests
+        self.mic_level = ctk.CTkProgressBar(c, progress_color=BRAND["cyan"],
+                                            fg_color=BRAND["card"], height=4, corner_radius=2)
+        self.mic_level.pack(fill="x", pady=(4, 2))
+        self.mic_level.set(0)
+        self.mic_test_label = ctk.CTkLabel(c, text="", font=(FONT_BODY, 11),
+                                           text_color=BRAND["text_dim"], height=16)
+        self.mic_test_label.pack(anchor="w", pady=(0, 10))
 
         # OPTIONS
         self.overlay_var = ctk.BooleanVar(value=self.config.get("show_overlay", True))
-        ctk.CTkSwitch(c, text="Recording-Indikator", variable=self.overlay_var,
+        ov_switch = ctk.CTkSwitch(c, text="Status-Anzeige (unten rechts)", variable=self.overlay_var,
+                      font=(FONT_BODY, 13), text_color=BRAND["text"],
+                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
+                      button_hover_color=BRAND["text"])
+        ov_switch.pack(anchor="w", pady=(0, 6))
+        Tooltip(ov_switch, "Kleines Overlay, das Aufnahme/Transkription anzeigt — "
+                           "auf dem Monitor, auf dem die Maus steht.")
+
+        self.sound_var = ctk.BooleanVar(value=self.config.get("audio_feedback", True))
+        ctk.CTkSwitch(c, text="Ton-Feedback (Start/Fertig)", variable=self.sound_var,
                       font=(FONT_BODY, 13), text_color=BRAND["text"],
                       progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
                       button_hover_color=BRAND["text"]).pack(anchor="w", pady=(0, 6))
+
+        self.clipres_var = ctk.BooleanVar(value=self.config.get("restore_clipboard", True))
+        clip_switch = ctk.CTkSwitch(c, text="Zwischenablage wiederherstellen", variable=self.clipres_var,
+                      font=(FONT_BODY, 13), text_color=BRAND["text"],
+                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
+                      button_hover_color=BRAND["text"])
+        clip_switch.pack(anchor="w", pady=(0, 6))
+        Tooltip(clip_switch, "Stellt nach dem Einfuegen den vorherigen Inhalt der "
+                             "Zwischenablage wieder her. Diktate findest du in der Historie.")
 
         self.autostart_var = ctk.BooleanVar(value=self.config.get("auto_start", False))
         ctk.CTkSwitch(c, text="Mit Windows starten", variable=self.autostart_var,
@@ -295,6 +409,68 @@ class SettingsWindow:
 
         self.root.mainloop()
         return self._result
+
+    # --- Mikrofontest ---
+
+    def _test_microphone(self):
+        """3s aufnehmen, Live-Pegel zeigen, Ergebnis melden."""
+        if self._mic_testing:
+            return
+        self._mic_testing = True
+        self.mic_test_btn.configure(state="disabled", text="3s ...")
+        self.mic_test_label.configure(text="Sprich jetzt ins Mikrofon...",
+                                      text_color=BRAND["text_dim"])
+
+        device_index = None
+        if self.mic_var.get() != "Standard":
+            for d in self.available_devices:
+                if d["name"] == self.mic_var.get():
+                    device_index = d["index"]
+                    break
+
+        def run():
+            import time
+
+            import numpy as np
+            import sounddevice as sd
+
+            peak = [0.0]
+
+            def cb(indata, frames, t, status):
+                rms = float(np.sqrt(np.mean(np.square(indata))))
+                peak[0] = max(peak[0], rms)
+                # 0.125 rms ~ Vollausschlag; normale Sprache landet gut sichtbar
+                level = min(1.0, rms * 8)
+                self.root.after(0, lambda v=level: self.mic_level.set(v))
+
+            try:
+                with sd.InputStream(device=device_index, channels=1,
+                                    dtype="float32", callback=cb):
+                    time.sleep(3)
+                if peak[0] > 0.005:
+                    msg, color = "Signal OK — Mikrofon funktioniert", BRAND["green"]
+                else:
+                    msg, color = "Kein Signal — anderes Geraet versuchen?", BRAND["red"]
+            except Exception as e:
+                msg, color = f"Fehler: {e}", BRAND["red"]
+            self.root.after(0, lambda: self._mic_test_done(msg, color))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _mic_test_done(self, msg, color):
+        self._mic_testing = False
+        self.mic_test_btn.configure(state="normal", text="Testen")
+        self.mic_test_label.configure(text=msg, text_color=color)
+        self.mic_level.set(0)
+
+    def _toggle_ollama_section(self, _e=None):
+        self._ollama_collapsed = not self._ollama_collapsed
+        if self._ollama_collapsed:
+            self.ollama_container.pack_forget()
+            self._ollama_arrow.configure(text="▸")
+        else:
+            self.ollama_container.pack(fill="x", after=self._ollama_header)
+            self._ollama_arrow.configure(text="▾")
 
     def _hist_clear_label(self) -> str:
         from src.history import TranscriptionHistory
@@ -391,16 +567,22 @@ class SettingsWindow:
     def _checked_progress(self, dl, total, speed_bps=0):
         if self._cancel_download.is_set(): raise InterruptedError
         f = dl / total if total else 0
+        eta = ""
+        if speed_bps > 0 and total > dl:
+            eta = f"  ·  {speed_bps / 1048576:.1f} MB/s  ·  {_fmt_eta((total - dl) / speed_bps)}"
+        text = f"{dl // 1048576} / {total // 1048576} MB{eta}"
         self.root.after(0, lambda: self.progress.set(f))
-        self.root.after(0, lambda: self.progress_text.configure(
-            text=f"{dl // 1048576} / {total // 1048576} MB"))
+        self.root.after(0, lambda: self.progress_text.configure(text=text))
 
     def _msg(self, t):
         self.root.after(0, lambda: self.progress_text.configure(text=t, text_color=BRAND["text_dim"]))
 
     def _dl_done(self):
         self.progress.set(1.0)
-        self.progress_text.configure(text="Fertig!", text_color=BRAND["green"])
+        hotkey = self.config.get("hotkey", "ctrl+shift+space").upper().replace("+", " + ")
+        self.progress_text.configure(
+            text=f"Fertig! Starten, dann {hotkey} druecken und sprechen.",
+            text_color=BRAND["green"])
         self._update_dl_button()
 
     def _dl_fail(self, msg):
@@ -680,6 +862,12 @@ class SettingsWindow:
 
     # Save / Cancel
     def _save(self):
+        # Validierung: ohne Binary + Modell laeuft nichts — nicht erst beim
+        # Start crashen, sondern hier klar sagen was fehlt
+        if not (is_binary_installed() and is_model_installed(self._get_model_size())):
+            self._dl_fail("Modell fehlt — bitte erst auf Download klicken")
+            return
+
         lang_map = {"Deutsch": "de", "English": "en", "Auto": "auto"}
         mode_reverse = {"Aus": "off", "Smart": "smart", "Prompt": "prompt"}
         self.config.update({
@@ -691,6 +879,8 @@ class SettingsWindow:
             "post_processing_mode": mode_reverse.get(self.mode_var.get(), "off"),
             "performance_mode": "quality" if self.perf_var.get() == "Genau" else "speed",
             "history_enabled": self.history_var.get(),
+            "audio_feedback": self.sound_var.get(),
+            "restore_clipboard": self.clipres_var.get(),
         })
         self._result = self.config
         self._stop_listeners()

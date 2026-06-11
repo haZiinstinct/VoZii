@@ -49,10 +49,6 @@ Alle bleiben unter ihrer jeweiligen Lizenz.
 - **Lizenz:** BSD 3-Clause
 - **URL:** https://numpy.org
 
-### scipy
-- **Lizenz:** BSD 3-Clause
-- **URL:** https://scipy.org
-
 ### Pillow (PIL)
 - **Lizenz:** HPND (Historical Permission Notice and Disclaimer)
 - **URL:** https://python-pillow.org
@@ -93,8 +89,18 @@ Alle bleiben unter ihrer jeweiligen Lizenz.
 
 ## Fonts
 
-VoZii verwendet keine custom Fonts. Die UI nutzt Windows System Fonts
-(Segoe UI, Consolas).
+Gebuendelt unter `assets/fonts/`, zur Laufzeit privat geladen (keine
+Installation). Fallback auf Windows System Fonts (Segoe UI, Consolas).
+
+### Inter
+- **Autor:** Rasmus Andersson
+- **Lizenz:** SIL Open Font License 1.1
+- **URL:** https://github.com/rsms/inter
+
+### JetBrains Mono
+- **Autor:** JetBrains
+- **Lizenz:** SIL Open Font License 1.1
+- **URL:** https://github.com/JetBrains/JetBrainsMono
 
 ---
 

@@ -353,6 +353,12 @@ def _run_cycle(skip_settings: bool = False) -> str:
         on_open_log=on_open_log,
         history=history,
     )
+    # First-Run: einmalig zeigen, wie es losgeht
+    if overlay and not config.get("first_run_done", False):
+        overlay.flash(f"READY: {config['hotkey'].upper()}", 6000)
+        config["first_run_done"] = True
+        save_config(config)
+
     log.info("VoZii laeuft")
     tray.run()
 

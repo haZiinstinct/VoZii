@@ -21,6 +21,7 @@ def build():
         "--name", "VoZii",
         "--icon", os.path.join(BASE_DIR, "src", "vozii.ico"),
         "--add-data", f"{os.path.join(BASE_DIR, 'config.default.yaml')};.",
+        "--add-data", f"{os.path.join(BASE_DIR, 'assets', 'fonts')};assets/fonts",
         # tkinter — wird von customtkinter UND settings_gui.py gebraucht
         "--hidden-import", "tkinter",
         "--hidden-import", "tkinter.ttk",

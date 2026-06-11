@@ -10,8 +10,8 @@ from src import __version__
 from src.theme import BRAND, FONT_BODY, FONT_MONO
 from src.hotkey import key_to_name, mouse_button_to_name
 from src.downloader import (
-    is_binary_installed, is_model_installed,
-    download_and_extract_binary, download_model,
+    is_binary_installed, is_model_installed, is_server_available,
+    download_and_extract_binary, download_model, ensure_server_binary,
 )
 from src.text_processor import (
     get_ollama_state, install_ollama, pull_model,
@@ -60,7 +60,7 @@ class SettingsWindow:
         self.root.attributes("-topmost", True)
         self.root.configure(fg_color=BRAND["bg"])
 
-        w, h = 440, 680
+        w, h = 440, 740
         sx = (self.root.winfo_screenwidth() - w) // 2
         sy = (self.root.winfo_screenheight() - h) // 2
         self.root.geometry(f"{w}x{h}+{sx}+{sy}")
@@ -139,6 +139,18 @@ class SettingsWindow:
         lang_map = {"de": "Deutsch", "en": "English", "auto": "Auto"}
         self.lang_var = ctk.StringVar(value=lang_map.get(self.config["language"], "Deutsch"))
         ctk.CTkSegmentedButton(c, values=["Deutsch", "English", "Auto"], variable=self.lang_var,
+                               font=(FONT_BODY, 13), selected_color=BRAND["cyan"],
+                               selected_hover_color=BRAND["cyan_dim"], unselected_color=BRAND["card"],
+                               unselected_hover_color=BRAND["card_hover"],
+                               text_color=BRAND["text_bright"], fg_color=BRAND["card"],
+                               corner_radius=8).pack(fill="x", pady=(0, 14))
+
+        # TRANSKRIPTION (Beam-Search: schnell vs. genau)
+        self._heading(c, "Transkription")
+        perf_map = {"speed": "Schnell", "quality": "Genau"}
+        self.perf_var = ctk.StringVar(
+            value=perf_map.get(self.config.get("performance_mode", "speed"), "Schnell"))
+        ctk.CTkSegmentedButton(c, values=["Schnell", "Genau"], variable=self.perf_var,
                                font=(FONT_BODY, 13), selected_color=BRAND["cyan"],
                                selected_hover_color=BRAND["cyan_dim"], unselected_color=BRAND["card"],
                                unselected_hover_color=BRAND["card_hover"],
@@ -287,7 +299,12 @@ class SettingsWindow:
 
     def _update_dl_button(self):
         ok = is_binary_installed() and is_model_installed(self._get_model_size())
-        if ok:
+        if ok and not is_server_available():
+            # Bestandsnutzer: whisper-server.exe fehlt noch (beschleunigt
+            # Transkription deutlich) — als Update anbieten
+            self.dl_btn.configure(text="Update", state="normal",
+                                  fg_color=BRAND["cyan"], text_color=BRAND["bg"])
+        elif ok:
             self.dl_btn.configure(text="Bereit ✓", state="disabled",
                                   fg_color=BRAND["card"], text_color=BRAND["green"])
         else:
@@ -310,6 +327,9 @@ class SettingsWindow:
                 if not is_binary_installed():
                     self._msg("Lade whisper.cpp...")
                     download_and_extract_binary(self.gpu_type, self._checked_progress)
+                elif not is_server_available():
+                    self._msg("Lade whisper-server (Beschleunigung)...")
+                    ensure_server_binary(self.gpu_type, self._checked_progress)
                 if self._cancel_download.is_set(): raise InterruptedError
                 if not is_model_installed(size):
                     self._msg(f"Lade Modell '{size}'...")
@@ -628,6 +648,7 @@ class SettingsWindow:
             "auto_start": self.autostart_var.get(),
             "audio_device": None if self.mic_var.get() == "Standard" else self.mic_var.get(),
             "post_processing_mode": mode_reverse.get(self.mode_var.get(), "off"),
+            "performance_mode": "quality" if self.perf_var.get() == "Genau" else "speed",
         })
         self._result = self.config
         self._stop_listeners()

@@ -149,6 +149,8 @@ def _run_cycle() -> str:
     transcriber = Transcriber(
         model_size=config["model_size"],
         language=config["language"],
+        performance_mode=config.get("performance_mode", "speed"),
+        use_server=config.get("use_server", True),
     )
     text_processor = TextProcessor(
         mode=config.get("post_processing_mode", "off"),
@@ -164,6 +166,10 @@ def _run_cycle() -> str:
 
     log.info("Transcriber: %s", transcriber.get_status())
     log.info("Hotkey: %s", config["hotkey"])
+
+    # Server-Backend im Hintergrund vorwaermen (Modell laden), damit die
+    # erste Transkription nicht darauf warten muss
+    threading.Thread(target=transcriber.warmup, daemon=True).start()
 
     overlay = None
     if config.get("show_overlay", True):
@@ -253,6 +259,7 @@ def _run_cycle() -> str:
     def on_quit():
         shutdown_event.set()
         hotkey_mgr.stop()
+        transcriber.shutdown()
         if overlay:
             overlay.stop()
 
@@ -288,6 +295,7 @@ def _run_cycle() -> str:
     tray.run()
 
     shutdown_event.set()
+    transcriber.shutdown()
 
     if return_to_settings.is_set():
         return "settings"

@@ -223,6 +223,8 @@ def ensure_server_binary(gpu_type, progress_callback=None) -> bool:
         download_file(url, zip_path, progress_callback,
                       expected_sha256=get_binary_sha256(gpu_type))
         _extract_binaries(zip_path, want_cli=False, want_server=True, with_dlls=False)
+    except InterruptedError:
+        raise  # Abbruch durch den Nutzer durchreichen
     except Exception as e:
         log.warning("whisper-server.exe nachladen fehlgeschlagen (CLI-Modus bleibt): %s", e)
         return False

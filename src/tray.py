@@ -1,7 +1,9 @@
 """VoZii System Tray — haZii Design."""
 
-from PIL import Image, ImageDraw
+import pyperclip
 import pystray
+from PIL import Image, ImageDraw
+
 from src.state import AppState
 from src.theme import BRAND
 
@@ -39,7 +41,7 @@ def _create_icon(color, size=64):
 
 class TrayApp:
     def __init__(self, state_manager, on_quit, hotkey_str="", backend_name="",
-                 mic_name="", on_open_settings=None, on_open_log=None):
+                 mic_name="", on_open_settings=None, on_open_log=None, history=None):
         self.state_manager = state_manager
         self.on_quit = on_quit
         self.hotkey_str = hotkey_str
@@ -47,6 +49,7 @@ class TrayApp:
         self.mic_name = mic_name
         self.on_open_settings = on_open_settings
         self.on_open_log = on_open_log
+        self.history = history
         self._icons = {s: _create_icon(c) for s, c in STATE_COLORS.items()}
         self._icon = None
 
@@ -64,12 +67,33 @@ class TrayApp:
             mic_display = self.mic_name if len(self.mic_name) <= 35 else self.mic_name[:32] + "..."
             items.append(pystray.MenuItem(f"Mikrofon: {mic_display}", None, enabled=False))
         items.append(pystray.Menu.SEPARATOR)
+        history_menu = self._build_history_menu()
+        if history_menu is not None:
+            items.append(pystray.MenuItem("Letzte Transkriptionen", history_menu))
         if self.on_open_settings:
             items.append(pystray.MenuItem("Einstellungen", self._open_settings))
         if self.on_open_log:
             items.append(pystray.MenuItem("Log oeffnen", self._open_log))
         items.append(pystray.MenuItem("Beenden", self._quit))
         return pystray.Menu(*items)
+
+    def _build_history_menu(self):
+        """Submenu mit den letzten 5 Transkriptionen — Klick kopiert den Volltext."""
+        if self.history is None:
+            return None
+        entries = self.history.get_recent(5)
+        if not entries:
+            return pystray.Menu(pystray.MenuItem("(leer)", None, enabled=False))
+        sub = []
+        for entry in entries:
+            label = " ".join(entry["text"].split())
+            if len(label) > 40:
+                label = label[:37] + "..."
+            sub.append(pystray.MenuItem(
+                label,
+                lambda icon, item, t=entry["text"]: pyperclip.copy(t),
+            ))
+        return pystray.Menu(*sub)
 
     def _open_settings(self, icon, item):
         if self.on_open_settings:
@@ -90,6 +114,8 @@ class TrayApp:
     def _on_state_change(self, new_state):
         if self._icon:
             self._icon.icon = self._icons.get(new_state, self._icons[AppState.IDLE])
+            # Menu neu bauen, damit Status-Label und Historie aktuell sind
+            self._icon.menu = self._build_menu()
             self._icon.update_menu()
 
     def run(self):

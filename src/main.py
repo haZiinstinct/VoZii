@@ -23,6 +23,7 @@ from src.hardware import detect_gpu_cached, get_backend_name
 from src.overlay import RecordingOverlay
 from src.text_processor import TextProcessor
 from src.filters import is_hallucination
+from src.history import TranscriptionHistory
 
 log = logging.getLogger(__name__)
 
@@ -178,6 +179,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
         model=config.get("ollama_model", "llama3.2:3b"),
     )
     log.info("Post-processing: %s", text_processor.mode)
+    history = TranscriptionHistory() if config.get("history_enabled", True) else None
 
     if not transcriber.is_ready():
         status = transcriber.get_status()
@@ -275,6 +277,8 @@ def _run_cycle(skip_settings: bool = False) -> str:
                     text = text_processor.process(text)
                 if text:
                     log.info("Transkribiert: %d Zeichen", len(text))
+                    if history:
+                        history.add(text)
                     inserted = insert_text(
                         text, restore_clipboard=config.get("restore_clipboard", True))
                     if inserted:
@@ -347,6 +351,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
         mic_name=recorder.device_name,
         on_open_settings=on_open_settings,
         on_open_log=on_open_log,
+        history=history,
     )
     log.info("VoZii laeuft")
     tray.run()

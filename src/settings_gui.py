@@ -60,7 +60,7 @@ class SettingsWindow:
         self.root.attributes("-topmost", True)
         self.root.configure(fg_color=BRAND["bg"])
 
-        w, h = 440, 740
+        w, h = 440, 780
         sx = (self.root.winfo_screenwidth() - w) // 2
         sy = (self.root.winfo_screenheight() - h) // 2
         self.root.geometry(f"{w}x{h}+{sx}+{sy}")
@@ -268,7 +268,24 @@ class SettingsWindow:
         ctk.CTkSwitch(c, text="Mit Windows starten", variable=self.autostart_var,
                       font=(FONT_BODY, 13), text_color=BRAND["text"],
                       progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
-                      button_hover_color=BRAND["text"]).pack(anchor="w", pady=(0, 16))
+                      button_hover_color=BRAND["text"]).pack(anchor="w", pady=(0, 6))
+
+        # Historie: Switch + Loeschen-Button (zweistufig statt Dialog)
+        self.history_var = ctk.BooleanVar(value=self.config.get("history_enabled", True))
+        hist_row = ctk.CTkFrame(c, fg_color="transparent")
+        hist_row.pack(fill="x", pady=(0, 16))
+        ctk.CTkSwitch(hist_row, text="Transkriptions-Historie", variable=self.history_var,
+                      font=(FONT_BODY, 13), text_color=BRAND["text"],
+                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
+                      button_hover_color=BRAND["text"]).pack(side="left")
+        self._hist_confirm = False
+        self.hist_clear_btn = ctk.CTkButton(
+            hist_row, text=self._hist_clear_label(), width=110, height=26,
+            font=(FONT_BODY, 11), fg_color="transparent",
+            text_color=BRAND["text_dim"], border_width=1,
+            border_color=BRAND["border"], hover_color=BRAND["card_hover"],
+            corner_radius=8, command=self._clear_history)
+        self.hist_clear_btn.pack(side="right")
 
         # START
         ctk.CTkButton(c, text="Starten", height=44, font=(FONT_BODY, 16, "bold"),
@@ -278,6 +295,30 @@ class SettingsWindow:
 
         self.root.mainloop()
         return self._result
+
+    def _hist_clear_label(self) -> str:
+        from src.history import TranscriptionHistory
+        try:
+            return f"Loeschen ({TranscriptionHistory().count()})"
+        except Exception:
+            return "Loeschen"
+
+    def _clear_history(self):
+        """Zweistufig: erster Klick fragt, zweiter loescht."""
+        from src.history import TranscriptionHistory
+        if not self._hist_confirm:
+            self._hist_confirm = True
+            self.hist_clear_btn.configure(text="Sicher?", text_color=BRAND["red"],
+                                          border_color=BRAND["red"])
+            return
+        try:
+            TranscriptionHistory().clear()
+        except Exception:
+            log.exception("Historie loeschen fehlgeschlagen")
+        self._hist_confirm = False
+        self.hist_clear_btn.configure(text=self._hist_clear_label(),
+                                      text_color=BRAND["text_dim"],
+                                      border_color=BRAND["border"])
 
     def _heading(self, parent, text):
         ctk.CTkLabel(parent, text=text.upper(), font=(FONT_BODY, 12, "bold"),
@@ -649,6 +690,7 @@ class SettingsWindow:
             "audio_device": None if self.mic_var.get() == "Standard" else self.mic_var.get(),
             "post_processing_mode": mode_reverse.get(self.mode_var.get(), "off"),
             "performance_mode": "quality" if self.perf_var.get() == "Genau" else "speed",
+            "history_enabled": self.history_var.get(),
         })
         self._result = self.config
         self._stop_listeners()

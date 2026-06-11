@@ -12,6 +12,14 @@ BINARY_URLS = {
     "cpu": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-blas-bin-x64.zip",
 }
 
+# SHA256 der Release-Zips (GitHub-Asset-Digests, gepinnt am 2026-06-11).
+# Aendert sich ein Upstream-Asset, schlaegt der Download bewusst fehl.
+BINARY_SHA256 = {
+    "nvidia": "b07cff4e59831b227896018facbb6334907bf324a342c84597c44f087823d252",
+    "amd": "a5d408c72e460433b39875f74a0b6e27e60a3724301d478fe9873db7ff4098e0",
+    "cpu": "d85e60bdba2dcb35cf42fd07c0cd1481ef6ca631f81872c1f2204ea8cdb7d001",
+}
+
 BACKEND_NAMES = {
     "nvidia": "CUDA 12.4",
     "amd": "Vulkan",
@@ -93,6 +101,10 @@ def detect_gpu() -> tuple[str, str]:
 
 def get_binary_url(gpu_type: str) -> str:
     return BINARY_URLS.get(gpu_type, BINARY_URLS["cpu"])
+
+
+def get_binary_sha256(gpu_type: str) -> str:
+    return BINARY_SHA256.get(gpu_type, BINARY_SHA256["cpu"])
 
 
 def get_backend_name(gpu_type: str) -> str:

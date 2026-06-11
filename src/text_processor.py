@@ -200,6 +200,33 @@ def start_ollama(ollama_path: str, timeout: int = 30) -> bool:
 
 # --- Ollama Installer mit Cancel + Speed ---
 
+def _verify_authenticode(path: str) -> bool:
+    """Prueft Code-Signatur des Installers: Status Valid + Aussteller Ollama.
+
+    Schutz davor, eine manipulierte Exe auszufuehren (der Installer-Download
+    hat keine veroeffentlichten Checksummen, die Signatur ist die Verifikation).
+    """
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"$s = Get-AuthenticodeSignature -LiteralPath '{path}'; "
+             "Write-Output $s.Status; Write-Output $s.SignerCertificate.Subject"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=60, creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
+        if len(lines) < 2 or lines[0] != "Valid":
+            log.error("Installer-Signatur ungueltig: %s", lines[:1] or "keine Ausgabe")
+            return False
+        if "ollama" not in lines[1].lower():
+            log.error("Installer-Signatur von unerwartetem Aussteller: %s", lines[1])
+            return False
+        return True
+    except Exception:
+        log.exception("Signaturpruefung fehlgeschlagen")
+        return False
+
+
 def install_ollama(progress_callback=None, cancel_event=None) -> bool:
     """Laedt den Ollama Windows-Installer und startet ihn.
 
@@ -225,6 +252,17 @@ def install_ollama(progress_callback=None, cancel_event=None) -> bool:
             try: os.remove(installer_path)
             except OSError: pass
         raise RuntimeError(f"Download fehlgeschlagen: {e}") from e
+
+    # Phase 1b: Signatur pruefen BEVOR irgendwas ausgefuehrt wird
+    if progress_callback:
+        progress_callback(0, 0, "Pruefe Signatur...", 0)
+    if not _verify_authenticode(installer_path):
+        try: os.remove(installer_path)
+        except OSError: pass
+        raise RuntimeError(
+            "Signaturpruefung des Ollama-Installers fehlgeschlagen — Download verworfen.\n"
+            "Bitte erneut versuchen oder Ollama manuell von ollama.com installieren."
+        )
 
     # Phase 2: Installer starten (User sieht Wizard)
     if progress_callback:

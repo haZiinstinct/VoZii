@@ -327,7 +327,7 @@ class SettingsWindow:
 
         threading.Thread(target=run, daemon=True).start()
 
-    def _checked_progress(self, dl, total):
+    def _checked_progress(self, dl, total, speed_bps=0):
         if self._cancel_download.is_set(): raise InterruptedError
         f = dl / total if total else 0
         self.root.after(0, lambda: self.progress.set(f))

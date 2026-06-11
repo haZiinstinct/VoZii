@@ -9,3 +9,8 @@ build/
 *.spec
 config.yaml
 .claude/
+tmp/
+vozii.log*
+history.json
+.pytest_cache/
+.ruff_cache/

@@ -1,6 +1,5 @@
 import logging
 import os
-import tempfile
 import threading
 import uuid
 
@@ -8,6 +7,8 @@ import numpy as np
 import sounddevice as sd
 from scipy.io import wavfile
 from scipy.signal import resample_poly
+
+from src.paths import TMP_DIR
 
 log = logging.getLogger(__name__)
 
@@ -150,8 +151,9 @@ class AudioRecorder:
             audio = resample_poly(audio, SAMPLE_RATE, self._actual_rate).astype(np.float32)
 
         audio_int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
+        os.makedirs(TMP_DIR, exist_ok=True)
         tmp_path = os.path.join(
-            tempfile.gettempdir(),
+            TMP_DIR,
             f"vozii_rec_{os.getpid()}_{self._session_id}.wav",
         )
         wavfile.write(tmp_path, SAMPLE_RATE, audio_int16)

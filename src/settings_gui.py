@@ -1,7 +1,6 @@
 """VoZii Settings — Clean, minimal, borderless, haZii Design."""
 
 import logging
-import os
 import threading
 
 import customtkinter as ctk
@@ -15,7 +14,7 @@ from src.downloader import (
     download_and_extract_binary, download_model,
 )
 from src.text_processor import (
-    check_ollama, get_ollama_state, install_ollama, pull_model,
+    get_ollama_state, install_ollama, pull_model,
     is_ollama_installed, start_ollama, stop_ollama, DEFAULT_MODEL,
 )
 
@@ -320,7 +319,9 @@ class SettingsWindow:
             except InterruptedError:
                 self.root.after(0, lambda: self._dl_fail("Abgebrochen"))
             except Exception as e:
-                self.root.after(0, lambda: self._dl_fail(str(e)))
+                # str(e) vor dem Lambda binden — e ist nach dem except-Block weg
+                msg = str(e)
+                self.root.after(0, lambda m=msg: self._dl_fail(m))
             finally:
                 self._downloading = False
 
@@ -480,7 +481,8 @@ class SettingsWindow:
             except InterruptedError:
                 self.root.after(0, lambda: self._ollama_action_fail("Abgebrochen"))
             except Exception as e:
-                self.root.after(0, lambda: self._ollama_action_fail(str(e)))
+                msg = str(e)
+                self.root.after(0, lambda m=msg: self._ollama_action_fail(m))
 
         threading.Thread(target=run, daemon=True).start()
 

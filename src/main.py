@@ -9,7 +9,7 @@ if not getattr(sys, "frozen", False):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import __version__
-from src.paths import BASE_DIR
+from src.paths import TMP_DIR
 from src.logger import setup_logging, acquire_single_instance, get_log_path
 from src.state import AppState, StateManager
 from src.config import load_config, save_config
@@ -48,8 +48,41 @@ def play_tone(freq: int, duration_ms: int):
         pass
 
 
+def _enable_dpi_awareness():
+    """Per-Monitor-V2-DPI, sonst unscharfes/falsch skaliertes Overlay auf High-DPI.
+
+    CustomTkinter setzt das zwar selbst beim ersten CTk(), aber der
+    --autostart-Pfad laeuft ohne Settings-Fenster — daher explizit und frueh.
+    """
+    import ctypes
+    try:
+        # Windows 10 1703+: DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
+    except Exception:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            pass
+
+
+def _clean_tmp_dir():
+    """Loescht liegengebliebene Aufnahme-WAVs frueherer Sessions."""
+    try:
+        if not os.path.isdir(TMP_DIR):
+            return
+        for name in os.listdir(TMP_DIR):
+            if name.startswith("vozii_rec_") and name.endswith(".wav"):
+                try:
+                    os.remove(os.path.join(TMP_DIR, name))
+                except OSError:
+                    pass
+    except Exception:
+        log.exception("Temp-Cleanup fehlgeschlagen")
+
+
 def main():
     """Hauptschleife: Settings → Run → Fehler/Stop → zurueck zu Settings."""
+    _enable_dpi_awareness()
     setup_logging()
     log.info("=" * 40)
     log.info("VoZii %s Start (PID %d)", __version__, os.getpid())
@@ -58,6 +91,8 @@ def main():
         show_error("VoZii", "VoZii laeuft bereits.\n\nPruefe das Tray-Icon unten rechts.")
         log.warning("Zweite Instanz blockiert")
         return
+
+    _clean_tmp_dir()
 
     while True:
         try:

@@ -224,7 +224,7 @@ def install_ollama(progress_callback=None, cancel_event=None) -> bool:
         if os.path.exists(installer_path):
             try: os.remove(installer_path)
             except OSError: pass
-        raise RuntimeError(f"Download fehlgeschlagen: {e}")
+        raise RuntimeError(f"Download fehlgeschlagen: {e}") from e
 
     # Phase 2: Installer starten (User sieht Wizard)
     if progress_callback:
@@ -234,7 +234,7 @@ def install_ollama(progress_callback=None, cancel_event=None) -> bool:
         subprocess.Popen([installer_path])
     except Exception as e:
         log.error("Installer-Start fehlgeschlagen: %s", e)
-        raise RuntimeError(f"Installer-Start fehlgeschlagen: {e}")
+        raise RuntimeError(f"Installer-Start fehlgeschlagen: {e}") from e
 
     # Phase 3: Warte bis API erreichbar (mit Cancel)
     if progress_callback:

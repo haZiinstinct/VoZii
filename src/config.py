@@ -20,10 +20,66 @@ DEFAULT_CONFIG = {
     "auto_start": False,
     "post_processing_mode": "off",
     "ollama_model": "llama3.2:3b",
+    "performance_mode": "speed",
+    "use_server": True,
+    "restore_clipboard": True,
+    "history_enabled": True,
+    "gpu_cache_type": None,
+    "gpu_cache_name": None,
+    "first_run_done": False,
+}
+
+# Erlaubte Werte je Key. None-Eintrag = Key darf None sein.
+_ALLOWED_VALUES = {
+    "mode": {"push_to_talk", "toggle"},
+    "language": {"de", "en", "auto"},
+    "model_size": {"tiny", "small", "medium"},
+    "gpu_type": {"auto", "nvidia", "amd", "cpu"},
+    "post_processing_mode": {"off", "smart", "prompt"},
+    "performance_mode": {"speed", "quality"},
+}
+
+_BOOL_KEYS = {
+    "audio_feedback", "show_overlay", "auto_start", "use_server",
+    "restore_clipboard", "history_enabled", "first_run_done",
 }
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
 DEFAULT_CONFIG_PATH = os.path.join(BASE_DIR, "config.default.yaml")
+
+
+def _is_valid_hotkey(hotkey_str) -> bool:
+    """Strukturelle Pruefung ohne pynput-Import: 'ctrl+shift+space', 'mouse4', 'f5'."""
+    if not isinstance(hotkey_str, str) or not hotkey_str.strip():
+        return False
+    parts = [p.strip() for p in hotkey_str.split("+")]
+    return all(p and all(c.isalnum() or c == "_" for c in p) for p in parts)
+
+
+def _validate(config: dict) -> dict:
+    """Ersetzt ungueltige Werte durch Defaults (manuell editierte config.yaml)."""
+    for key, allowed in _ALLOWED_VALUES.items():
+        if config.get(key) not in allowed:
+            log.warning("Config: %s=%r ungueltig, nutze %r",
+                        key, config.get(key), DEFAULT_CONFIG[key])
+            config[key] = DEFAULT_CONFIG[key]
+
+    for key in _BOOL_KEYS:
+        if not isinstance(config.get(key), bool):
+            config[key] = DEFAULT_CONFIG[key]
+
+    if not _is_valid_hotkey(config.get("hotkey")):
+        log.warning("Config: hotkey=%r ungueltig, nutze %r",
+                    config.get("hotkey"), DEFAULT_CONFIG["hotkey"])
+        config["hotkey"] = DEFAULT_CONFIG["hotkey"]
+
+    if config.get("audio_device") is not None and not isinstance(config["audio_device"], str):
+        config["audio_device"] = None
+
+    if not isinstance(config.get("ollama_model"), str) or not config["ollama_model"].strip():
+        config["ollama_model"] = DEFAULT_CONFIG["ollama_model"]
+
+    return config
 
 
 def load_config() -> dict:
@@ -34,10 +90,15 @@ def load_config() -> dict:
             save_config(DEFAULT_CONFIG)
 
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
             user_config = yaml.safe_load(f) or {}
     except Exception as e:
         log.warning("Config corrupt, using defaults: %s", e)
+        user_config = {}
+
+    # yaml.safe_load kann auch Listen/Strings/Zahlen liefern
+    if not isinstance(user_config, dict):
+        log.warning("Config ist kein Mapping (%s), nutze Defaults", type(user_config).__name__)
         user_config = {}
 
     config = dict(DEFAULT_CONFIG)
@@ -50,7 +111,7 @@ def load_config() -> dict:
         config["post_processing_mode"] = "smart"
         save_config(config)
 
-    return config
+    return _validate(config)
 
 
 def save_config(config: dict):

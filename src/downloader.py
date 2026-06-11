@@ -48,7 +48,7 @@ def download_file(url, dest, progress_callback=None):
     try:
         resp = urllib.request.urlopen(req)
     except Exception as e:
-        raise RuntimeError(f"Verbindung fehlgeschlagen: {e}")
+        raise RuntimeError(f"Verbindung fehlgeschlagen: {e}") from e
 
     total = int(resp.headers.get("Content-Length", 0)) + existing
     mode = "ab" if existing > 0 else "wb"
@@ -66,7 +66,7 @@ def download_file(url, dest, progress_callback=None):
                     progress_callback(downloaded, total)
     except OSError as e:
         # Disk voll, Permission-Fehler etc.
-        raise RuntimeError(f"Schreiben fehlgeschlagen (evtl. Festplatte voll): {e}")
+        raise RuntimeError(f"Schreiben fehlgeschlagen (evtl. Festplatte voll): {e}") from e
 
     # Download fertig → .part umbenennen
     if os.path.exists(dest):
@@ -94,7 +94,7 @@ def download_and_extract_binary(gpu_type, progress_callback=None):
         if os.path.exists(zip_path):
             os.remove(zip_path)
         shutil.rmtree(extract_dir, ignore_errors=True)
-        raise RuntimeError(f"Download ist beschaedigt. Bitte erneut versuchen: {e}")
+        raise RuntimeError(f"Download ist beschaedigt. Bitte erneut versuchen: {e}") from e
 
     for root, _, files in os.walk(extract_dir):
         for f in files:

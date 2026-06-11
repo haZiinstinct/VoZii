@@ -7,6 +7,57 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.5.0] — 2026-06-12
+
+Großer Overhaul nach komplettem Audit: schneller, robuster, sicherer, schöner.
+
+### Performance
+- **whisper-server-Modus:** Das Whisper-Modell bleibt im RAM statt bei jedem
+  Diktat neu von der Platte zu laden (spart je nach Modell 2–10 s pro
+  Transkription). Automatischer CLI-Fallback bei Problemen.
+- **Schnell/Genau-Modus:** Greedy-Decoding als Default (3–5x schneller),
+  Beam-Search 5 optional; Whisper nutzt jetzt mehrere CPU-Threads.
+- **Persistenter Audio-Stream:** Kein Geräte-Öffnen mehr beim Hotkey-Druck —
+  keine abgeschnittenen ersten Silben.
+- **GPU-Erkennung gecacht:** App-Start ohne 5–10 s wmic/PowerShell-Wartezeit.
+- **Exe halbiert:** 62 → 32 MB (scipy durch numpy/stdlib ersetzt).
+
+### Neu
+- **Transkriptions-Historie:** Letzte 50 Diktate lokal gespeichert, die
+  letzten 5 im Tray-Menü wieder kopierbar. Abschaltbar, löschbar.
+- **Mikrofontest** in den Settings mit Live-Pegelanzeige.
+- **Zwischenablage-Wiederherstellung:** Nach dem Einfügen wird der vorherige
+  Clipboard-Inhalt wiederhergestellt (abschaltbar).
+- **Halluzinations-Filter:** Whisper-Phantome bei Stille ("Untertitelung des
+  ZDF", "Thanks for watching", …) werden verworfen.
+- **Brand-Fonts:** Inter + JetBrains Mono (wie hazii.org) gebündelt und zur
+  Laufzeit privat geladen.
+
+### Windows 11
+- Per-Monitor-V2-DPI-Awareness; Overlay folgt dem Monitor mit dem Mauszeiger,
+  abgerundete Ecken, sprechende Status-Codes (CLIP/SHORT/ERR:MIC/…).
+- Einfügen wartet, bis die Hotkey-Modifier losgelassen sind (kein
+  versehentliches Ctrl+Shift+V mehr).
+- Hotkey-Watchdog: tote Low-Level-Hooks werden automatisch neu gestartet.
+- Autostart startet direkt in den Tray (kein Settings-Fenster beim Boot).
+- Daten liegen jetzt unter `%LOCALAPPDATA%\VoZii` (Bestandsinstallationen
+  neben der .exe werden weiter genutzt) — keine 1,5-GB-Modelle mehr in
+  Downloads/OneDrive.
+
+### Sicherheit
+- SHA256-Verifikation für Whisper-Modelle und Binary-Zips (gepinnte Hashes).
+- Ollama-Installer wird vor dem Ausführen per Authenticode-Signatur geprüft.
+- Download-Resume nur noch bei HTTP 206 (keine korrupten Dateien mehr),
+  ZIP-Extraktion mit Path-Traversal-Schutz, Disk-Space-Check vor Downloads.
+
+### Sonstiges
+- Settings: Ollama-Sektion einklappbar, Tooltips, Download-ETA, Validierung
+  vor dem Start, Ton-Feedback-Schalter, First-Run-Hinweis.
+- CI: Lint (ruff) + Test-Suite (69 Tests) auf jedem Push, automatischer
+  Release-Build bei Version-Tags.
+
+---
+
 ## [1.4.0] — 2026-04-11
 
 ### Changed — Neue Modus-Struktur (Genspark Speakly Style)

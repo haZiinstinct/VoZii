@@ -10,21 +10,28 @@ Made by [haZii](https://hazii.org)
 
 - **Push-to-Talk** mit frei wählbarem Hotkey (Tastatur + Maustasten)
 - **100% lokal** — keine Cloud, keine API-Keys, keine Daten-Uploads
+- **Schnell** — das Whisper-Modell bleibt im RAM (whisper-server), keine Ladezeit pro Diktat
 - **GPU-beschleunigt** — NVIDIA (CUDA), AMD (Vulkan), CPU-Fallback
 - **Mehrsprachig** — Deutsch, English, Auto-Detect
 - **Drei Modellgrößen** — Tiny (75 MB), Small (465 MB), Medium (1.5 GB)
-- **Text wird direkt eingefügt** an der Cursor-Position
-- **Clipboard-Fallback** — Text bleibt immer in der Zwischenablage
-- **Single-File .exe** (62 MB), keine Installation erforderlich
-- **Dark UI** im haZii Corporate Design
-- **Nachbearbeitung via Ollama (optional)** — Clean, Format, Prompt-Modi
+- **Text wird direkt eingefügt** an der Cursor-Position; die vorherige Zwischenablage wird danach wiederhergestellt
+- **Transkriptions-Historie** — die letzten Diktate über das Tray-Menü wieder kopierbar
+- **Schnell/Genau-Modus** — greedy für flottes Diktat oder Beam-Search für maximale Genauigkeit
+- **Single-File .exe** (32 MB), keine Installation erforderlich
+- **Dark UI** im haZii Corporate Design (Inter + JetBrains Mono)
+- **Nachbearbeitung via Ollama (optional)** — Smart- und Prompt-Modus
+- **Verifizierte Downloads** — Modelle und Binaries werden gegen SHA256-Checksummen geprüft
 
 ## Installation
 
 1. **[VoZii.exe herunterladen](https://github.com/haZiinstinct/VoZii/releases/latest)**
 2. Doppelklick → Settings-Fenster öffnet sich
 3. GPU wird automatisch erkannt, Modell herunterladen (~500 MB beim ersten Start)
-4. "Starten" klicken — Tool läuft im System-Tray
+4. Optional: **Mikrofon testen** (Settings → Testen) — Pegelanzeige zeigt sofort, ob alles passt
+5. "Starten" klicken — Tool läuft im System-Tray
+
+> **Datenablage:** Modelle, Config und Log liegen unter `%LOCALAPPDATA%\VoZii`
+> (Bestandsinstallationen mit Daten neben der .exe werden weiter dort genutzt).
 
 > **Windows SmartScreen Warnung?** Das ist normal bei unsignierten .exe-Dateien. Klick auf "Weitere Informationen" → "Trotzdem ausführen". Du kannst auch im Explorer Rechtsklick → Eigenschaften → "Zulassen" → Übernehmen.
 
@@ -37,9 +44,16 @@ Made by [haZii](https://hazii.org)
 4. Text wird an der aktuellen Cursor-Position eingefügt
 
 **Tray-Menü** (Rechtsklick auf das VoZii-Icon unten rechts):
+- **Letzte Transkriptionen** — die letzten 5 Diktate, Klick kopiert den Volltext
 - **Einstellungen** — Hotkey, Sprache, Modell, Mikrofon ändern
 - **Log öffnen** — bei Problemen die `vozii.log` anschauen
 - **Beenden**
+
+**Status-Anzeige** (unten rechts, auf dem Monitor mit der Maus):
+- `● REC` — Aufnahme läuft, `· · ·` — transkribiert
+- `CLIP` — Einfügen ging nicht, der Text liegt in der Zwischenablage
+- `SHORT` / `LEER` — Aufnahme zu kurz bzw. nichts erkannt
+- `ERR:MIC` / `ERR:WHISPER` — Fehlerquelle (Details in `vozii.log`)
 
 ## System-Anforderungen
 
@@ -54,17 +68,22 @@ Made by [haZii](https://hazii.org)
 ## Troubleshooting
 
 **Kein Text wird eingefügt?**
-→ Tray-Icon → **Log öffnen** → `vozii.log` anschauen
+→ Zeigt das Overlay `CLIP`, liegt der Text in der Zwischenablage (kein Textfeld fokussiert)
+→ Oder über Tray → **Letzte Transkriptionen** wieder kopieren
+→ Details: Tray-Icon → **Log öffnen** → `vozii.log`
 
 **Mikrofon wird nicht erkannt?**
-→ Settings → Mikrofon-Dropdown → anderes Gerät wählen oder "Standard" probieren
-
-**Aufnahme-Fehler?**
-→ Das Tool versucht automatisch verschiedene Sample-Rates. Wenn nichts klappt, fallback auf Default-Device.
+→ Settings → **Testen** klicken — die Pegelanzeige zeigt, ob Signal ankommt
+→ Anderes Gerät im Dropdown wählen oder "Standard" probieren
 
 **Zu langsam?**
+→ Settings → Transkription → **Schnell** (greedy statt Beam-Search)
 → Settings → Modell → "Tiny" wählen (15-20x schneller als Medium)
 → Oder GPU-Treiber updaten
+
+**Windows zeigt dauerhaft das Mikrofon-Symbol?**
+→ Normal: VoZii hält den Audio-Stream offen, damit beim Hotkey-Druck keine
+  erste Silbe verloren geht. Aufgenommen wird nur, solange der Hotkey gedrückt ist.
 
 ## Nachbearbeitung via Ollama (optional)
 

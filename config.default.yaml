@@ -6,7 +6,14 @@ model_size: "small"             # tiny, small, medium
 audio_feedback: true            # Beep bei Start/Stop
 gpu_type: "auto"                # auto, nvidia, amd, cpu
 audio_device: null              # null = Systemstandard
-show_overlay: true              # Recording-Indikator anzeigen
-auto_start: false               # Mit Windows starten
-post_processing_mode: "off"     # off, clean, format, prompt (braucht Ollama)
+show_overlay: true              # Status-Anzeige unten rechts
+auto_start: false               # Mit Windows starten (direkt in den Tray)
+post_processing_mode: "off"     # off, smart, prompt (braucht Ollama)
 ollama_model: "llama3.2:3b"     # Ollama Modell fuer Post-Processing
+performance_mode: "speed"       # speed (greedy, schnell) oder quality (Beam 5)
+use_server: true                # whisper-server: Modell bleibt im RAM (schneller)
+restore_clipboard: true         # Zwischenablage nach dem Einfuegen wiederherstellen
+history_enabled: true           # letzte 50 Transkriptionen lokal speichern
+gpu_cache_type: null            # wird automatisch gefuellt (GPU-Erkennungs-Cache)
+gpu_cache_name: null
+first_run_done: false           # einmaliger Hotkey-Hinweis beim ersten Start

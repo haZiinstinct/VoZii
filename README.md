@@ -119,6 +119,8 @@ VoZii läuft **100% lokal** auf deinem Rechner:
 - ✅ Keine Internet-Verbindung im Betrieb nötig (nur für den einmaligen Modell-Download)
 - ✅ Keine Telemetrie, keine Analytics
 - ✅ Transkribierte Texte bleiben auf deinem Rechner
+- ✅ Die Transkriptions-Historie (letzte 50) liegt lokal in `history.json`
+  unter dem VoZii-Datenordner — in den Settings abschaltbar und löschbar
 
 ## Lizenz
 

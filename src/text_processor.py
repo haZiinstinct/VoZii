@@ -206,10 +206,12 @@ def _verify_authenticode(path: str) -> bool:
     Schutz davor, eine manipulierte Exe auszufuehren (der Installer-Download
     hat keine veroeffentlichten Checksummen, die Signatur ist die Verifikation).
     """
+    # Single-Quotes im Pfad escapen (PowerShell: '' = literales ')
+    safe_path = path.replace("'", "''")
     try:
         result = subprocess.run(
             ["powershell", "-NoProfile", "-Command",
-             f"$s = Get-AuthenticodeSignature -LiteralPath '{path}'; "
+             f"$s = Get-AuthenticodeSignature -LiteralPath '{safe_path}'; "
              "Write-Output $s.Status; Write-Output $s.SignerCertificate.Subject"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=60, creationflags=subprocess.CREATE_NO_WINDOW,

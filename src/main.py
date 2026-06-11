@@ -225,9 +225,13 @@ def _run_cycle(skip_settings: bool = False) -> str:
             threading.Thread(target=play_tone, args=(880, 60), daemon=True).start()
 
     def notify(code: str, duration_ms: int = 5000):
-        """Kurzes visuelles Feedback (Status-Code im Overlay)."""
+        """Kurzes visuelles Feedback (Status-Code im Overlay).
+
+        Ohne Overlay waeren Fehler unsichtbar — dann wenigstens ein tiefer Ton."""
         if overlay:
             overlay.flash(code, duration_ms)
+        elif code.startswith("ERR") and use_sound:
+            threading.Thread(target=play_tone, args=(300, 250), daemon=True).start()
 
     def on_activate():
         try:

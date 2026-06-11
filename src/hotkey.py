@@ -1,8 +1,11 @@
 """VoZii Hotkey Manager — unterstuetzt Tastatur UND Maustasten (Mouse4, Mouse5 etc.)."""
 
+import logging
 import threading
 
 from pynput import keyboard, mouse
+
+log = logging.getLogger(__name__)
 
 
 # Map readable names to pynput Key objects
@@ -194,3 +197,22 @@ class HotkeyManager:
         if self._mouse_listener:
             self._mouse_listener.stop()
             self._mouse_listener = None
+
+    def is_healthy(self) -> bool:
+        """Leben alle benoetigten Listener noch? Windows entfernt Low-Level-
+        Hooks gelegentlich (Hook-Timeout) — dann ist der Hotkey still tot."""
+        if self._has_kb_parts:
+            if self._kb_listener is None or not self._kb_listener.is_alive():
+                return False
+        if self._has_mouse_parts:
+            if self._mouse_listener is None or not self._mouse_listener.is_alive():
+                return False
+        return True
+
+    def restart(self):
+        """Listener neu aufbauen (vom Watchdog gerufen)."""
+        log.warning("Hotkey-Listener werden neu gestartet")
+        self.stop()
+        self._pressed_parts = set()
+        self._active = False
+        self.start()

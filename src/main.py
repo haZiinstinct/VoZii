@@ -19,7 +19,7 @@ from src.text_inserter import insert_text
 from src.hotkey import HotkeyManager
 from src.tray import TrayApp
 from src.settings_gui import SettingsWindow
-from src.hardware import detect_gpu, get_backend_name
+from src.hardware import detect_gpu_cached, get_backend_name
 from src.overlay import RecordingOverlay
 from src.text_processor import TextProcessor
 from src.filters import is_hallucination
@@ -95,46 +95,63 @@ def main():
 
     _clean_tmp_dir()
 
+    # Autostart-Eintrag startet mit --autostart: direkt in den Tray-Betrieb,
+    # ohne dass beim Boot das Settings-Fenster aufpoppt
+    skip_settings = "--autostart" in sys.argv
+
     while True:
         try:
-            action = _run_cycle()
+            action = _run_cycle(skip_settings=skip_settings)
+            skip_settings = False  # gilt nur fuer den ersten Zyklus
             if action == "quit":
                 break
         except Exception:
             log.exception("_run_cycle crashed")
             show_error("VoZii — Fehler", traceback.format_exc())
+            skip_settings = False
             continue
 
     log.info("VoZii beendet")
 
 
-def _run_cycle() -> str:
+def _setup_ready(config: dict) -> bool:
+    """Sind Binary + Modell vorhanden (fuer den Settings-Skip beim Autostart)?"""
+    return Transcriber(
+        model_size=config["model_size"], language=config["language"],
+    ).is_ready()
+
+
+def _run_cycle(skip_settings: bool = False) -> str:
     """Ein Zyklus: Settings zeigen → Tool laufen → 'quit' oder 'settings' zurueckgeben."""
     config = load_config()
 
-    gpu_type, gpu_name = detect_gpu()
+    gpu_type, gpu_name, from_cache = detect_gpu_cached(config)
     if config.get("gpu_type", "auto") != "auto":
         gpu_type = config["gpu_type"]
     backend_name = get_backend_name(gpu_type)
 
-    log.info("GPU: %s (%s)", gpu_name or "CPU", backend_name)
+    log.info("GPU: %s (%s)%s", gpu_name or "CPU", backend_name,
+             " [cache]" if from_cache else "")
 
     available_devices = AudioRecorder.list_input_devices()
 
-    settings = SettingsWindow(
-        config=config,
-        gpu_info=(gpu_type, gpu_name),
-        backend_name=backend_name,
-        available_devices=available_devices,
-    )
-    result = settings.run()
+    if skip_settings and _setup_ready(config):
+        log.info("Autostart: Settings uebersprungen, direkt in den Tray-Betrieb")
+    else:
+        settings = SettingsWindow(
+            config=config,
+            gpu_info=(gpu_type, gpu_name),
+            backend_name=backend_name,
+            available_devices=available_devices,
+        )
+        result = settings.run()
 
-    if result is None:
-        return "quit"
+        if result is None:
+            return "quit"
 
-    config = result
-    save_config(config)
-    _set_auto_start(config.get("auto_start", False))
+        config = result
+        save_config(config)
+        _set_auto_start(config.get("auto_start", False))
 
     # Audio device aufloesen — verschwundene Geraete (USB ab) -> Standard
     audio_device = None
@@ -178,8 +195,10 @@ def _run_cycle() -> str:
     overlay = None
     if config.get("show_overlay", True):
         overlay = RecordingOverlay()
-        overlay.start()
-        state.on_change(overlay.update_state)
+        if overlay.start():
+            state.on_change(overlay.update_state)
+        else:
+            overlay = None  # nicht mit totem Overlay weiterlaufen
 
     # Stream persistent oeffnen: eliminiert die Geraete-Open-Latenz beim
     # Hotkey-Druck. Schlaegt das fehl, versucht start_recording() es erneut.
@@ -203,10 +222,10 @@ def _run_cycle() -> str:
         if use_sound:
             threading.Thread(target=play_tone, args=(880, 60), daemon=True).start()
 
-    def notify_error(msg: str):
-        """Kurzes visuelles Feedback fuer Fehler."""
+    def notify(code: str, duration_ms: int = 5000):
+        """Kurzes visuelles Feedback (Status-Code im Overlay)."""
         if overlay:
-            overlay.flash_error(msg)
+            overlay.flash(code, duration_ms)
 
     def on_activate():
         try:
@@ -219,7 +238,7 @@ def _run_cycle() -> str:
         except Exception:
             log.exception("on_activate fehlgeschlagen")
             state.set_state(AppState.IDLE)
-            notify_error("Aufnahme-Start fehlgeschlagen")
+            notify("ERR:MIC")
 
     def on_deactivate():
         try:
@@ -231,10 +250,12 @@ def _run_cycle() -> str:
                 audio_queue.put((wav_path, duration, rms))
             else:
                 state.set_state(AppState.IDLE)
+                if duration > 0:
+                    notify("SHORT", 2000)
         except Exception:
             log.exception("on_deactivate fehlgeschlagen")
             state.set_state(AppState.IDLE)
-            notify_error("Aufnahme-Stopp fehlgeschlagen")
+            notify("ERR:MIC")
 
     error_count = [0]
 
@@ -254,16 +275,22 @@ def _run_cycle() -> str:
                     text = text_processor.process(text)
                 if text:
                     log.info("Transkribiert: %d Zeichen", len(text))
-                    insert_text(text)
-                    beep_done()
+                    inserted = insert_text(
+                        text, restore_clipboard=config.get("restore_clipboard", True))
+                    if inserted:
+                        beep_done()
+                    else:
+                        # Text liegt in der Zwischenablage — Nutzer informieren
+                        notify("CLIP")
                     error_count[0] = 0
                 else:
                     log.warning("Transkription leer")
+                    notify("LEER", 2000)
             except Exception:
                 log.exception("Transkription fehlgeschlagen")
                 error_count[0] += 1
                 if error_count[0] >= 2:
-                    notify_error("Transkription fehlgeschlagen")
+                    notify("ERR:WHISPER")
                     error_count[0] = 0
             finally:
                 try:
@@ -300,6 +327,19 @@ def _run_cycle() -> str:
     )
     hotkey_mgr.start()
 
+    def hotkey_watchdog():
+        """Windows entfernt Low-Level-Hooks gelegentlich (Hook-Timeout) —
+        dann waere der Hotkey bis zum App-Neustart tot. Alle 30s pruefen."""
+        while not shutdown_event.wait(30):
+            try:
+                if not hotkey_mgr.is_healthy():
+                    log.warning("Hotkey-Listener tot — starte neu")
+                    hotkey_mgr.restart()
+            except Exception:
+                log.exception("Hotkey-Watchdog fehlgeschlagen")
+
+    threading.Thread(target=hotkey_watchdog, daemon=True).start()
+
     tray = TrayApp(
         state, on_quit,
         hotkey_str=config["hotkey"],
@@ -329,7 +369,13 @@ def _set_auto_start(enabled: bool):
             0, winreg.KEY_SET_VALUE,
         )
         if enabled:
-            winreg.SetValueEx(key, "VoZii", 0, winreg.REG_SZ, f'"{sys.executable}"')
+            # --autostart: beim Boot direkt in den Tray, kein Settings-Fenster
+            if getattr(sys, "frozen", False):
+                cmd = f'"{sys.executable}" --autostart'
+            else:
+                script = os.path.abspath(sys.argv[0])
+                cmd = f'"{sys.executable}" "{script}" --autostart'
+            winreg.SetValueEx(key, "VoZii", 0, winreg.REG_SZ, cmd)
         else:
             try:
                 winreg.DeleteValue(key, "VoZii")

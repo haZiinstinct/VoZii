@@ -1,10 +1,18 @@
-"""VoZii Recording-Overlay — schlank, unsichtbar in Taskbar."""
+"""VoZii Recording-Overlay — folgt dem Monitor mit dem Mauszeiger.
 
+Raw tkinter (kein zweites Tray-Icon). Abgerundete Ecken via
+-transparentcolor-Trick, Status-Codes statt nur 'ERR'.
+"""
+
+import ctypes
 import logging
 import threading
 import tkinter as tk
-from src.theme import BRAND, FONT_MONO
+from ctypes import wintypes
+from tkinter import font as tkfont
+
 from src.state import AppState
+from src.theme import BRAND, FONT_MONO
 
 log = logging.getLogger(__name__)
 
@@ -12,68 +20,188 @@ log = logging.getLogger(__name__)
 TRANSCRIBING_FRAMES = ["·", "· ·", "· · ·", "· ·"]
 ANIMATION_INTERVAL_MS = 300
 
+# Diese Farbe wird per -transparentcolor ausgestanzt -> runde Ecken
+_TRANSPARENT = "#000001"
+_MARGIN = 16
+_HEIGHT = 28
+_FLASH_COLORS = {
+    "CLIP": "cyan",     # Text liegt in der Zwischenablage (Einfuegen ging nicht)
+    "SHORT": "amber",   # Aufnahme zu kurz
+    "LEER": "amber",    # nichts erkannt
+    "READY": "green",   # First-Run-Hinweis
+}
+
+
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", wintypes.RECT),
+        ("rcWork", wintypes.RECT),
+        ("dwFlags", wintypes.DWORD),
+    ]
+
 
 class RecordingOverlay:
-    """Minimales Overlay — nutzt raw tkinter um kein zweites Tray-Icon zu erzeugen."""
+    """Minimales Overlay — Canvas mit abgerundetem Hintergrund + Statustext."""
 
     def __init__(self):
         self._thread = None
         self._root = None
-        self._bar = None
-        self._label = None
+        self._canvas = None
+        self._bg_id = None
+        self._dot_id = None
+        self._text_id = None
         self._ready = threading.Event()
         self._anim_frame = 0
         self._anim_active = False
+        self._flash_job = None
+        self._scale = 1.0
 
-    def start(self):
+    @property
+    def is_alive(self) -> bool:
+        return self._root is not None and self._thread is not None and self._thread.is_alive()
+
+    def start(self) -> bool:
+        """Startet den Overlay-Thread. False wenn das Overlay nicht hochkommt —
+        Caller laeuft dann ohne Overlay weiter (statt mit totem Objekt)."""
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
-        self._ready.wait(timeout=3)
+        if not self._ready.wait(timeout=3) or self._root is None:
+            log.error("Overlay-Thread nicht initialisiert — weiter ohne Overlay")
+            return False
+        return True
 
     def _run(self):
-        self._root = tk.Tk()
+        try:
+            self._root = tk.Tk()
+        except Exception:
+            log.exception("Overlay: Tk-Init fehlgeschlagen")
+            self._root = None
+            self._ready.set()
+            return
         self._root.overrideredirect(True)
         self._root.attributes("-topmost", True)
-        self._root.attributes("-alpha", 0.9)
-        self._root.attributes("-toolwindow", True)
-        self._root.configure(bg=BRAND["card"])
+        self._root.attributes("-alpha", 0.92)
+        try:
+            self._root.attributes("-toolwindow", True)
+        except tk.TclError:
+            pass
 
-        w, h = 100, 26
-        x = self._root.winfo_screenwidth() - w - 16
-        y = self._root.winfo_screenheight() - h - 60
-        self._root.geometry(f"{w}x{h}+{x}+{y}")
+        # Hintergrundfarbe ausstanzen -> abgerundete Ecken. Wenn die Plattform
+        # das nicht kann: eckig mit Card-Farbe.
+        self._root.configure(bg=_TRANSPARENT)
+        try:
+            self._root.attributes("-transparentcolor", _TRANSPARENT)
+        except tk.TclError:
+            self._root.configure(bg=BRAND["card"])
 
-        frame = tk.Frame(self._root, bg=BRAND["card"])
-        frame.pack(fill="both", expand=True)
+        # High-DPI: Geometrie skalieren (Fonts in pt skalieren von selbst)
+        try:
+            self._scale = max(1.0, self._root.winfo_fpixels("1i") / 96.0)
+        except Exception:
+            self._scale = 1.0
 
-        self._bar = tk.Label(frame, text="●", font=(FONT_MONO, 9),
-                             fg=BRAND["red"], bg=BRAND["card"])
-        self._bar.pack(side="left", padx=(10, 2))
-
-        self._label = tk.Label(frame, text="REC", font=(FONT_MONO, 10, "bold"),
-                               fg=BRAND["red"], bg=BRAND["card"])
-        self._label.pack(side="left", padx=(0, 10))
+        h = self._px(_HEIGHT)
+        self._canvas = tk.Canvas(self._root, width=self._px(110), height=h,
+                                 bg=_TRANSPARENT, highlightthickness=0)
+        self._canvas.pack()
+        self._dot_id = self._canvas.create_text(
+            self._px(16), h // 2, text="●", font=(FONT_MONO, 9), fill=BRAND["red"])
+        self._text_id = self._canvas.create_text(
+            self._px(26), h // 2, text="REC", anchor="w",
+            font=(FONT_MONO, 10, "bold"), fill=BRAND["red"])
+        self._layout("REC")
 
         self._root.withdraw()
         self._ready.set()
         self._root.mainloop()
 
+    def _px(self, logical: int) -> int:
+        return int(logical * self._scale)
+
+    def _round_rect(self, x1, y1, x2, y2, r, **kwargs):
+        pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+               x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+        return self._canvas.create_polygon(pts, smooth=True, **kwargs)
+
+    def _layout(self, text: str):
+        """Passt Canvas-Breite an den Text an und zeichnet den Hintergrund neu."""
+        f = tkfont.Font(family=FONT_MONO, size=10, weight="bold")
+        w = self._px(26) + f.measure(text) + self._px(14)
+        h = self._px(_HEIGHT)
+        self._canvas.configure(width=w, height=h)
+        if self._bg_id is not None:
+            self._canvas.delete(self._bg_id)
+        self._bg_id = self._round_rect(0, 0, w, h, self._px(13), fill=BRAND["card"])
+        self._canvas.tag_lower(self._bg_id)
+        self._root.geometry(f"{w}x{h}")
+        self._position(w, h)
+
+    def _position(self, w: int, h: int):
+        """Unten rechts auf dem Monitor, auf dem der Mauszeiger steht."""
+        x = y = None
+        try:
+            pt = wintypes.POINT()
+            ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+            mon = ctypes.windll.user32.MonitorFromPoint(pt, 2)  # MONITOR_DEFAULTTONEAREST
+            info = _MONITORINFO()
+            info.cbSize = ctypes.sizeof(_MONITORINFO)
+            if ctypes.windll.user32.GetMonitorInfoW(mon, ctypes.byref(info)):
+                work = info.rcWork
+                x = work.right - w - self._px(_MARGIN)
+                y = work.bottom - h - self._px(_MARGIN)
+        except Exception:
+            pass
+        if x is None:
+            x = self._root.winfo_screenwidth() - w - self._px(_MARGIN)
+            y = self._root.winfo_screenheight() - h - self._px(60)
+        self._root.geometry(f"+{x}+{y}")
+
+    # --- Thread-sichere API (alles via root.after auf den Tk-Thread) ---
+
     def update_state(self, state):
         if not self._root: return
         self._root.after(0, lambda: self._apply(state))
 
+    def flash(self, code: str, duration_ms: int = 5000):
+        """Zeigt einen Status-Code (z.B. ERR:MIC, CLIP, SHORT) und blendet
+        nach duration_ms wieder aus."""
+        if not self._root: return
+        self._root.after(0, lambda: self._show_flash(code, duration_ms))
+
+    def stop(self):
+        self._anim_active = False
+        if self._root:
+            try:
+                self._root.after(0, self._root.destroy)
+            except Exception as e:
+                log.warning("Overlay destroy failed: %s", e)
+
+    # --- Implementierung (laeuft im Tk-Thread) ---
+
+    def _cancel_flash(self):
+        if self._flash_job is not None:
+            try:
+                self._root.after_cancel(self._flash_job)
+            except Exception:
+                pass
+            self._flash_job = None
+
+    def _set_content(self, text: str, color: str):
+        self._canvas.itemconfigure(self._dot_id, fill=color)
+        self._canvas.itemconfigure(self._text_id, text=text, fill=color)
+        self._layout(text)
+
     def _apply(self, state):
         if not self._root: return
+        self._cancel_flash()
         if state == AppState.RECORDING:
             self._anim_active = False
-            self._bar.configure(fg=BRAND["red"])
-            self._label.configure(text="REC", fg=BRAND["red"])
+            self._set_content("REC", BRAND["red"])
             self._root.deiconify()
         elif state == AppState.TRANSCRIBING:
-            self._bar.configure(fg=BRAND["cyan"])
-            self._label.configure(fg=BRAND["cyan"])
+            self._set_content("· ·", BRAND["cyan"])
             self._root.deiconify()
-            # Animation starten
             if not self._anim_active:
                 self._anim_active = True
                 self._anim_frame = 0
@@ -87,27 +215,20 @@ class RecordingOverlay:
         if not self._anim_active or not self._root:
             return
         frame = TRANSCRIBING_FRAMES[self._anim_frame % len(TRANSCRIBING_FRAMES)]
-        self._label.configure(text=frame)
+        self._canvas.itemconfigure(self._text_id, text=frame)
         self._anim_frame += 1
         self._root.after(ANIMATION_INTERVAL_MS, self._animate_step)
 
-    def flash_error(self, msg: str = "ERR"):
-        """Zeigt das Overlay 3 Sekunden rot mit Fehler-Text."""
-        if not self._root: return
-        self._root.after(0, lambda: self._show_error(msg))
-
-    def _show_error(self, msg: str):
+    def _show_flash(self, code: str, duration_ms: int):
         if not self._root: return
         self._anim_active = False
-        self._bar.configure(fg=BRAND["red"])
-        self._label.configure(text="ERR", fg=BRAND["red"])
+        self._cancel_flash()
+        color = BRAND.get(_FLASH_COLORS.get(code.split(":")[0], "red"), BRAND["red"])
+        self._set_content(code, color)
         self._root.deiconify()
-        self._root.after(3000, self._root.withdraw)
+        self._flash_job = self._root.after(duration_ms, self._end_flash)
 
-    def stop(self):
-        self._anim_active = False
+    def _end_flash(self):
+        self._flash_job = None
         if self._root:
-            try:
-                self._root.after(0, self._root.destroy)
-            except Exception as e:
-                log.warning("Overlay destroy failed: %s", e)
+            self._root.withdraw()

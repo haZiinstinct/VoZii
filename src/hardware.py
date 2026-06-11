@@ -2,6 +2,7 @@
 
 import logging
 import subprocess
+import threading
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +98,50 @@ def detect_gpu() -> tuple[str, str]:
             return ("cpu", line)
 
     return ("cpu", lines[0] if lines else "")
+
+
+def detect_gpu_cached(config: dict) -> tuple[str, str, bool]:
+    """GPU-Erkennung mit Config-Cache — wmic/PowerShell kosten bis zu 10s
+    und blockierten bisher jeden App-Start.
+
+    Cache vorhanden: sofort zurueckgeben + im Hintergrund neu erkennen
+    (Aenderung wirkt ab dem naechsten Start). Erststart: synchron + cachen.
+    Returns (gpu_type, gpu_name, from_cache).
+    """
+    cached_type = config.get("gpu_cache_type")
+    if cached_type in BINARY_URLS:
+        cached_name = config.get("gpu_cache_name") or ""
+        threading.Thread(target=_refresh_gpu_cache,
+                         args=(cached_type, cached_name), daemon=True).start()
+        return cached_type, cached_name, True
+
+    gpu_type, gpu_name = detect_gpu()
+    _store_gpu_cache(gpu_type, gpu_name)
+    return gpu_type, gpu_name, False
+
+
+def _refresh_gpu_cache(old_type: str, old_name: str):
+    try:
+        gpu_type, gpu_name = detect_gpu()
+        if (gpu_type, gpu_name) != (old_type, old_name):
+            _store_gpu_cache(gpu_type, gpu_name)
+            log.info("GPU-Cache aktualisiert: %s (%s) — wirkt ab dem naechsten Start",
+                     gpu_name or "CPU", gpu_type)
+    except Exception:
+        log.exception("GPU-Cache-Refresh fehlgeschlagen")
+
+
+def _store_gpu_cache(gpu_type: str, gpu_name: str):
+    # Lazy-Import vermeidet einen Import-Zyklus (config braucht paths, wir
+    # werden von downloader importiert)
+    from src.config import load_config, save_config
+    try:
+        cfg = load_config()
+        cfg["gpu_cache_type"] = gpu_type
+        cfg["gpu_cache_name"] = gpu_name
+        save_config(cfg)
+    except Exception:
+        log.exception("GPU-Cache speichern fehlgeschlagen")
 
 
 def get_binary_url(gpu_type: str) -> str:

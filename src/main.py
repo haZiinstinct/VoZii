@@ -22,6 +22,7 @@ from src.settings_gui import SettingsWindow
 from src.hardware import detect_gpu, get_backend_name
 from src.overlay import RecordingOverlay
 from src.text_processor import TextProcessor
+from src.filters import is_hallucination
 
 log = logging.getLogger(__name__)
 
@@ -135,13 +136,16 @@ def _run_cycle() -> str:
     save_config(config)
     _set_auto_start(config.get("auto_start", False))
 
-    # Audio device aufloesen
+    # Audio device aufloesen — verschwundene Geraete (USB ab) -> Standard
     audio_device = None
     if config.get("audio_device"):
         for dev in available_devices:
             if dev["name"] == config["audio_device"]:
                 audio_device = dev["index"]
                 break
+        if audio_device is None:
+            log.warning("Konfiguriertes Mikrofon %r nicht gefunden — nutze Standard",
+                        config["audio_device"])
 
     state = StateManager()
     recorder = AudioRecorder(device=audio_device)
@@ -176,6 +180,14 @@ def _run_cycle() -> str:
         overlay = RecordingOverlay()
         overlay.start()
         state.on_change(overlay.update_state)
+
+    # Stream persistent oeffnen: eliminiert die Geraete-Open-Latenz beim
+    # Hotkey-Druck. Schlaegt das fehl, versucht start_recording() es erneut.
+    try:
+        recorder.open_stream()
+    except Exception:
+        log.exception("Audio-Stream konnte nicht geoeffnet werden — "
+                      "erneuter Versuch beim Aufnahmestart")
 
     audio_queue = queue.Queue()
     shutdown_event = threading.Event()
@@ -213,10 +225,10 @@ def _run_cycle() -> str:
         try:
             if state.state != AppState.RECORDING:
                 return
-            wav_path = recorder.stop_recording()
+            wav_path, duration, rms = recorder.stop_recording()
             if wav_path:
                 state.set_state(AppState.TRANSCRIBING)
-                audio_queue.put(wav_path)
+                audio_queue.put((wav_path, duration, rms))
             else:
                 state.set_state(AppState.IDLE)
         except Exception:
@@ -229,11 +241,15 @@ def _run_cycle() -> str:
     def transcription_worker():
         while not shutdown_event.is_set():
             try:
-                wav_path = audio_queue.get(timeout=0.5)
+                wav_path, duration, rms = audio_queue.get(timeout=0.5)
             except queue.Empty:
                 continue
             try:
                 text = transcriber.transcribe(wav_path)
+                if text and is_hallucination(text, duration, rms):
+                    log.info("Halluzination verworfen (%.1fs, rms %.4f): %r",
+                             duration, rms, text)
+                    text = ""
                 if text:
                     text = text_processor.process(text)
                 if text:
@@ -260,6 +276,7 @@ def _run_cycle() -> str:
         shutdown_event.set()
         hotkey_mgr.stop()
         transcriber.shutdown()
+        recorder.close_stream()
         if overlay:
             overlay.stop()
 
@@ -296,6 +313,7 @@ def _run_cycle() -> str:
 
     shutdown_event.set()
     transcriber.shutdown()
+    recorder.close_stream()
 
     if return_to_settings.is_set():
         return "settings"

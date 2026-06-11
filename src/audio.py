@@ -2,11 +2,10 @@ import logging
 import os
 import threading
 import uuid
+import wave
 
 import numpy as np
 import sounddevice as sd
-from scipy.io import wavfile
-from scipy.signal import resample_poly
 
 from src.paths import TMP_DIR
 
@@ -17,16 +16,49 @@ CHANNELS = 1
 DTYPE = "float32"
 MIN_DURATION = 0.3
 
-# Raten die viele USB-Mikrofone unterstuetzen
-FALLBACK_RATES = [SAMPLE_RATE, 48000, 44100, 32000, 22050, 16000]
+# 16000 zuerst: DirectSound konvertiert die Rate selbst -> kein Resampling
+# noetig. Danach gaengige native Raten als Fallback.
+FALLBACK_RATES = [SAMPLE_RATE, 48000, 44100, 32000, 22050]
+
+
+def _resample(audio: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
+    """Resampling in reinem numpy (ersetzt scipy.signal.resample_poly).
+
+    Anti-Aliasing-Tiefpass (windowed sinc) + Decimation bzw. lineare
+    Interpolation. Fuer Sprache/Whisper voellig ausreichend.
+    """
+    if src_rate == dst_rate:
+        return audio.astype(np.float32)
+
+    # Tiefpass bei 90 % der Ziel-Nyquist-Frequenz (normiert auf src_rate)
+    cutoff = 0.45 * dst_rate / src_rate
+    numtaps = 101
+    t = np.arange(numtaps) - (numtaps - 1) / 2
+    kernel = np.sinc(2 * cutoff * t) * np.hamming(numtaps)
+    kernel /= kernel.sum()
+    filtered = np.convolve(audio, kernel, mode="same")
+
+    if src_rate % dst_rate == 0:
+        return filtered[:: src_rate // dst_rate].astype(np.float32)
+
+    n_out = int(len(filtered) * dst_rate / src_rate)
+    x_new = np.linspace(0, len(filtered) - 1, n_out)
+    return np.interp(x_new, np.arange(len(filtered)), filtered).astype(np.float32)
 
 
 class AudioRecorder:
+    """Persistenter Input-Stream: open_stream() einmal beim Run-Start,
+    start/stop_recording() togglen nur das Aufnahme-Flag. Das eliminiert
+    die Geraete-Open-Latenz beim Hotkey-Druck (abgeschnittene erste Silben).
+    """
+
     def __init__(self, device=None):
         self._buffer = []
         self._stream = None
         self._lock = threading.Lock()
         self._recording = False
+        self._closing = False
+        self._stream_broken = False
         self._device = device
         self._session_id = uuid.uuid4().hex[:8]
         self._actual_rate = SAMPLE_RATE
@@ -50,6 +82,13 @@ class AudioRecorder:
         if self._recording:
             self._buffer.append(indata.copy())
 
+    def _on_stream_finished(self):
+        """PortAudio meldet Stream-Ende — unerwartet heisst: Geraet weg oder
+        Standby/Resume. Beim naechsten Aufnahmestart wird neu geoeffnet."""
+        if not self._closing:
+            log.warning("Audio-Stream unerwartet beendet (Geraet getrennt/Standby?)")
+            self._stream_broken = True
+
     def _try_stream(self, device, samplerate: int) -> bool:
         """Versucht einen InputStream zu oeffnen. Returns True bei Erfolg."""
         try:
@@ -59,6 +98,7 @@ class AudioRecorder:
                 dtype=DTYPE,
                 device=device,
                 callback=self._callback,
+                finished_callback=self._on_stream_finished,
             )
             self._stream.start()
             self._actual_rate = samplerate
@@ -85,70 +125,84 @@ class AudioRecorder:
     def _try_device(self, device) -> bool:
         """Versucht alle Raten fuer ein bestimmtes Device durchzugehen."""
         native = self._get_native_rate(device)
-        rates = []
-        # Native Rate zuerst (funktioniert fast immer)
+        rates = list(FALLBACK_RATES)
         if native not in rates:
-            rates.append(native)
-        for r in FALLBACK_RATES:
-            if r not in rates:
-                rates.append(r)
+            rates.insert(1, native)  # nach 16000, vor den uebrigen Fallbacks
 
         for rate in rates:
             if self._try_stream(device, rate):
                 return True
         return False
 
+    def open_stream(self):
+        """Oeffnet den Stream und haelt ihn offen. Raised RuntimeError wenn
+        weder das gewaehlte noch das Standard-Device funktioniert."""
+        with self._lock:
+            self._open_stream_locked()
+
+    def _open_stream_locked(self):
+        self._close_stream_locked()
+        self._stream_broken = False
+
+        # Strategie 1: Gewaehltes Device
+        if self._try_device(self._device):
+            log.info("Mikrofon '%s' @ %d Hz%s",
+                     self._device_name, self._actual_rate,
+                     " (wird zu 16000 Hz resampled)" if self._actual_rate != SAMPLE_RATE else "")
+            return
+
+        # Strategie 2: Fallback auf Default-Device
+        if self._device is not None:
+            log.warning("Device '%s' nicht nutzbar, fallback auf Standard", self._device_name)
+            if self._try_device(None):
+                try:
+                    info = sd.query_devices(kind="input")
+                    log.info("Fallback Mikrofon '%s' @ %d Hz", info["name"].strip(), self._actual_rate)
+                except Exception:
+                    pass
+                return
+
+        raise RuntimeError(
+            f"Mikrofon '{self._device_name}' und Standard-Device liefern keine nutzbare Sample-Rate."
+        )
+
     def start_recording(self):
         with self._lock:
+            stream_dead = (
+                self._stream is None
+                or self._stream_broken
+                or not getattr(self._stream, "active", False)
+            )
+            if stream_dead:
+                log.info("Audio-Stream nicht aktiv — oeffne neu")
+                self._open_stream_locked()
             self._buffer = []
             self._recording = True
 
-            # Strategie 1: Gewaehltes Device
-            if self._try_device(self._device):
-                log.info("Mikrofon '%s' @ %d Hz%s",
-                         self._device_name, self._actual_rate,
-                         " (wird zu 16000 Hz resampled)" if self._actual_rate != SAMPLE_RATE else "")
-                return
+    def stop_recording(self) -> tuple[str | None, float, float]:
+        """Beendet die Aufnahme. Returns (wav_path, dauer_s, rms).
 
-            # Strategie 2: Fallback auf Default-Device wenn spezifisches Device fehlschlaegt
-            if self._device is not None:
-                log.warning("Device '%s' nicht nutzbar, fallback auf Standard", self._device_name)
-                if self._try_device(None):
-                    try:
-                        info = sd.query_devices(kind="input")
-                        fallback_name = info["name"].strip()
-                        log.info("Fallback Mikrofon '%s' @ %d Hz%s",
-                                 fallback_name, self._actual_rate,
-                                 " (wird zu 16000 Hz resampled)" if self._actual_rate != SAMPLE_RATE else "")
-                    except Exception:
-                        pass
-                    return
-
-            self._recording = False
-            raise RuntimeError(
-                f"Mikrofon '{self._device_name}' und Standard-Device liefern keine nutzbare Sample-Rate."
-            )
-
-    def stop_recording(self) -> str | None:
+        wav_path ist None bei leerer/zu kurzer Aufnahme. Der Stream bleibt
+        offen (persistent) — close_stream() schliesst ihn am Zyklusende.
+        """
         with self._lock:
             self._recording = False
-            if self._stream:
-                try:
-                    self._stream.stop()
-                    self._stream.close()
-                except Exception:
-                    log.exception("Fehler beim Schliessen des Audio-Streams")
-                self._stream = None
-            if not self._buffer:
-                return None
-            audio = np.concatenate(self._buffer, axis=0).flatten()
-            self._buffer = []
+            buffer, self._buffer = self._buffer, []
+            rate = self._actual_rate
 
-        if len(audio) < self._actual_rate * MIN_DURATION:
-            return None
+        if not buffer:
+            return None, 0.0, 0.0
 
-        if self._actual_rate != SAMPLE_RATE:
-            audio = resample_poly(audio, SAMPLE_RATE, self._actual_rate).astype(np.float32)
+        audio = np.concatenate(buffer, axis=0).flatten()
+        duration = len(audio) / rate
+        if duration < MIN_DURATION:
+            return None, duration, 0.0
+
+        # RMS auf den float32-Rohdaten — Grundlage fuer den Halluzinations-Filter
+        rms = float(np.sqrt(np.mean(np.square(audio))))
+
+        if rate != SAMPLE_RATE:
+            audio = _resample(audio, rate, SAMPLE_RATE)
 
         audio_int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
         os.makedirs(TMP_DIR, exist_ok=True)
@@ -156,8 +210,30 @@ class AudioRecorder:
             TMP_DIR,
             f"vozii_rec_{os.getpid()}_{self._session_id}.wav",
         )
-        wavfile.write(tmp_path, SAMPLE_RATE, audio_int16)
-        return tmp_path
+        with wave.open(tmp_path, "wb") as wf:
+            wf.setnchannels(CHANNELS)
+            wf.setsampwidth(2)
+            wf.setframerate(SAMPLE_RATE)
+            wf.writeframes(audio_int16.tobytes())
+        return tmp_path, duration, rms
+
+    def close_stream(self):
+        with self._lock:
+            self._recording = False
+            self._close_stream_locked()
+
+    def _close_stream_locked(self):
+        if self._stream is None:
+            return
+        self._closing = True
+        try:
+            self._stream.stop()
+            self._stream.close()
+        except Exception:
+            log.exception("Fehler beim Schliessen des Audio-Streams")
+        finally:
+            self._stream = None
+            self._closing = False
 
     @staticmethod
     def list_input_devices() -> list[dict]:

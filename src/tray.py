@@ -77,6 +77,15 @@ class TrayApp:
         items.append(pystray.MenuItem("Beenden", self._quit))
         return pystray.Menu(*items)
 
+    @staticmethod
+    def _make_copy_action(text):
+        """Action-Closure mit exakt (icon, item) — pystray validiert die
+        Signatur ueber co_argcount und lehnt alles andere ab (auch Lambdas
+        mit Default-Parametern!)."""
+        def _copy(icon, item):
+            pyperclip.copy(text)
+        return _copy
+
     def _build_history_menu(self):
         """Submenu mit den letzten 5 Transkriptionen — Klick kopiert den Volltext."""
         if self.history is None:
@@ -89,10 +98,7 @@ class TrayApp:
             label = " ".join(entry["text"].split())
             if len(label) > 40:
                 label = label[:37] + "..."
-            sub.append(pystray.MenuItem(
-                label,
-                lambda icon, item, t=entry["text"]: pyperclip.copy(t),
-            ))
+            sub.append(pystray.MenuItem(label, self._make_copy_action(entry["text"])))
         return pystray.Menu(*sub)
 
     def _open_settings(self, icon, item):

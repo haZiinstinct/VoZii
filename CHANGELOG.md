@@ -7,6 +7,21 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.5.1] — 2026-06-12
+
+### Fixed
+- **Startup-Crash sobald die Historie Einträge hatte:** pystray erlaubt
+  Menü-Actions nur mit exakt 0/1/2 Parametern — das History-Item nutzte ein
+  Lambda mit Default-Parameter (3) und liess die App mit ValueError abstürzen.
+  Jetzt Closure mit korrekter Signatur + Regressionstest, der das ganze
+  Tray-Menü mit echtem pystray baut.
+- **Ressourcen-Leak bei Zyklus-Crash:** `_run_cycle` räumt jetzt per
+  try/finally auf — vorher startete jede Crash-Schleife einen weiteren
+  whisper-server (je ~1,5 GB RAM beim Medium-Modell) und liess Audio-Streams
+  offen.
+
+---
+
 ## [1.5.0] — 2026-06-12
 
 Großer Overhaul nach komplettem Audit: schneller, robuster, sicherer, schöner.

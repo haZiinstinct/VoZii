@@ -190,185 +190,197 @@ def _run_cycle(skip_settings: bool = False) -> str:
     log.info("Transcriber: %s", transcriber.get_status())
     log.info("Hotkey: %s", config["hotkey"])
 
-    # Server-Backend im Hintergrund vorwaermen (Modell laden), damit die
-    # erste Transkription nicht darauf warten muss
-    threading.Thread(target=transcriber.warmup, daemon=True).start()
-
-    overlay = None
-    if config.get("show_overlay", True):
-        overlay = RecordingOverlay()
-        if overlay.start():
-            state.on_change(overlay.update_state)
-        else:
-            overlay = None  # nicht mit totem Overlay weiterlaufen
-
-    # Stream persistent oeffnen: eliminiert die Geraete-Open-Latenz beim
-    # Hotkey-Druck. Schlaegt das fehl, versucht start_recording() es erneut.
-    try:
-        recorder.open_stream()
-    except Exception:
-        log.exception("Audio-Stream konnte nicht geoeffnet werden — "
-                      "erneuter Versuch beim Aufnahmestart")
-
     audio_queue = queue.Queue()
     shutdown_event = threading.Event()
     return_to_settings = threading.Event()
+    overlay = None
+    hotkey_mgr = None
 
-    use_sound = config.get("audio_feedback", True)
+    # Ab hier laufen Hintergrundprozesse (whisper-server, Audio-Stream) —
+    # das finally raeumt auch bei einem Crash auf, sonst leakt pro
+    # Schleifendurchlauf ein Server (1,5 GB RAM beim Medium-Modell).
+    try:
+        # Server-Backend im Hintergrund vorwaermen (Modell laden), damit die
+        # erste Transkription nicht darauf warten muss
+        threading.Thread(target=transcriber.warmup, daemon=True).start()
 
-    def beep_start():
-        if use_sound:
-            threading.Thread(target=play_tone, args=(600, 80), daemon=True).start()
-
-    def beep_done():
-        if use_sound:
-            threading.Thread(target=play_tone, args=(880, 60), daemon=True).start()
-
-    def notify(code: str, duration_ms: int = 5000):
-        """Kurzes visuelles Feedback (Status-Code im Overlay).
-
-        Ohne Overlay waeren Fehler unsichtbar — dann wenigstens ein tiefer Ton."""
-        if overlay:
-            overlay.flash(code, duration_ms)
-        elif code.startswith("ERR") and use_sound:
-            threading.Thread(target=play_tone, args=(300, 250), daemon=True).start()
-
-    def on_activate():
-        try:
-            if state.state == AppState.TRANSCRIBING:
-                return
-            state.set_state(AppState.RECORDING)
-            beep_start()
-            recorder.start_recording()
-            log.info("Aufnahme gestartet")
-        except Exception:
-            log.exception("on_activate fehlgeschlagen")
-            state.set_state(AppState.IDLE)
-            notify("ERR:MIC")
-
-    def on_deactivate():
-        try:
-            if state.state != AppState.RECORDING:
-                return
-            wav_path, duration, rms = recorder.stop_recording()
-            if wav_path:
-                state.set_state(AppState.TRANSCRIBING)
-                audio_queue.put((wav_path, duration, rms))
+        if config.get("show_overlay", True):
+            overlay = RecordingOverlay()
+            if overlay.start():
+                state.on_change(overlay.update_state)
             else:
-                state.set_state(AppState.IDLE)
-                if duration > 0:
-                    notify("SHORT", 2000)
+                overlay = None  # nicht mit totem Overlay weiterlaufen
+
+        # Stream persistent oeffnen: eliminiert die Geraete-Open-Latenz beim
+        # Hotkey-Druck. Schlaegt das fehl, versucht start_recording() es erneut.
+        try:
+            recorder.open_stream()
         except Exception:
-            log.exception("on_deactivate fehlgeschlagen")
-            state.set_state(AppState.IDLE)
-            notify("ERR:MIC")
+            log.exception("Audio-Stream konnte nicht geoeffnet werden — "
+                          "erneuter Versuch beim Aufnahmestart")
 
-    error_count = [0]
+        use_sound = config.get("audio_feedback", True)
 
-    def transcription_worker():
-        while not shutdown_event.is_set():
+        def beep_start():
+            if use_sound:
+                threading.Thread(target=play_tone, args=(600, 80), daemon=True).start()
+
+        def beep_done():
+            if use_sound:
+                threading.Thread(target=play_tone, args=(880, 60), daemon=True).start()
+
+        def notify(code: str, duration_ms: int = 5000):
+            """Kurzes visuelles Feedback (Status-Code im Overlay).
+
+            Ohne Overlay waeren Fehler unsichtbar — dann wenigstens ein tiefer Ton."""
+            if overlay:
+                overlay.flash(code, duration_ms)
+            elif code.startswith("ERR") and use_sound:
+                threading.Thread(target=play_tone, args=(300, 250), daemon=True).start()
+
+        def on_activate():
             try:
-                wav_path, duration, rms = audio_queue.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            try:
-                text = transcriber.transcribe(wav_path)
-                if text and is_hallucination(text, duration, rms):
-                    log.info("Halluzination verworfen (%.1fs, rms %.4f): %r",
-                             duration, rms, text)
-                    text = ""
-                if text:
-                    text = text_processor.process(text)
-                if text:
-                    log.info("Transkribiert: %d Zeichen", len(text))
-                    if history:
-                        history.add(text)
-                    inserted = insert_text(
-                        text, restore_clipboard=config.get("restore_clipboard", True))
-                    if inserted:
-                        beep_done()
-                    else:
-                        # Text liegt in der Zwischenablage — Nutzer informieren
-                        notify("CLIP")
-                    error_count[0] = 0
-                else:
-                    log.warning("Transkription leer")
-                    notify("LEER", 2000)
+                if state.state == AppState.TRANSCRIBING:
+                    return
+                state.set_state(AppState.RECORDING)
+                beep_start()
+                recorder.start_recording()
+                log.info("Aufnahme gestartet")
             except Exception:
-                log.exception("Transkription fehlgeschlagen")
-                error_count[0] += 1
-                if error_count[0] >= 2:
-                    notify("ERR:WHISPER")
-                    error_count[0] = 0
-            finally:
-                try:
-                    os.remove(wav_path)
-                except OSError:
-                    pass
-            state.set_state(AppState.IDLE)
+                log.exception("on_activate fehlgeschlagen")
+                state.set_state(AppState.IDLE)
+                notify("ERR:MIC")
 
-    def on_quit():
+        def on_deactivate():
+            try:
+                if state.state != AppState.RECORDING:
+                    return
+                wav_path, duration, rms = recorder.stop_recording()
+                if wav_path:
+                    state.set_state(AppState.TRANSCRIBING)
+                    audio_queue.put((wav_path, duration, rms))
+                else:
+                    state.set_state(AppState.IDLE)
+                    if duration > 0:
+                        notify("SHORT", 2000)
+            except Exception:
+                log.exception("on_deactivate fehlgeschlagen")
+                state.set_state(AppState.IDLE)
+                notify("ERR:MIC")
+
+        error_count = [0]
+
+        def transcription_worker():
+            while not shutdown_event.is_set():
+                try:
+                    wav_path, duration, rms = audio_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                try:
+                    text = transcriber.transcribe(wav_path)
+                    if text and is_hallucination(text, duration, rms):
+                        log.info("Halluzination verworfen (%.1fs, rms %.4f): %r",
+                                 duration, rms, text)
+                        text = ""
+                    if text:
+                        text = text_processor.process(text)
+                    if text:
+                        log.info("Transkribiert: %d Zeichen", len(text))
+                        if history:
+                            history.add(text)
+                        inserted = insert_text(
+                            text, restore_clipboard=config.get("restore_clipboard", True))
+                        if inserted:
+                            beep_done()
+                        else:
+                            # Text liegt in der Zwischenablage — Nutzer informieren
+                            notify("CLIP")
+                        error_count[0] = 0
+                    else:
+                        log.warning("Transkription leer")
+                        notify("LEER", 2000)
+                except Exception:
+                    log.exception("Transkription fehlgeschlagen")
+                    error_count[0] += 1
+                    if error_count[0] >= 2:
+                        notify("ERR:WHISPER")
+                        error_count[0] = 0
+                finally:
+                    try:
+                        os.remove(wav_path)
+                    except OSError:
+                        pass
+                state.set_state(AppState.IDLE)
+
+        def on_quit():
+            shutdown_event.set()
+            hotkey_mgr.stop()
+            transcriber.shutdown()
+            recorder.close_stream()
+            if overlay:
+                overlay.stop()
+
+        def on_open_settings():
+            return_to_settings.set()
+            on_quit()
+
+        def on_open_log():
+            try:
+                os.startfile(get_log_path())
+            except Exception:
+                log.exception("Konnte Log nicht oeffnen")
+
+        threading.Thread(target=transcription_worker, daemon=True).start()
+
+        hotkey_mgr = HotkeyManager(
+            hotkey_str=config["hotkey"],
+            on_activate=on_activate,
+            on_deactivate=on_deactivate,
+            mode=config.get("mode", "push_to_talk"),
+        )
+        hotkey_mgr.start()
+
+        def hotkey_watchdog():
+            """Windows entfernt Low-Level-Hooks gelegentlich (Hook-Timeout) —
+            dann waere der Hotkey bis zum App-Neustart tot. Alle 30s pruefen."""
+            while not shutdown_event.wait(30):
+                try:
+                    if not hotkey_mgr.is_healthy():
+                        log.warning("Hotkey-Listener tot — starte neu")
+                        hotkey_mgr.restart()
+                except Exception:
+                    log.exception("Hotkey-Watchdog fehlgeschlagen")
+
+        threading.Thread(target=hotkey_watchdog, daemon=True).start()
+
+        tray = TrayApp(
+            state, on_quit,
+            hotkey_str=config["hotkey"],
+            backend_name=backend_name,
+            mic_name=recorder.device_name,
+            on_open_settings=on_open_settings,
+            on_open_log=on_open_log,
+            history=history,
+        )
+        # First-Run: einmalig zeigen, wie es losgeht
+        if overlay and not config.get("first_run_done", False):
+            overlay.flash(f"READY: {config['hotkey'].upper()}", 6000)
+            config["first_run_done"] = True
+            save_config(config)
+
+        log.info("VoZii laeuft")
+        tray.run()
+    finally:
         shutdown_event.set()
-        hotkey_mgr.stop()
+        if hotkey_mgr is not None:
+            try:
+                hotkey_mgr.stop()
+            except Exception:
+                log.exception("Hotkey-Stop fehlgeschlagen")
         transcriber.shutdown()
         recorder.close_stream()
         if overlay:
             overlay.stop()
-
-    def on_open_settings():
-        return_to_settings.set()
-        on_quit()
-
-    def on_open_log():
-        try:
-            os.startfile(get_log_path())
-        except Exception:
-            log.exception("Konnte Log nicht oeffnen")
-
-    threading.Thread(target=transcription_worker, daemon=True).start()
-
-    hotkey_mgr = HotkeyManager(
-        hotkey_str=config["hotkey"],
-        on_activate=on_activate,
-        on_deactivate=on_deactivate,
-        mode=config.get("mode", "push_to_talk"),
-    )
-    hotkey_mgr.start()
-
-    def hotkey_watchdog():
-        """Windows entfernt Low-Level-Hooks gelegentlich (Hook-Timeout) —
-        dann waere der Hotkey bis zum App-Neustart tot. Alle 30s pruefen."""
-        while not shutdown_event.wait(30):
-            try:
-                if not hotkey_mgr.is_healthy():
-                    log.warning("Hotkey-Listener tot — starte neu")
-                    hotkey_mgr.restart()
-            except Exception:
-                log.exception("Hotkey-Watchdog fehlgeschlagen")
-
-    threading.Thread(target=hotkey_watchdog, daemon=True).start()
-
-    tray = TrayApp(
-        state, on_quit,
-        hotkey_str=config["hotkey"],
-        backend_name=backend_name,
-        mic_name=recorder.device_name,
-        on_open_settings=on_open_settings,
-        on_open_log=on_open_log,
-        history=history,
-    )
-    # First-Run: einmalig zeigen, wie es losgeht
-    if overlay and not config.get("first_run_done", False):
-        overlay.flash(f"READY: {config['hotkey'].upper()}", 6000)
-        config["first_run_done"] = True
-        save_config(config)
-
-    log.info("VoZii laeuft")
-    tray.run()
-
-    shutdown_event.set()
-    transcriber.shutdown()
-    recorder.close_stream()
 
     if return_to_settings.is_set():
         return "settings"

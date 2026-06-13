@@ -184,12 +184,6 @@ class HotkeyManager:
             self._mouse_listener.daemon = True
             self._mouse_listener.start()
 
-        # If hotkey is ONLY mouse buttons, still need kb listener for combos like ctrl+mouse4
-        if not self._has_kb_parts and self._has_mouse_parts:
-            pass  # only mouse listener needed
-        elif self._has_kb_parts and self._has_mouse_parts:
-            pass  # both already started
-
     def stop(self):
         if self._kb_listener:
             self._kb_listener.stop()

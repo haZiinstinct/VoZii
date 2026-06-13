@@ -31,6 +31,14 @@ MODEL_LABELS = {
     "medium": "Medium  (1.5 GB, genau)",
 }
 
+# Gemeinsamer Stil fuer alle SegmentedButtons (Sprache/Transkription/Modus)
+_SEG_STYLE = dict(
+    font=(FONT_BODY, 13), selected_color=BRAND["cyan"],
+    selected_hover_color=BRAND["cyan_dim"], unselected_color=BRAND["card"],
+    unselected_hover_color=BRAND["card_hover"], text_color=BRAND["text_bright"],
+    fg_color=BRAND["card"], corner_radius=8,
+)
+
 
 def _icon_path() -> str:
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -197,11 +205,7 @@ class SettingsWindow:
         lang_map = {"de": "Deutsch", "en": "English", "auto": "Auto"}
         self.lang_var = ctk.StringVar(value=lang_map.get(self.config["language"], "Deutsch"))
         ctk.CTkSegmentedButton(c, values=["Deutsch", "English", "Auto"], variable=self.lang_var,
-                               font=(FONT_BODY, 13), selected_color=BRAND["cyan"],
-                               selected_hover_color=BRAND["cyan_dim"], unselected_color=BRAND["card"],
-                               unselected_hover_color=BRAND["card_hover"],
-                               text_color=BRAND["text_bright"], fg_color=BRAND["card"],
-                               corner_radius=8).pack(fill="x", pady=(0, 14))
+                               **_SEG_STYLE).pack(fill="x", pady=(0, 14))
 
         # TRANSKRIPTION (Beam-Search: schnell vs. genau)
         self._heading(c, "Transkription")
@@ -209,11 +213,7 @@ class SettingsWindow:
         self.perf_var = ctk.StringVar(
             value=perf_map.get(self.config.get("performance_mode", "speed"), "Schnell"))
         ctk.CTkSegmentedButton(c, values=["Schnell", "Genau"], variable=self.perf_var,
-                               font=(FONT_BODY, 13), selected_color=BRAND["cyan"],
-                               selected_hover_color=BRAND["cyan_dim"], unselected_color=BRAND["card"],
-                               unselected_hover_color=BRAND["card_hover"],
-                               text_color=BRAND["text_bright"], fg_color=BRAND["card"],
-                               corner_radius=8).pack(fill="x", pady=(0, 14))
+                               **_SEG_STYLE).pack(fill="x", pady=(0, 14))
 
         # NACHBEARBEITUNG — einklappbar (optional, braucht Ollama)
         self._ollama_collapsed = self.config.get("post_processing_mode", "off") == "off"
@@ -240,12 +240,8 @@ class SettingsWindow:
         current_mode = mode_map.get(self.config.get("post_processing_mode", "off"), "Aus")
         self.mode_var = ctk.StringVar(value=current_mode)
         self.mode_btn = ctk.CTkSegmentedButton(
-            self.ollama_container, values=["Aus", "Smart", "Prompt"], variable=self.mode_var,
-            font=(FONT_BODY, 13), selected_color=BRAND["cyan"],
-            selected_hover_color=BRAND["cyan_dim"], unselected_color=BRAND["card"],
-            unselected_hover_color=BRAND["card_hover"],
-            text_color=BRAND["text_bright"], fg_color=BRAND["card"],
-            corner_radius=8,
+            self.ollama_container, values=["Aus", "Smart", "Prompt"],
+            variable=self.mode_var, **_SEG_STYLE,
         )
         self.mode_btn.pack(fill="x", pady=(0, 4))
         Tooltip(self.mode_btn, "Smart: entfernt Fuellwoerter, korrigiert Grammatik, "
@@ -745,14 +741,10 @@ class SettingsWindow:
     def _on_start_done(self, ok: bool, err: str | None):
         """Callback nach Ollama-Start."""
         self.ollama_mini_btn.configure(state="normal")
-        if ok:
-            self._refresh_ollama_state()
-            self._render_ollama_section()
-        else:
-            self._refresh_ollama_state()
-            self._render_ollama_section()
-            if err:
-                self.ollama_status_label.configure(text=f"Fehler: {err}", text_color=BRAND["red"])
+        self._refresh_ollama_state()
+        self._render_ollama_section()
+        if not ok and err:
+            self.ollama_status_label.configure(text=f"Fehler: {err}", text_color=BRAND["red"])
 
     def _cancel_ollama_action(self):
         """User klickt Cancel - setzt das Event."""

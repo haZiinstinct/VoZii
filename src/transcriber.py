@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-from src.downloader import MODEL_MIN_SIZES, is_server_available
+from src.downloader import MODEL_FILES, MODEL_MIN_SIZES, is_server_available
 from src.paths import BASE_DIR
 from src.winutil import assign_process_to_job, create_kill_on_close_job
 
@@ -29,12 +29,6 @@ WHISPER_DIR = os.path.join(BASE_DIR, "whisper-cpp")
 WHISPER_CLI = os.path.join(WHISPER_DIR, "whisper-cli.exe")
 WHISPER_SERVER = os.path.join(WHISPER_DIR, "whisper-server.exe")
 MODELS_DIR = os.path.join(WHISPER_DIR, "models")
-
-MODEL_FILES = {
-    "tiny": "ggml-tiny.bin",
-    "small": "ggml-small.bin",
-    "medium": "ggml-medium.bin",
-}
 
 # medium braucht auf langsamen Platten lange zum Laden
 _SERVER_START_TIMEOUT_S = 90

@@ -128,7 +128,7 @@ def _refresh_gpu_cache(old_type: str, old_name: str):
             log.info("GPU-Cache aktualisiert: %s (%s) — wirkt ab dem naechsten Start",
                      gpu_name or "CPU", gpu_type)
     except Exception:
-        log.exception("GPU-Cache-Refresh fehlgeschlagen")
+        log.debug("GPU-Cache-Refresh fehlgeschlagen", exc_info=True)
 
 
 def _store_gpu_cache(gpu_type: str, gpu_name: str):

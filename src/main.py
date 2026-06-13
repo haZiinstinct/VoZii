@@ -313,12 +313,10 @@ def _run_cycle(skip_settings: bool = False) -> str:
                 state.set_state(AppState.IDLE)
 
         def on_quit():
+            # Nur das Shutdown-Signal setzen; das eigentliche Aufraeumen
+            # (Server, Stream, Overlay, Hotkey) macht der finally-Block — egal
+            # ueber welchen Pfad der Zyklus endet, genau einmal.
             shutdown_event.set()
-            hotkey_mgr.stop()
-            transcriber.shutdown()
-            recorder.close_stream()
-            if overlay:
-                overlay.stop()
 
         def on_open_settings():
             return_to_settings.set()

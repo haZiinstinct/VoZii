@@ -53,29 +53,39 @@ class TrayApp:
         self._icons = {s: _create_icon(c) for s, c in STATE_COLORS.items()}
         self._icon = None
 
-    def _build_menu(self):
-        st = self.state_manager.state
+    def _menu_items(self):
+        """Generator — pystray ruft ihn bei jedem Oeffnen neu auf, daher sind
+        Status-Label und Historie immer aktuell (kein Cross-Thread-Neubau)."""
         labels = {AppState.IDLE: "Bereit", AppState.RECORDING: "Aufnahme...",
                   AppState.TRANSCRIBING: "Transkribiere..."}
-        items = [pystray.MenuItem(f"VoZii — {labels.get(st, '?')}", None, enabled=False)]
+        yield pystray.MenuItem(f"VoZii — {labels.get(self.state_manager.state, '?')}",
+                               None, enabled=False)
         if self.hotkey_str:
-            items.append(pystray.MenuItem(
-                f"Hotkey: {self.hotkey_str.upper().replace('+', ' + ')}",
-                None, enabled=False))
+            yield pystray.MenuItem(
+                f"Hotkey: {self.hotkey_str.upper().replace('+', ' + ')}", None, enabled=False)
         if self.mic_name:
-            # Truncate long mic names
-            mic_display = self.mic_name if len(self.mic_name) <= 35 else self.mic_name[:32] + "..."
-            items.append(pystray.MenuItem(f"Mikrofon: {mic_display}", None, enabled=False))
-        items.append(pystray.Menu.SEPARATOR)
-        history_menu = self._build_history_menu()
-        if history_menu is not None:
-            items.append(pystray.MenuItem("Letzte Transkriptionen", history_menu))
+            mic = self.mic_name if len(self.mic_name) <= 35 else self.mic_name[:32] + "..."
+            yield pystray.MenuItem(f"Mikrofon: {mic}", None, enabled=False)
+        yield pystray.Menu.SEPARATOR
+        if self.history is not None:
+            yield pystray.MenuItem("Letzte Transkriptionen", pystray.Menu(self._history_items))
         if self.on_open_settings:
-            items.append(pystray.MenuItem("Einstellungen", self._open_settings))
+            yield pystray.MenuItem("Einstellungen", self._open_settings)
         if self.on_open_log:
-            items.append(pystray.MenuItem("Log oeffnen", self._open_log))
-        items.append(pystray.MenuItem("Beenden", self._quit))
-        return pystray.Menu(*items)
+            yield pystray.MenuItem("Log oeffnen", self._open_log)
+        yield pystray.MenuItem("Beenden", self._quit)
+
+    def _history_items(self):
+        """Generator fuer das Historie-Submenu — Klick kopiert den Volltext."""
+        entries = self.history.get_recent(5) if self.history else []
+        if not entries:
+            yield pystray.MenuItem("(leer)", None, enabled=False)
+            return
+        for entry in entries:
+            label = " ".join(entry["text"].split())
+            if len(label) > 40:
+                label = label[:37] + "..."
+            yield pystray.MenuItem(label, self._make_copy_action(entry["text"]))
 
     @staticmethod
     def _make_copy_action(text):
@@ -85,21 +95,6 @@ class TrayApp:
         def _copy(icon, item):
             pyperclip.copy(text)
         return _copy
-
-    def _build_history_menu(self):
-        """Submenu mit den letzten 5 Transkriptionen — Klick kopiert den Volltext."""
-        if self.history is None:
-            return None
-        entries = self.history.get_recent(5)
-        if not entries:
-            return pystray.Menu(pystray.MenuItem("(leer)", None, enabled=False))
-        sub = []
-        for entry in entries:
-            label = " ".join(entry["text"].split())
-            if len(label) > 40:
-                label = label[:37] + "..."
-            sub.append(pystray.MenuItem(label, self._make_copy_action(entry["text"])))
-        return pystray.Menu(*sub)
 
     def _open_settings(self, icon, item):
         if self.on_open_settings:
@@ -120,12 +115,12 @@ class TrayApp:
     def _on_state_change(self, new_state):
         if self._icon:
             self._icon.icon = self._icons.get(new_state, self._icons[AppState.IDLE])
-            # Menu neu bauen, damit Status-Label und Historie aktuell sind
-            self._icon.menu = self._build_menu()
+            # Generator-Menu liest sich beim Oeffnen selbst neu — update_menu
+            # synchronisiert nur die Plattformen, die nicht zur Anzeigezeit bauen
             self._icon.update_menu()
 
     def run(self):
         self.state_manager.on_change(self._on_state_change)
         self._icon = pystray.Icon("VoZii", self._icons[AppState.IDLE],
-                                   "VoZii", self._build_menu())
+                                   "VoZii", pystray.Menu(self._menu_items))
         self._icon.run()

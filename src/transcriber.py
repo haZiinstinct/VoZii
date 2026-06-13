@@ -21,6 +21,7 @@ import uuid
 
 from src.downloader import MODEL_MIN_SIZES, is_server_available
 from src.paths import BASE_DIR
+from src.winutil import assign_process_to_job, create_kill_on_close_job
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +132,9 @@ class ServerBackend:
         self._proc = None
         self._port = None
         self._lock = threading.RLock()
+        # Job-Object haelt den Server an unseren Prozess gekettet: stirbt VoZii
+        # (auch per Force-Kill/Crash), killt Windows den Server automatisch.
+        self._job = create_kill_on_close_job()
         atexit.register(self.shutdown)
 
     def ensure_started(self):
@@ -159,6 +163,8 @@ class ServerBackend:
             creationflags=subprocess.CREATE_NO_WINDOW,
             cwd=WHISPER_DIR,
         )
+        if self._job:
+            assign_process_to_job(self._job, self._proc.pid)
 
         deadline = time.time() + _SERVER_START_TIMEOUT_S
         while time.time() < deadline:

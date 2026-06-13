@@ -176,6 +176,9 @@ class RecordingOverlay:
                 self._root.after(0, self._root.destroy)
             except Exception as e:
                 log.warning("Overlay destroy failed: %s", e)
+        # Auf das Ende der mainloop warten, damit der Prozess deterministisch endet
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1)
 
     # --- Implementierung (laeuft im Tk-Thread) ---
 

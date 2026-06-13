@@ -13,8 +13,11 @@ log = logging.getLogger(__name__)
 # Shift, Ctrl, Alt, LWin, RWin
 _MODIFIER_VKS = (0x10, 0x11, 0x12, 0x5B, 0x5C)
 _MODIFIER_WAIT_S = 1.0
-_CLIPBOARD_SETTLE_S = 0.15
-_RESTORE_DELAY_S = 0.3
+# Etwas grosszuegiger: gerade das erste Einfuegen (Ziel-App noch nicht fokussiert)
+# ist langsam — sonst wird die Zwischenablage zu frueh wiederhergestellt und die
+# App fuegt den ALTEN Inhalt ein.
+_CLIPBOARD_SETTLE_S = 0.2
+_RESTORE_DELAY_S = 0.6
 
 
 def _wait_for_modifier_release(timeout_s: float = _MODIFIER_WAIT_S):
@@ -66,7 +69,11 @@ def insert_text(text: str, restore_clipboard: bool = True) -> bool:
     if restore_clipboard and previous:
         time.sleep(_RESTORE_DELAY_S)
         try:
-            pyperclip.copy(previous)
+            # Nur wiederherstellen, wenn unser Text noch in der Zwischenablage
+            # liegt — sonst hat die App ihn evtl. noch nicht eingefuegt oder
+            # der Nutzer hat schon was anderes kopiert.
+            if pyperclip.paste() == text:
+                pyperclip.copy(previous)
         except Exception:
             log.debug("Clipboard-Restore fehlgeschlagen", exc_info=True)
     return True

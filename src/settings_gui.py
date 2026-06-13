@@ -1,6 +1,8 @@
-"""VoZii Settings — Clean, minimal, borderless, haZii Design."""
+"""VoZii Settings — native dunkle Titelleiste, haZii Design."""
 
 import logging
+import os
+import sys
 import threading
 
 import customtkinter as ctk
@@ -9,6 +11,7 @@ from pynput import keyboard, mouse
 from src import __version__
 from src.theme import BRAND, FONT_BODY, FONT_MONO
 from src.hotkey import key_to_name, mouse_button_to_name
+from src.winutil import enable_dark_titlebar
 from src.downloader import (
     is_binary_installed, is_model_installed, is_server_available,
     download_and_extract_binary, download_model, ensure_server_binary,
@@ -27,6 +30,11 @@ MODEL_LABELS = {
     "small": "Small  (465 MB, ausgewogen)",
     "medium": "Medium  (1.5 GB, genau)",
 }
+
+
+def _icon_path() -> str:
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base, "src", "vozii.ico")
 
 
 def _fmt_eta(seconds: float) -> str:
@@ -84,7 +92,6 @@ class SettingsWindow:
         self._kb_listener = None
         self._mouse_listener = None
         self._result = None
-        self._drag_x = self._drag_y = 0
         self._downloading = False
         self._cancel_download = threading.Event()
         self._ollama_busy = False
@@ -98,51 +105,51 @@ class SettingsWindow:
 
     def run(self):
         self.root = ctk.CTk()
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
+        self.root.title("VoZii")
         self.root.configure(fg_color=BRAND["bg"])
+        self.root.resizable(False, False)
+        try:
+            self.root.iconbitmap(_icon_path())
+        except Exception:
+            pass
+        # Nativer Schliessen-Button (X) = Abbrechen
+        self.root.protocol("WM_DELETE_WINDOW", self._cancel)
 
-        w = 440
-        h = min(820, self.root.winfo_screenheight() - 80)
+        w = 460
+        h = min(760, self.root.winfo_screenheight() - 120)
         sx = (self.root.winfo_screenwidth() - w) // 2
         sy = (self.root.winfo_screenheight() - h) // 2
         self.root.geometry(f"{w}x{h}+{sx}+{sy}")
+        enable_dark_titlebar(self.root)
 
-        # Border
-        border = ctk.CTkFrame(self.root, fg_color=BRAND["card"], corner_radius=16,
-                              border_width=1, border_color=BRAND["border"])
-        border.pack(fill="both", expand=True, padx=1, pady=1)
-        inner = ctk.CTkFrame(border, fg_color=BRAND["bg"], corner_radius=14)
-        inner.pack(fill="both", expand=True, padx=2, pady=2)
-
-        # Titlebar
-        tb = ctk.CTkFrame(inner, fg_color="transparent", height=48)
-        tb.pack(fill="x", padx=20, pady=(16, 0))
-        tb.bind("<Button-1>", self._start_drag)
-        tb.bind("<B1-Motion>", self._do_drag)
-        ctk.CTkLabel(tb, text="VoZii", font=(FONT_MONO, 22, "bold"),
+        # Branding-Kopfzeile
+        head = ctk.CTkFrame(self.root, fg_color="transparent")
+        head.pack(fill="x", padx=24, pady=(14, 0))
+        ctk.CTkLabel(head, text="VoZii", font=(FONT_MONO, 22, "bold"),
                      text_color=BRAND["cyan"]).pack(side="left")
-        ctk.CTkLabel(tb, text=f"v{__version__}", font=(FONT_MONO, 10),
+        ctk.CTkLabel(head, text=f"v{__version__}", font=(FONT_MONO, 10),
                      text_color=BRAND["text_dim"]).pack(side="left", padx=(6, 0), pady=(6, 0))
-        ctk.CTkButton(tb, text="×", width=28, height=28, font=(FONT_MONO, 16),
-                      fg_color="transparent", text_color=BRAND["text_dim"],
-                      hover_color=BRAND["red"], corner_radius=14,
-                      command=self._cancel).pack(side="right")
 
         # Backend-Info als Pill-Badge (hazii.org-Stil)
-        badge = ctk.CTkFrame(inner, fg_color=BRAND["card"], corner_radius=12,
+        badge = ctk.CTkFrame(self.root, fg_color=BRAND["card"], corner_radius=12,
                              border_width=1, border_color=BRAND["border"])
-        badge.pack(anchor="w", padx=24, pady=(2, 16))
+        badge.pack(anchor="w", padx=24, pady=(6, 10))
         ctk.CTkLabel(badge, text=f"{self.backend_name}  ·  {self.gpu_name or 'CPU'}",
                      font=(FONT_MONO, 11), text_color=BRAND["text_dim"]
                      ).pack(padx=10, pady=2)
 
-        # Auf kleinen Bildschirmen scrollbar statt abgeschnitten
-        if h < 820:
-            c = ctk.CTkScrollableFrame(inner, fg_color="transparent")
-        else:
-            c = ctk.CTkFrame(inner, fg_color="transparent")
-        c.pack(fill="both", expand=True, padx=24)
+        # START-Button unten fixiert — bleibt immer sichtbar, egal wie viel
+        # Inhalt darueber aufgeklappt ist
+        start_bar = ctk.CTkFrame(self.root, fg_color="transparent")
+        start_bar.pack(side="bottom", fill="x", padx=24, pady=(8, 16))
+        ctk.CTkButton(start_bar, text="Starten", height=44, font=(FONT_BODY, 16, "bold"),
+                      fg_color=BRAND["cyan"], text_color=BRAND["bg"],
+                      hover_color=BRAND["cyan_dim"], corner_radius=10,
+                      command=self._save).pack(fill="x")
+
+        # Inhalt scrollbar zwischen Badge und Start-Button
+        c = ctk.CTkScrollableFrame(self.root, fg_color="transparent")
+        c.pack(fill="both", expand=True, padx=20)
 
         # HOTKEY
         self._heading(c, "Hotkey")
@@ -401,12 +408,6 @@ class SettingsWindow:
             corner_radius=8, command=self._clear_history)
         self.hist_clear_btn.pack(side="right")
 
-        # START
-        ctk.CTkButton(c, text="Starten", height=44, font=(FONT_BODY, 16, "bold"),
-                      fg_color=BRAND["cyan"], text_color=BRAND["bg"],
-                      hover_color=BRAND["cyan_dim"], corner_radius=10,
-                      command=self._save).pack(fill="x", pady=(4, 0))
-
         self.root.mainloop()
         return self._result
 
@@ -499,12 +500,6 @@ class SettingsWindow:
     def _heading(self, parent, text):
         ctk.CTkLabel(parent, text=text.upper(), font=(FONT_BODY, 12, "bold"),
                      text_color=BRAND["text_dim"]).pack(anchor="w", pady=(0, 4))
-
-    def _start_drag(self, e):
-        self._drag_x, self._drag_y = e.x, e.y
-
-    def _do_drag(self, e):
-        self.root.geometry(f"+{self.root.winfo_x() + e.x - self._drag_x}+{self.root.winfo_y() + e.y - self._drag_y}")
 
     # Model
     def _get_model_size(self):

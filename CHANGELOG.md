@@ -7,6 +7,36 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.5.2] — 2026-06-13
+
+Audit-Runde nach Nutzer-Feedback: Fensterverhalten, Hintergrund-Prozess,
+Historie-Anzeige und das erste Einfügen behoben; dazu ein Leanness-Pass.
+
+### Fixed
+- **Fenster nicht mehr dauerhaft im Vordergrund + minimierbar:** Das
+  Settings-Fenster hat jetzt eine native (dunkle) Titelleiste statt eines
+  randlosen Always-on-Top-Fensters. Minimieren, Taskbar und „andere Fenster
+  davor schieben" funktionieren nativ.
+- **Start-Button bleibt sichtbar:** Beim Aufklappen der Nachbearbeitung wurde
+  der „Starten"-Button zusammengequetscht. Er ist jetzt unten fixiert, der
+  Inhalt scrollt bei Bedarf.
+- **Kein verwaister Hintergrund-Prozess mehr:** Der whisper-server läuft in
+  einem Windows-Job-Object und wird automatisch mitbeendet — selbst wenn VoZii
+  abstürzt oder hart per Task-Manager beendet wird.
+- **Transkriptions-Historie zuverlässig:** Das Tray-Menü wird als dynamisches
+  Generator-Menü gebaut und ist beim Öffnen immer aktuell (kein
+  Cross-Thread-Neuaufbau mehr).
+- **Erstes Diktat kopiert das Richtige:** Die Zwischenablage wurde nach dem
+  Einfügen zu früh wiederhergestellt, sodass langsame Apps (oft beim ersten
+  Mal) den alten Inhalt einfügten. Längere Wartezeit + Restore nur, wenn der
+  Diktattext noch in der Zwischenablage liegt.
+
+### Changed
+- Leanness-Pass: doppeltes `MODEL_FILES`-Dict entfernt, redundante GUI-Logik
+  und tote Code-Zweige bereinigt, gemeinsamer Stil für die SegmentedButtons.
+
+---
+
 ## [1.5.1] — 2026-06-12
 
 ### Fixed

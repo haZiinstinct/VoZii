@@ -19,16 +19,38 @@ from src.downloader import (
 from src.text_processor import (
     get_ollama_state, install_ollama, pull_model,
     is_ollama_installed, start_ollama, stop_ollama, DEFAULT_MODEL,
+    OLLAMA_TIERS, tier_for_model, size_label,
 )
 
 log = logging.getLogger(__name__)
 
 ctk.set_appearance_mode("dark")
 
+# Aktuelle Whisper-Stufen (key -> Picker-Label). large-v3-turbo = modernes
+# Diktat-Modell: nahezu beste Qualitaet, schnell, multilingual.
 MODEL_LABELS = {
-    "tiny": "Tiny  (75 MB, schnell)",
-    "small": "Small  (465 MB, ausgewogen)",
-    "medium": "Medium  (1.5 GB, genau)",
+    "tiny": "Schnell — Tiny (75 MB)",
+    "large-v3-turbo-q5_0": "Empfohlen — Turbo (550 MB)",
+    "large-v3-turbo": "Beste — Turbo HQ (1.5 GB)",
+}
+# Legacy-Modelle nur zur Anzeige, falls ein Bestandsnutzer sie noch nutzt
+LEGACY_MODEL_LABELS = {
+    "small": "Small (465 MB, alt)",
+    "medium": "Medium (1.5 GB, alt)",
+}
+MODEL_TOOLTIP = (
+    "Spracherkennungs-Modell:\n"
+    "• Schnell — am flottesten, einfache Diktate\n"
+    "• Empfohlen — beste Qualitaet bei kleiner Groesse, ideal fuer Laptops\n"
+    "• Beste — maximale Genauigkeit (staerkere PCs)"
+)
+# Sichtbare Kurzbeschreibung je Modell (Segmented/OptionMenu zeigen keine Tooltips zuverlaessig)
+MODEL_DESCRIPTIONS = {
+    "tiny": "Am schnellsten — fuer einfache, kurze Diktate.",
+    "large-v3-turbo-q5_0": "Beste Qualitaet bei kleiner Groesse — ideal fuer Laptops.",
+    "large-v3-turbo": "Maximale Genauigkeit — fuer staerkere PCs.",
+    "small": "Aelteres Modell (durch 'Empfohlen' ersetzt).",
+    "medium": "Aelteres Modell (durch 'Beste' ersetzt).",
 }
 
 # Gemeinsamer Stil fuer alle SegmentedButtons (Sprache/Transkription/Modus)
@@ -176,20 +198,33 @@ class SettingsWindow:
         self._heading(c, "Modell")
         mr = ctk.CTkFrame(c, fg_color="transparent")
         mr.pack(fill="x", pady=(0, 4))
-        opts = list(MODEL_LABELS.values())
-        key_map = {"tiny": opts[0], "small": opts[1], "medium": opts[2]}
-        self.model_var = ctk.StringVar(value=key_map.get(self.config["model_size"], opts[1]))
-        ctk.CTkOptionMenu(mr, values=opts, variable=self.model_var, font=(FONT_BODY, 13),
+        # Aktuelle Stufen + (falls aktiv) das Legacy-Modell des Bestandsnutzers
+        labels = dict(MODEL_LABELS)
+        cur_model = self.config["model_size"]
+        if cur_model in LEGACY_MODEL_LABELS:
+            labels[cur_model] = LEGACY_MODEL_LABELS[cur_model]
+        self._model_label_to_key = {v: k for k, v in labels.items()}
+        self.model_var = ctk.StringVar(
+            value=labels.get(cur_model, MODEL_LABELS["large-v3-turbo-q5_0"]))
+        model_menu = ctk.CTkOptionMenu(mr, values=list(labels.values()), variable=self.model_var,
+                          font=(FONT_BODY, 13),
                           width=260, fg_color=BRAND["card"], button_color=BRAND["card_hover"],
                           button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
                           dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
                           text_color=BRAND["text"], corner_radius=8,
-                          command=self._on_model_change).pack(side="left")
+                          command=self._on_model_change)
+        model_menu.pack(side="left")
+        Tooltip(model_menu, MODEL_TOOLTIP)
         self.dl_btn = ctk.CTkButton(mr, text="Download", width=100, height=32,
                                      font=(FONT_BODY, 12, "bold"), fg_color=BRAND["cyan"],
                                      text_color=BRAND["bg"], hover_color=BRAND["cyan_dim"],
                                      corner_radius=8, command=self._download_current_model)
         self.dl_btn.pack(side="right")
+
+        self.model_desc = ctk.CTkLabel(c, text="", font=(FONT_BODY, 11),
+                                       text_color=BRAND["text_dim"], anchor="w")
+        self.model_desc.pack(fill="x", pady=(0, 2))
+        self._update_model_desc()
 
         self.progress = ctk.CTkProgressBar(c, progress_color=BRAND["cyan"],
                                             fg_color=BRAND["card"], height=4, corner_radius=2)
@@ -213,7 +248,10 @@ class SettingsWindow:
         self.perf_var = ctk.StringVar(
             value=perf_map.get(self.config.get("performance_mode", "speed"), "Schnell"))
         ctk.CTkSegmentedButton(c, values=["Schnell", "Genau"], variable=self.perf_var,
-                               **_SEG_STYLE).pack(fill="x", pady=(0, 14))
+                               **_SEG_STYLE).pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(c, text="Schnell: flott fuers Diktat.  Genau: gruendlicher, etwas langsamer.",
+                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w"
+                     ).pack(fill="x", pady=(0, 14))
 
         # NACHBEARBEITUNG — einklappbar (optional, braucht Ollama)
         self._ollama_collapsed = self.config.get("post_processing_mode", "off") == "off"
@@ -243,10 +281,25 @@ class SettingsWindow:
             self.ollama_container, values=["Aus", "Smart", "Prompt"],
             variable=self.mode_var, **_SEG_STYLE,
         )
-        self.mode_btn.pack(fill="x", pady=(0, 4))
-        Tooltip(self.mode_btn, "Smart: entfernt Fuellwoerter, korrigiert Grammatik, "
-                               "formatiert (Listen, Absaetze, Voice-Commands).\n"
-                               "Prompt: macht aus dem Gesprochenen einen praezisen AI-Prompt.")
+        self.mode_btn.pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(self.ollama_container,
+                     text="Smart: bereinigt & formatiert.  Prompt: macht einen KI-Prompt daraus.",
+                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
+                     wraplength=400, justify="left").pack(fill="x", pady=(0, 4))
+
+        # KI-Modell-Picker (Schnell / Ausgewogen / Beste)
+        self.ollama_tier_var = ctk.StringVar(
+            value=tier_for_model(self.config.get("ollama_model", DEFAULT_MODEL)))
+        tier_btn = ctk.CTkSegmentedButton(
+            self.ollama_container, values=list(OLLAMA_TIERS),
+            variable=self.ollama_tier_var, command=self._on_ollama_tier_change, **_SEG_STYLE,
+        )
+        tier_btn.pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(self.ollama_container,
+                     text="KI-Modell: groesser = bessere Qualitaet, mehr Last "
+                          "(Schnell ~1,3 GB · Ausgewogen ~2 GB · Beste ~3 GB).",
+                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
+                     wraplength=400, justify="left").pack(fill="x", pady=(0, 4))
 
         # Ollama Status-Row: Label + Mini-Button (Start/Stop)
         self.ollama_status_row = ctk.CTkFrame(self.ollama_container, fg_color="transparent")
@@ -460,6 +513,13 @@ class SettingsWindow:
         self.mic_test_label.configure(text=msg, text_color=color)
         self.mic_level.set(0)
 
+    def _on_ollama_tier_change(self, name):
+        """Picker -> Modell-Tag setzen, Status (ready/no_model) neu berechnen."""
+        tag = OLLAMA_TIERS.get(name, OLLAMA_TIERS["Ausgewogen"])[0]
+        self.config["ollama_model"] = tag
+        self._refresh_ollama_state()
+        self._render_ollama_section()
+
     def _toggle_ollama_section(self, _e=None):
         self._ollama_collapsed = not self._ollama_collapsed
         if self._ollama_collapsed:
@@ -499,11 +559,14 @@ class SettingsWindow:
 
     # Model
     def _get_model_size(self):
-        v = self.model_var.get().lower()
-        return "tiny" if "tiny" in v else "medium" if "medium" in v else "small"
+        return self._model_label_to_key.get(self.model_var.get(), "large-v3-turbo-q5_0")
 
     def _on_model_change(self, _):
+        self._update_model_desc()
         self._update_dl_button()
+
+    def _update_model_desc(self):
+        self.model_desc.configure(text=MODEL_DESCRIPTIONS.get(self._get_model_size(), ""))
 
     def _update_dl_button(self):
         ok = is_binary_installed() and is_model_installed(self._get_model_size())
@@ -636,7 +699,7 @@ class SettingsWindow:
             )
             self.mode_btn.configure(state="disabled")
             self.mode_var.set("Aus")
-            self.ollama_action_btn.configure(text="Modell laden (2 GB)")
+            self.ollama_action_btn.configure(text=f"Modell laden ({size_label(required)})")
             if not self.ollama_action_btn.winfo_ismapped():
                 self.ollama_action_btn.pack(fill="x", pady=(4, 0))
 

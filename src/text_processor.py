@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -13,40 +14,92 @@ log = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
-DEFAULT_MODEL = "llama3.2:3b"
+DEFAULT_MODEL = "qwen2.5:3b"
 
-PROMPTS = {
-    "smart": (
-        "Du bist ein intelligenter Text-Assistent fuer eine Voice-to-Text App.\n"
-        "Der User hat gerade etwas gesprochen. Verbessere den transkribierten "
-        "Text nach folgenden Regeln:\n\n"
-        "1. Entferne Fuellwoerter (aehm, also, halt, ja, ne, sozusagen, nicht wahr)\n"
-        "2. Korrigiere Grammatik, Interpunktion und offensichtliche Versprecher\n"
-        "3. Behalte die Originalsprache bei\n\n"
-        "4. Voice-Commands erkennen und befolgen (die Commands aus dem Output entfernen!):\n"
-        "   - 'als Email' oder 'als Email formatieren' -> formellen Email-Stil\n"
-        "   - 'als Liste' / 'Bullet Points' / 'Aufzaehlung' -> Markdown-Liste mit '-'\n"
-        "   - 'als Code' / 'code block' -> Code-Block mit ```\n"
-        "   - 'Ueberschrift' / 'als Titel' / 'Headline' -> Markdown-Ueberschrift mit '#'\n"
-        "   - 'neuer Absatz' / 'Absatz' -> klarer Absatz-Umbruch\n\n"
-        "5. Ohne explizite Commands: intelligent formatieren je nach Inhalt:\n"
-        "   - Aufzaehlung erkennbar (erstens, zweitens, Punkte etc.) -> Bullet Points\n"
-        "   - Mehrere unterschiedliche Gedanken -> getrennte Absaetze\n"
-        "   - Einfacher kurzer Satz -> einfach sauberer Satz ohne Extra-Formatierung\n"
-        "   - Befehl oder Frage -> einfacher Satz\n\n"
-        "6. Gib NUR den verarbeiteten Text zurueck. KEINE Erklaerung, KEINE "
-        "Anfuehrungszeichen, KEIN Meta-Kommentar.\n\n"
-        "Gesprochen: {text}\n\nErgebnis:"
-    ),
-    "prompt": (
-        "Wandle den folgenden gesprochenen Text in einen klaren, strukturierten "
-        "Prompt fuer einen AI-Assistenten um. Mache aus dem Gesprochenen eine "
-        "praezise Anfrage mit: klarer Aufgabenstellung, spezifischen "
-        "Anforderungen, und optional Kontext oder Beispiel. Behalte die "
-        "Originalsprache bei. Gib NUR den Prompt zurueck, keine Erklaerung.\n\n"
-        "Gesprochen: {text}\n\nPrompt:"
-    ),
+# 3-Stufen-Auswahl fuers Post-Processing: Anzeigename -> (Ollama-Tag, Groesse).
+# Bewusst Modelle OHNE Thinking-Mode (sauberer, schneller Output).
+OLLAMA_TIERS = {
+    "Schnell": ("llama3.2:1b", "~1,3 GB"),
+    "Ausgewogen": ("qwen2.5:3b", "~2 GB"),
+    "Beste": ("gemma3:4b", "~3 GB"),
 }
+
+
+def tier_for_model(tag: str) -> str:
+    """Anzeige-Stufe fuer einen Modell-Tag (Default: Ausgewogen)."""
+    for name, (t, _) in OLLAMA_TIERS.items():
+        if t == tag:
+            return name
+    return "Ausgewogen"
+
+
+def size_label(tag: str) -> str:
+    """Ungefaehre Download-Groesse fuer einen Modell-Tag."""
+    for _, (t, size) in OLLAMA_TIERS.items():
+        if t == tag:
+            return size
+    return "~2 GB"
+
+
+# System-Prompt + Few-Shot-Beispiele je Modus. Few-Shot macht kleine Modelle
+# deutlich zuverlaessiger und haelt sie vom Vorreden ab.
+_SMART_SYSTEM = (
+    "Du bist ein Textbereiniger fuer eine Voice-to-Text-App. Verbessere den "
+    "gesprochenen Text:\n"
+    "1. Entferne Fuellwoerter (aehm, also, halt, ja, ne, sozusagen).\n"
+    "2. Korrigiere Grammatik, Interpunktion und offensichtliche Versprecher.\n"
+    "3. Behalte die Sprache des Originals bei.\n"
+    "4. Voice-Commands befolgen und aus dem Text entfernen: 'als Liste' -> "
+    "Markdown-Liste mit '-'; 'als Email' -> formeller Email-Stil; 'als Code' -> "
+    "Codeblock mit ```; 'Ueberschrift'/'als Titel' -> '# '; 'neuer Absatz' -> "
+    "Absatzumbruch.\n"
+    "5. Ohne Command passend formatieren: Aufzaehlung -> Liste, mehrere Gedanken "
+    "-> Absaetze, sonst ein sauberer Satz.\n"
+    "Gib AUSSCHLIESSLICH den fertigen Text aus - keine Erklaerung, keine "
+    "Anfuehrungszeichen, kein Vorwort."
+)
+_SMART_FEWSHOT = [
+    ("aehm ich wollte halt sagen dass das tool wirklich super funktioniert",
+     "Ich wollte sagen, dass das Tool wirklich super funktioniert."),
+    ("ich brauche folgende zutaten als liste mehl zucker butter und eier",
+     "- Mehl\n- Zucker\n- Butter\n- Eier"),
+]
+
+_PROMPT_SYSTEM = (
+    "Wandle gesprochenen Text in einen praezisen, gut strukturierten Prompt "
+    "fuer einen KI-Assistenten um: klare Aufgabe, konkrete Anforderungen, "
+    "optional Kontext. Behalte die Sprache des Originals bei. Gib "
+    "AUSSCHLIESSLICH den Prompt aus - keine Erklaerung, kein Vorwort."
+)
+_PROMPT_FEWSHOT = [
+    ("schreib ne email an meinen chef dass ich morgen nicht kann weil ich zum arzt muss",
+     "Schreibe eine hoefliche, formelle E-Mail an meinen Vorgesetzten. Inhalt: "
+     "Ich kann morgen nicht arbeiten, da ich einen Arzttermin habe. Bitte um "
+     "Verstaendnis und biete an, dringende Aufgaben vorab zu erledigen. Ton: "
+     "professionell und knapp."),
+]
+
+# Modus -> (System-Prompt, Few-Shot, Temperatur)
+PROMPTS = {
+    "smart": (_SMART_SYSTEM, _SMART_FEWSHOT, 0.2),
+    "prompt": (_PROMPT_SYSTEM, _PROMPT_FEWSHOT, 0.4),
+}
+
+_PREAMBLE_RE = re.compile(
+    r"^(hier ist[^\n:]*:|klar[,!.]?\s+|gerne[,!.]?\s+|sicher[,!.]?\s+|natuerlich[,!.]?\s+)",
+    re.IGNORECASE,
+)
+
+
+def _clean_response(text: str) -> str:
+    """Entfernt Vorworte, umschliessende Quotes und durchgesickerte Reasoning-Bloecke."""
+    if not text:
+        return ""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+    text = _PREAMBLE_RE.sub("", text).strip()
+    if len(text) >= 2 and text[0] in "\"'„“" and text[-1] in "\"'”“":
+        text = text[1:-1].strip()
+    return text
 
 
 class TextProcessor:
@@ -58,13 +111,12 @@ class TextProcessor:
         """Verarbeitet den Text gemaess Mode. Fallback auf Raw bei Fehler."""
         if self.mode == "off" or not text:
             return text
-        prompt_template = PROMPTS.get(self.mode)
-        if not prompt_template:
+        spec = PROMPTS.get(self.mode)
+        if not spec:
             return text
-
-        prompt = prompt_template.format(text=text)
+        system, fewshot, temperature = spec
         try:
-            result = self._query_ollama(prompt)
+            result = _clean_response(self._chat(system, fewshot, text, temperature))
             if result:
                 log.info("Post-processing '%s': %d -> %d Zeichen",
                          self.mode, len(text), len(result))
@@ -75,23 +127,31 @@ class TextProcessor:
             log.error("Ollama Post-processing fehlgeschlagen: %s", e)
             return text
 
-    def _query_ollama(self, prompt: str, timeout: int = 60) -> str:
+    def _chat(self, system: str, fewshot, text: str, temperature: float,
+              timeout: int = 60) -> str:
+        messages = [{"role": "system", "content": system}]
+        for user_msg, assistant_msg in fewshot:
+            messages.append({"role": "user", "content": user_msg})
+            messages.append({"role": "assistant", "content": assistant_msg})
+        messages.append({"role": "user", "content": text})
+
         payload = json.dumps({
             "model": self.model,
-            "prompt": prompt,
+            "messages": messages,
             "stream": False,
-            "options": {"temperature": 0.3, "num_predict": 2048},
+            "think": False,  # Reasoning-Modelle sollen nicht ihre Gedanken ausgeben
+            "options": {"temperature": temperature, "num_predict": 1024},
         }).encode("utf-8")
 
         req = urllib.request.Request(
-            f"{OLLAMA_URL}/api/generate",
+            f"{OLLAMA_URL}/api/chat",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            return data.get("response", "").strip()
+            return data.get("message", {}).get("content", "").strip()
 
 
 # --- Ollama Status / Detection ---

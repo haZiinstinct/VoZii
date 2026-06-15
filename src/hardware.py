@@ -6,19 +6,21 @@ import threading
 
 log = logging.getLogger(__name__)
 
-# whisper.cpp pre-built binaries fuer verschiedene GPUs
+# whisper.cpp pre-built binaries fuer verschiedene GPUs.
+# nvidia/cpu: offizielles whisper.cpp v1.8.6 (aktuellstes Release, Juni 2026).
+# amd: Drittanbieter-Vulkan-Build (kein offizielles v1.8.6 vorhanden) — bleibt.
 BINARY_URLS = {
-    "nvidia": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-cublas-12.4.0-bin-x64.zip",
+    "nvidia": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.6/whisper-cublas-12.4.0-bin-x64.zip",
     "amd": "https://github.com/jerryshell/whisper.cpp-windows-vulkan-bin/releases/download/v1.0.0/whisper.cpp-windows-vulkan.zip",
-    "cpu": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-blas-bin-x64.zip",
+    "cpu": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.6/whisper-blas-bin-x64.zip",
 }
 
-# SHA256 der Release-Zips (GitHub-Asset-Digests, gepinnt am 2026-06-11).
+# SHA256 der Release-Zips (GitHub-Asset-Digests, gepinnt am 2026-06-15).
 # Aendert sich ein Upstream-Asset, schlaegt der Download bewusst fehl.
 BINARY_SHA256 = {
-    "nvidia": "b07cff4e59831b227896018facbb6334907bf324a342c84597c44f087823d252",
+    "nvidia": "63b70c91fe2fd7449865c45f6422ab628439eacc6985d8309c77bfb65cc68a19",
     "amd": "a5d408c72e460433b39875f74a0b6e27e60a3724301d478fe9873db7ff4098e0",
-    "cpu": "d85e60bdba2dcb35cf42fd07c0cd1481ef6ca631f81872c1f2204ea8cdb7d001",
+    "cpu": "12e6681d267b1b3bdb41ac4c0107e7cd4830d27f02f67adee3581ef55be8c3fb",
 }
 
 BACKEND_NAMES = {

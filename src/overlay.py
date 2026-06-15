@@ -126,8 +126,14 @@ class RecordingOverlay:
 
     def _layout(self, text: str):
         """Passt Canvas-Breite an den Text an und zeichnet den Hintergrund neu."""
-        f = tkfont.Font(family=FONT_MONO, size=10, weight="bold")
-        w = self._px(26) + f.measure(text) + self._px(14)
+        # Echte gerenderte Ausdehnung statt Font.measure() — measure weicht auf
+        # High-DPI minimal vom tatsaechlich gezeichneten Text ab (Punkte ragten raus).
+        bbox = self._canvas.bbox(self._dot_id, self._text_id)
+        if bbox:
+            w = bbox[2] + self._px(16)
+        else:
+            f = tkfont.Font(family=FONT_MONO, size=10, weight="bold")
+            w = self._px(26) + f.measure(text) + self._px(16)
         h = self._px(_HEIGHT)
         self._canvas.configure(width=w, height=h)
         if self._bg_id is not None:

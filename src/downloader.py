@@ -21,29 +21,42 @@ log = logging.getLogger(__name__)
 WHISPER_DIR = os.path.join(BASE_DIR, "whisper-cpp")
 MODELS_DIR = os.path.join(WHISPER_DIR, "models")
 
+# Whisper-Modelle. large-v3-turbo = modernes Diktat-Modell (8x schneller als
+# large-v3, ~gleiche Qualitaet, multilingual inkl. Deutsch). tiny/small/medium
+# bleiben als Keys fuer Bestandsnutzer; der Picker zeigt nur die 3 aktuellen Stufen.
+_HF = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
+
 MODEL_URLS = {
-    "tiny": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-    "small": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-    "medium": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+    "tiny": f"{_HF}/ggml-tiny.bin",
+    "small": f"{_HF}/ggml-small.bin",
+    "medium": f"{_HF}/ggml-medium.bin",
+    "large-v3-turbo-q5_0": f"{_HF}/ggml-large-v3-turbo-q5_0.bin",
+    "large-v3-turbo": f"{_HF}/ggml-large-v3-turbo.bin",
 }
 
 MODEL_FILES = {
     "tiny": "ggml-tiny.bin",
     "small": "ggml-small.bin",
     "medium": "ggml-medium.bin",
+    "large-v3-turbo-q5_0": "ggml-large-v3-turbo-q5_0.bin",
+    "large-v3-turbo": "ggml-large-v3-turbo.bin",
 }
 
 MODEL_MIN_SIZES = {
     "tiny": 70_000_000,
     "small": 450_000_000,
     "medium": 1_400_000_000,
+    "large-v3-turbo-q5_0": 520_000_000,
+    "large-v3-turbo": 1_500_000_000,
 }
 
-# LFS-Hashes von huggingface.co/ggerganov/whisper.cpp (Stand 2026-06-11)
+# LFS-Hashes von huggingface.co/ggerganov/whisper.cpp (Stand 2026-06-15)
 MODEL_SHA256 = {
     "tiny": "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
     "small": "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
     "medium": "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208",
+    "large-v3-turbo-q5_0": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+    "large-v3-turbo": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
 }
 
 # 500 MB Puffer, damit Windows/andere Apps nicht auf 0 laufen
@@ -209,8 +222,10 @@ def download_and_extract_binary(gpu_type, progress_callback=None):
 
 
 def ensure_server_binary(gpu_type, progress_callback=None) -> bool:
-    """Bestandsnutzer: CLI ist da, whisper-server.exe fehlt -> nur Server nachladen.
+    """Bestandsnutzer: CLI ist da, whisper-server.exe fehlt -> Binary-Set nachladen.
 
+    Extrahiert CLI + Server + DLLs gemeinsam, damit alle aus derselben
+    whisper.cpp-Version stammen (kein Server gegen alte DLLs).
     Best-effort — bei Fehlern bleibt der CLI-Modus voll funktionsfaehig.
     """
     if is_server_available():
@@ -222,7 +237,7 @@ def ensure_server_binary(gpu_type, progress_callback=None) -> bool:
         zip_path = os.path.join(WHISPER_DIR, "whisper-cpp.zip")
         download_file(url, zip_path, progress_callback,
                       expected_sha256=get_binary_sha256(gpu_type))
-        _extract_binaries(zip_path, want_cli=False, want_server=True, with_dlls=False)
+        _extract_binaries(zip_path, want_cli=True, want_server=True, with_dlls=True)
     except InterruptedError:
         raise  # Abbruch durch den Nutzer durchreichen
     except Exception as e:

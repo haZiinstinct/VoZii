@@ -45,7 +45,7 @@ def test_invalid_enum_values_fall_back(config_paths):
         "performance_mode": "ludicrous",
     }))
     config = load_config()
-    assert config["model_size"] == "small"
+    assert config["model_size"] == "large-v3-turbo-q5_0"
     assert config["mode"] == "push_to_talk"
     assert config["language"] == "de"
     assert config["post_processing_mode"] == "off"

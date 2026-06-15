@@ -2,14 +2,14 @@
 hotkey: "ctrl+shift+space"
 mode: "push_to_talk"            # push_to_talk oder toggle
 language: "de"                  # de, en, auto
-model_size: "small"             # tiny, small, medium
+model_size: "large-v3-turbo-q5_0"  # tiny, large-v3-turbo-q5_0 (empfohlen), large-v3-turbo
 audio_feedback: true            # Beep bei Start/Stop
 gpu_type: "auto"                # auto, nvidia, amd, cpu
 audio_device: null              # null = Systemstandard
 show_overlay: true              # Status-Anzeige unten rechts
 auto_start: false               # Mit Windows starten (direkt in den Tray)
 post_processing_mode: "off"     # off, smart, prompt (braucht Ollama)
-ollama_model: "llama3.2:3b"     # Ollama Modell fuer Post-Processing
+ollama_model: "qwen2.5:3b"      # Ollama-Modell: llama3.2:1b / qwen2.5:3b / gemma3:4b
 performance_mode: "speed"       # speed (greedy, schnell) oder quality (Beam 5)
 use_server: true                # whisper-server: Modell bleibt im RAM (schneller)
 restore_clipboard: true         # Zwischenablage nach dem Einfuegen wiederherstellen

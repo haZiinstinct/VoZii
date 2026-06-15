@@ -203,7 +203,9 @@ class RecordingOverlay:
             self._set_content("REC", BRAND["red"])
             self._root.deiconify()
         elif state == AppState.TRANSCRIBING:
-            self._set_content("· ·", BRAND["cyan"])
+            # Feld auf den breitesten Animations-Frame dimensionieren, damit die
+            # Punkte waehrend der Animation nicht aus dem Kasten ragen
+            self._set_content(max(TRANSCRIBING_FRAMES, key=len), BRAND["cyan"])
             self._root.deiconify()
             if not self._anim_active:
                 self._anim_active = True

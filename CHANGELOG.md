@@ -7,6 +7,15 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.5.3] — 2026-06-13
+
+### Fixed
+- **Status-Overlay:** Beim Transkribieren ragten die animierten Lade-Punkte aus
+  dem abgerundeten Feld. Das Feld wird jetzt auf den breitesten Animations-Frame
+  dimensioniert und bleibt stabil — alle Punkte sitzen mit Rand im Kasten.
+
+---
+
 ## [1.5.2] — 2026-06-13
 
 Audit-Runde nach Nutzer-Feedback: Fensterverhalten, Hintergrund-Prozess,

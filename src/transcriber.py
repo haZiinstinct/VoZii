@@ -256,7 +256,7 @@ def _build_multipart(fields: dict, file_field: str, filename: str,
 class Transcriber:
     """Facade: Server-Backend wenn verfuegbar, sonst (und bei Fehlern) CLI."""
 
-    def __init__(self, model_size: str = "small", language: str = "de",
+    def __init__(self, model_size: str = "large-v3-turbo-q5_0", language: str = "de",
                  performance_mode: str = "speed", use_server: bool = True):
         self.model_size = model_size
         self.language = language

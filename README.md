@@ -13,7 +13,7 @@ Made by [haZii](https://hazii.org)
 - **Schnell** — das Whisper-Modell bleibt im RAM (whisper-server), keine Ladezeit pro Diktat
 - **GPU-beschleunigt** — NVIDIA (CUDA), AMD (Vulkan), CPU-Fallback
 - **Mehrsprachig** — Deutsch, English, Auto-Detect
-- **Drei Modellgrößen** — Tiny (75 MB), Small (465 MB), Medium (1.5 GB)
+- **Effektive Whisper-Modelle** — Schnell (Tiny, 75 MB), Empfohlen (large-v3-turbo, 550 MB), Beste (large-v3-turbo HQ, 1.5 GB)
 - **Text wird direkt eingefügt** an der Cursor-Position; die vorherige Zwischenablage wird danach wiederhergestellt
 - **Transkriptions-Historie** — die letzten Diktate über das Tray-Menü wieder kopierbar
 - **Schnell/Genau-Modus** — greedy für flottes Diktat oder Beam-Search für maximale Genauigkeit
@@ -78,7 +78,7 @@ Made by [haZii](https://hazii.org)
 
 **Zu langsam?**
 → Settings → Transkription → **Schnell** (greedy statt Beam-Search)
-→ Settings → Modell → "Tiny" wählen (15-20x schneller als Medium)
+→ Settings → Modell → "Schnell" wählen (deutlich schneller)
 → Oder GPU-Treiber updaten
 
 **Windows zeigt dauerhaft das Mikrofon-Symbol?**
@@ -110,7 +110,7 @@ Ohne Ollama funktioniert VoZii normal weiter (Raw Whisper-Output). Bei Fehlern (
 
 **Manuelle Installation** (falls der One-Click-Setup nicht klappt):
 - [Ollama herunterladen](https://ollama.com/download)
-- Terminal: `ollama pull llama3.2:3b`
+- Terminal: `ollama pull qwen2.5:3b` (oder `llama3.2:1b` / `gemma3:4b`)
 
 ## Datenschutz
 

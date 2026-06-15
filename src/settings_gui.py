@@ -38,13 +38,7 @@ LEGACY_MODEL_LABELS = {
     "small": "Small (465 MB, alt)",
     "medium": "Medium (1.5 GB, alt)",
 }
-MODEL_TOOLTIP = (
-    "Spracherkennungs-Modell:\n"
-    "• Schnell — am flottesten, einfache Diktate\n"
-    "• Empfohlen — beste Qualitaet bei kleiner Groesse, ideal fuer Laptops\n"
-    "• Beste — maximale Genauigkeit (staerkere PCs)"
-)
-# Sichtbare Kurzbeschreibung je Modell (Segmented/OptionMenu zeigen keine Tooltips zuverlaessig)
+# Sichtbare Kurzbeschreibung je Modell (zuverlaessiger als Tooltips auf OptionMenu)
 MODEL_DESCRIPTIONS = {
     "tiny": "Am schnellsten — fuer einfache, kurze Diktate.",
     "large-v3-turbo-q5_0": "Beste Qualitaet bei kleiner Groesse — ideal fuer Laptops.",
@@ -214,7 +208,6 @@ class SettingsWindow:
                           text_color=BRAND["text"], corner_radius=8,
                           command=self._on_model_change)
         model_menu.pack(side="left")
-        Tooltip(model_menu, MODEL_TOOLTIP)
         self.dl_btn = ctk.CTkButton(mr, text="Download", width=100, height=32,
                                      font=(FONT_BODY, 12, "bold"), fg_color=BRAND["cyan"],
                                      text_color=BRAND["bg"], hover_color=BRAND["cyan_dim"],
@@ -283,7 +276,8 @@ class SettingsWindow:
         )
         self.mode_btn.pack(fill="x", pady=(0, 2))
         ctk.CTkLabel(self.ollama_container,
-                     text="Smart: bereinigt & formatiert.  Prompt: macht einen KI-Prompt daraus.",
+                     text="Aus: keine Nachbearbeitung.  Smart: bereinigt & formatiert.  "
+                          "Prompt: macht einen KI-Prompt daraus.",
                      font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
                      wraplength=400, justify="left").pack(fill="x", pady=(0, 4))
 

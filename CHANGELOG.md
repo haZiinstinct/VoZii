@@ -7,6 +7,30 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.6.0] — 2026-06-15
+
+### Neu
+- **Whisper large-v3-turbo:** Modernes Diktat-Modell (8× schneller als large-v3,
+  nahezu gleiche Qualität). Modell-Auswahl jetzt in 3 Stufen: Schnell (Tiny),
+  **Empfohlen** (Turbo q5, 550 MB — beste Qualität bei kleiner Größe, ideal für
+  Laptops), Beste (Turbo HQ, 1,5 GB). Bestehende tiny/small/medium bleiben nutzbar.
+- **Ollama-Modell-Auswahl (Smart/Prompt):** 3 Stufen Schnell (llama3.2:1b) /
+  Ausgewogen (qwen2.5:3b, neuer Standard) / Beste (gemma3:4b) — passt sich dem
+  Gerät an, läuft auf vielen Laptops effektiv.
+- **Sichtbare Kurzbeschreibungen** unter jeder Auswahl (Modell, Transkription,
+  Modi, KI-Modell) — klar erklärt, was die Optionen bedeuten.
+
+### Verbessert
+- **Smart/Prompt-Nachbearbeitung** komplett überarbeitet: Chat-API mit System-
+  Prompt + Few-Shot-Beispielen (zuverlässiger bei kleinen Modellen), pro-Modus
+  abgestimmte Temperatur, Output-Bereinigung (entfernt Vorworte/Anführungs-
+  zeichen/Reasoning). Live gegen echtes Ollama getestet.
+- **whisper.cpp auf v1.8.6** aktualisiert (NVIDIA/CPU-Binaries, neue Checksummen).
+- **Status-Overlay:** Lade-Punkte sitzen jetzt millimetergenau im Feld
+  (Breite aus echter Render-Ausdehnung statt Font-Messung — DPI-genau).
+
+---
+
 ## [1.5.3] — 2026-06-13
 
 ### Fixed

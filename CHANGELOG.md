@@ -7,6 +7,27 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.7.0] — 2026-06-24
+
+### Neu
+- **Mehrsprachige Oberfläche:** VoZii spricht jetzt 9 Sprachen — Deutsch, English,
+  Español, Français, Português, Русский, 中文 (vereinfacht), 日本語, العربية.
+  Oben rechts im Einstellungs-Fenster wählt ein kleiner 🌐-Picker die Sprache;
+  die gesamte Oberfläche, das Tray-Menü, das Overlay und alle Dialoge schalten
+  sofort um. Beim ersten Start wird die Windows-Sprache automatisch erkannt.
+- **Diktat-Sprache als Dropdown:** Statt nur Deutsch/Englisch jetzt 18 gängige
+  Sprachen (als Eigenname) plus „Automatisch erkennen" (deckt alle ~99 Whisper-
+  Sprachen ab). Oberflächen- und Diktat-Sprache sind unabhängig — z. B. englische
+  UI mit deutschem Diktat.
+
+### Hinweise
+- **Arabisch (RTL):** Text wird rechtsläufig korrekt dargestellt; das Gesamt-Layout
+  wird nicht gespiegelt (übliche Grenze bei tkinter-Panels).
+- CJK-/Arabisch-Schriften rendern über den automatischen Windows-Font-Fallback —
+  keine zusätzlichen Schrift-Downloads nötig.
+
+---
+
 ## [1.6.0] — 2026-06-15
 
 ### Neu

@@ -24,6 +24,7 @@ from src.overlay import RecordingOverlay
 from src.text_processor import TextProcessor
 from src.filters import is_hallucination
 from src.history import TranscriptionHistory
+from src.i18n import set_language, t
 
 log = logging.getLogger(__name__)
 
@@ -89,8 +90,10 @@ def main():
     log.info("=" * 40)
     log.info("VoZii %s Start (PID %d)", __version__, os.getpid())
 
+    set_language(load_config().get("ui_language", "de"))
+
     if not acquire_single_instance():
-        show_error("VoZii", "VoZii laeuft bereits.\n\nPruefe das Tray-Icon unten rechts.")
+        show_error(t("dialog.already_running.title"), t("dialog.already_running"))
         log.warning("Zweite Instanz blockiert")
         return
 
@@ -108,7 +111,7 @@ def main():
                 break
         except Exception:
             log.exception("_run_cycle crashed")
-            show_error("VoZii — Fehler", traceback.format_exc())
+            show_error(t("dialog.error.title"), traceback.format_exc())
             skip_settings = False
             continue
 
@@ -125,6 +128,7 @@ def _setup_ready(config: dict) -> bool:
 def _run_cycle(skip_settings: bool = False) -> str:
     """Ein Zyklus: Settings zeigen → Tool laufen → 'quit' oder 'settings' zurueckgeben."""
     config = load_config()
+    set_language(config.get("ui_language", "de"))
 
     gpu_type, gpu_name, from_cache = detect_gpu_cached(config)
     if config.get("gpu_type", "auto") != "auto":
@@ -184,7 +188,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
     if not transcriber.is_ready():
         status = transcriber.get_status()
         log.error("Transcriber nicht bereit: %s", status)
-        show_error("VoZii — Setup fehlt", f"{status}\n\nBitte Modell herunterladen.")
+        show_error(t("dialog.setup_missing.title"), t("dialog.setup_missing", status=status))
         return "settings"
 
     log.info("Transcriber: %s", transcriber.get_status())
@@ -235,7 +239,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
             Ohne Overlay waeren Fehler unsichtbar — dann wenigstens ein tiefer Ton."""
             if overlay:
                 overlay.flash(code, duration_ms)
-            elif code.startswith("ERR") and use_sound:
+            elif code.startswith("err") and use_sound:
                 threading.Thread(target=play_tone, args=(300, 250), daemon=True).start()
 
         def on_activate():
@@ -249,7 +253,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
             except Exception:
                 log.exception("on_activate fehlgeschlagen")
                 state.set_state(AppState.IDLE)
-                notify("ERR:MIC")
+                notify("err_mic")
 
         def on_deactivate():
             try:
@@ -262,11 +266,11 @@ def _run_cycle(skip_settings: bool = False) -> str:
                 else:
                     state.set_state(AppState.IDLE)
                     if duration > 0:
-                        notify("SHORT", 2000)
+                        notify("short", 2000)
             except Exception:
                 log.exception("on_deactivate fehlgeschlagen")
                 state.set_state(AppState.IDLE)
-                notify("ERR:MIC")
+                notify("err_mic")
 
         error_count = [0]
 
@@ -294,16 +298,16 @@ def _run_cycle(skip_settings: bool = False) -> str:
                             beep_done()
                         else:
                             # Text liegt in der Zwischenablage — Nutzer informieren
-                            notify("CLIP")
+                            notify("clip")
                         error_count[0] = 0
                     else:
                         log.warning("Transkription leer")
-                        notify("LEER", 2000)
+                        notify("empty", 2000)
                 except Exception:
                     log.exception("Transkription fehlgeschlagen")
                     error_count[0] += 1
                     if error_count[0] >= 2:
-                        notify("ERR:WHISPER")
+                        notify("err_whisper")
                         error_count[0] = 0
                 finally:
                     try:
@@ -362,7 +366,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
         )
         # First-Run: einmalig zeigen, wie es losgeht
         if overlay and not config.get("first_run_done", False):
-            overlay.flash(f"READY: {config['hotkey'].upper()}", 6000)
+            overlay.flash("ready", 6000, hotkey=config["hotkey"].upper())
             config["first_run_done"] = True
             save_config(config)
 

@@ -16,21 +16,22 @@ OLLAMA_URL = "http://localhost:11434"
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
 DEFAULT_MODEL = "qwen2.5:3b"
 
-# 3-Stufen-Auswahl fuers Post-Processing: Anzeigename -> (Ollama-Tag, Groesse).
+# 3-Stufen-Auswahl fuers Post-Processing: stabile ID -> (Ollama-Tag, Groesse).
+# Die Anzeige-Namen kommen aus der i18n (aimodel.fast/balanced/best).
 # Bewusst Modelle OHNE Thinking-Mode (sauberer, schneller Output).
 OLLAMA_TIERS = {
-    "Schnell": ("llama3.2:1b", "~1,3 GB"),
-    "Ausgewogen": ("qwen2.5:3b", "~2 GB"),
-    "Beste": ("gemma3:4b", "~3 GB"),
+    "fast": ("llama3.2:1b", "~1,3 GB"),
+    "balanced": ("qwen2.5:3b", "~2 GB"),
+    "best": ("gemma3:4b", "~3 GB"),
 }
 
 
 def tier_for_model(tag: str) -> str:
-    """Anzeige-Stufe fuer einen Modell-Tag (Default: Ausgewogen)."""
-    for name, (t, _) in OLLAMA_TIERS.items():
+    """Stufen-ID fuer einen Modell-Tag (Default: balanced)."""
+    for tier_id, (t, _) in OLLAMA_TIERS.items():
         if t == tag:
-            return name
-    return "Ausgewogen"
+            return tier_id
+    return "balanced"
 
 
 def size_label(tag: str) -> str:

@@ -12,6 +12,17 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+@pytest.fixture(autouse=True)
+def reset_ui_language():
+    """i18n haelt die aktive Sprache global — vor jedem Test auf 'de' zuruecksetzen,
+    damit ein set_language() in einem Test die String-Erwartungen anderer nicht stoert."""
+    from src import i18n
+
+    i18n.set_language("de")
+    yield
+    i18n.set_language("de")
+
+
 @pytest.fixture
 def config_paths(tmp_path, monkeypatch):
     """config.py liest/schreibt nur unter tmp_path."""

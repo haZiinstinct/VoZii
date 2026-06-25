@@ -4,6 +4,7 @@ import pyperclip
 import pystray
 from PIL import Image, ImageDraw
 
+from src.i18n import t
 from src.state import AppState
 from src.theme import BRAND
 
@@ -56,30 +57,33 @@ class TrayApp:
     def _menu_items(self):
         """Generator — pystray ruft ihn bei jedem Oeffnen neu auf, daher sind
         Status-Label und Historie immer aktuell (kein Cross-Thread-Neubau)."""
-        labels = {AppState.IDLE: "Bereit", AppState.RECORDING: "Aufnahme...",
-                  AppState.TRANSCRIBING: "Transkribiere..."}
-        yield pystray.MenuItem(f"VoZii — {labels.get(self.state_manager.state, '?')}",
-                               None, enabled=False)
+        labels = {AppState.IDLE: t("tray.state.idle"),
+                  AppState.RECORDING: t("tray.state.recording"),
+                  AppState.TRANSCRIBING: t("tray.state.transcribing")}
+        yield pystray.MenuItem(
+            t("tray.title", state=labels.get(self.state_manager.state, "?")),
+            None, enabled=False)
         if self.hotkey_str:
             yield pystray.MenuItem(
-                f"Hotkey: {self.hotkey_str.upper().replace('+', ' + ')}", None, enabled=False)
+                t("tray.hotkey", hotkey=self.hotkey_str.upper().replace("+", " + ")),
+                None, enabled=False)
         if self.mic_name:
             mic = self.mic_name if len(self.mic_name) <= 35 else self.mic_name[:32] + "..."
-            yield pystray.MenuItem(f"Mikrofon: {mic}", None, enabled=False)
+            yield pystray.MenuItem(t("tray.mic", mic=mic), None, enabled=False)
         yield pystray.Menu.SEPARATOR
         if self.history is not None:
-            yield pystray.MenuItem("Letzte Transkriptionen", pystray.Menu(self._history_items))
+            yield pystray.MenuItem(t("tray.history"), pystray.Menu(self._history_items))
         if self.on_open_settings:
-            yield pystray.MenuItem("Einstellungen", self._open_settings)
+            yield pystray.MenuItem(t("tray.settings"), self._open_settings)
         if self.on_open_log:
-            yield pystray.MenuItem("Log oeffnen", self._open_log)
-        yield pystray.MenuItem("Beenden", self._quit)
+            yield pystray.MenuItem(t("tray.open_log"), self._open_log)
+        yield pystray.MenuItem(t("tray.quit"), self._quit)
 
     def _history_items(self):
         """Generator fuer das Historie-Submenu — Klick kopiert den Volltext."""
         entries = self.history.get_recent(5) if self.history else []
         if not entries:
-            yield pystray.MenuItem("(leer)", None, enabled=False)
+            yield pystray.MenuItem(t("tray.empty"), None, enabled=False)
             return
         for entry in entries:
             label = " ".join(entry["text"].split())

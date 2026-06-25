@@ -13,10 +13,11 @@ from src.text_processor import (
 
 
 def test_tier_for_model():
-    assert tier_for_model("llama3.2:1b") == "Schnell"
-    assert tier_for_model("qwen2.5:3b") == "Ausgewogen"
-    assert tier_for_model("gemma3:4b") == "Beste"
-    assert tier_for_model("unbekannt:9b") == "Ausgewogen"  # Fallback
+    # Stabile IDs (Anzeige-Namen kommen aus der i18n, nicht aus tier_for_model)
+    assert tier_for_model("llama3.2:1b") == "fast"
+    assert tier_for_model("qwen2.5:3b") == "balanced"
+    assert tier_for_model("gemma3:4b") == "best"
+    assert tier_for_model("unbekannt:9b") == "balanced"  # Fallback
 
 
 def test_size_label():

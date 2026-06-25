@@ -1,7 +1,8 @@
 # VoZii — Voice-to-Text by haZii
 hotkey: "ctrl+shift+space"
 mode: "push_to_talk"            # push_to_talk oder toggle
-language: "de"                  # de, en, auto
+language: "auto"                # Diktat-Sprache: auto (alle ~99) oder z.B. de, en, es, fr, zh, ja, ar
+ui_language: ""                 # Oberflaeche: "" = System-Sprache; de/en/es/fr/pt/ru/zh/ja/ar
 model_size: "large-v3-turbo-q5_0"  # tiny, large-v3-turbo-q5_0 (empfohlen), large-v3-turbo
 audio_feedback: true            # Beep bei Start/Stop
 gpu_type: "auto"                # auto, nvidia, amd, cpu

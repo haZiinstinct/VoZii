@@ -12,7 +12,11 @@ Made by [haZii](https://hazii.org)
 - **100% lokal** — keine Cloud, keine API-Keys, keine Daten-Uploads
 - **Schnell** — das Whisper-Modell bleibt im RAM (whisper-server), keine Ladezeit pro Diktat
 - **GPU-beschleunigt** — NVIDIA (CUDA), AMD (Vulkan), CPU-Fallback
-- **Mehrsprachig** — Deutsch, English, Auto-Detect
+- **Mehrsprachige Oberfläche** — Deutsch, English, Español, Français, Português,
+  Русский, 中文, 日本語, العربية; oben rechts per 🌐-Picker umschaltbar (Windows-
+  Sprache wird beim ersten Start automatisch erkannt)
+- **Diktat in vielen Sprachen** — 18 gängige Sprachen zur Auswahl plus „Automatisch
+  erkennen" (deckt alle ~99 Whisper-Sprachen ab); unabhängig von der UI-Sprache
 - **Effektive Whisper-Modelle** — Schnell (Tiny, 75 MB), Empfohlen (large-v3-turbo, 550 MB), Beste (large-v3-turbo HQ, 1.5 GB)
 - **Text wird direkt eingefügt** an der Cursor-Position; die vorherige Zwischenablage wird danach wiederhergestellt
 - **Transkriptions-Historie** — die letzten Diktate über das Tray-Menü wieder kopierbar

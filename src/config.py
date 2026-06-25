@@ -4,6 +4,7 @@ import shutil
 
 import yaml
 
+from src.i18n import DICTATION_LANGS, UI_LANGUAGES, detect_system_language
 from src.paths import BASE_DIR
 
 log = logging.getLogger(__name__)
@@ -11,7 +12,8 @@ log = logging.getLogger(__name__)
 DEFAULT_CONFIG = {
     "hotkey": "ctrl+shift+space",
     "mode": "push_to_talk",
-    "language": "de",
+    "language": "auto",
+    "ui_language": "",  # leer -> beim First-Run aus System-Sprache erkannt
     "model_size": "large-v3-turbo-q5_0",
     "audio_feedback": True,
     "gpu_type": "auto",
@@ -32,7 +34,8 @@ DEFAULT_CONFIG = {
 # Erlaubte Werte je Key. None-Eintrag = Key darf None sein.
 _ALLOWED_VALUES = {
     "mode": {"push_to_talk", "toggle"},
-    "language": {"de", "en", "auto"},
+    # Diktat-Sprache: gaengige Whisper-Codes + auto (deckt alle ~99 ab)
+    "language": set(DICTATION_LANGS) | {"auto"},
     # tiny/small/medium = Legacy (Bestandsnutzer), turbo = aktuelle Stufen
     "model_size": {"tiny", "small", "medium", "large-v3-turbo-q5_0", "large-v3-turbo"},
     "gpu_type": {"auto", "nvidia", "amd", "cpu"},
@@ -79,6 +82,10 @@ def _validate(config: dict) -> dict:
 
     if not isinstance(config.get("ollama_model"), str) or not config["ollama_model"].strip():
         config["ollama_model"] = DEFAULT_CONFIG["ollama_model"]
+
+    # Oberflaechen-Sprache: leer/ungueltig -> aus der System-Sprache ableiten
+    if config.get("ui_language") not in UI_LANGUAGES:
+        config["ui_language"] = detect_system_language()
 
     return config
 

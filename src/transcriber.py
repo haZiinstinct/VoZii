@@ -20,6 +20,7 @@ import urllib.request
 import uuid
 
 from src.downloader import MODEL_FILES, MODEL_MIN_SIZES, is_server_available
+from src.i18n import t
 from src.paths import BASE_DIR
 from src.winutil import assign_process_to_job, create_kill_on_close_job
 
@@ -306,12 +307,14 @@ class Transcriber:
 
     def get_status(self) -> str:
         if not os.path.isfile(WHISPER_CLI):
-            return f"whisper-cli.exe fehlt: {WHISPER_CLI}"
+            return t("transcriber.cli_missing", path=WHISPER_CLI)
         if not os.path.isfile(self.model_path):
-            return f"Modell fehlt: {self.model_path}"
+            return t("transcriber.model_missing", path=self.model_path)
         min_size = MODEL_MIN_SIZES.get(self.model_size, 0)
         actual = os.path.getsize(self.model_path)
         if actual < min_size:
-            return f"Modell unvollstaendig ({actual // 1048576} MB, erwartet >= {min_size // 1048576} MB)"
+            return t("transcriber.model_incomplete",
+                     actual=actual // 1048576, min=min_size // 1048576)
         backend = "Server" if self._server is not None else "CLI"
-        return f"Bereit (Modell: {self.model_size}, Sprache: {self.language}, Backend: {backend})"
+        return t("transcriber.ready", model=self.model_size,
+                 lang=self.language, backend=backend)

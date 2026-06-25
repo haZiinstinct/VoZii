@@ -11,6 +11,7 @@ import tkinter as tk
 from ctypes import wintypes
 from tkinter import font as tkfont
 
+from src.i18n import t
 from src.state import AppState
 from src.theme import BRAND, FONT_MONO
 
@@ -24,11 +25,15 @@ ANIMATION_INTERVAL_MS = 300
 _TRANSPARENT = "#000001"
 _MARGIN = 16
 _HEIGHT = 28
-_FLASH_COLORS = {
-    "CLIP": "cyan",     # Text liegt in der Zwischenablage (Einfuegen ging nicht)
-    "SHORT": "amber",   # Aufnahme zu kurz
-    "LEER": "amber",    # nichts erkannt
-    "READY": "green",   # First-Run-Hinweis
+# Semantischer Flash-Key -> (i18n-Text-Key, Farbe). Trennt Anzeige (uebersetzbar)
+# von der Farb-Logik, die unabhaengig von der Sprache stabil bleibt.
+_FLASH = {
+    "clip": ("overlay.clip", "cyan"),        # Text in der Zwischenablage (Einfuegen ging nicht)
+    "short": ("overlay.short", "amber"),     # Aufnahme zu kurz
+    "empty": ("overlay.empty", "amber"),     # nichts erkannt
+    "ready": ("overlay.ready", "green"),     # First-Run-Hinweis
+    "err_mic": ("overlay.err_mic", "red"),
+    "err_whisper": ("overlay.err_whisper", "red"),
 }
 
 
@@ -169,11 +174,11 @@ class RecordingOverlay:
         if not self._root: return
         self._root.after(0, lambda: self._apply(state))
 
-    def flash(self, code: str, duration_ms: int = 5000):
-        """Zeigt einen Status-Code (z.B. ERR:MIC, CLIP, SHORT) und blendet
-        nach duration_ms wieder aus."""
+    def flash(self, key: str, duration_ms: int = 5000, **fmt):
+        """Zeigt einen Status (semantischer Key, z.B. 'clip', 'err_mic', 'ready')
+        und blendet nach duration_ms wieder aus. fmt fuellt Platzhalter (hotkey)."""
         if not self._root: return
-        self._root.after(0, lambda: self._show_flash(code, duration_ms))
+        self._root.after(0, lambda: self._show_flash(key, duration_ms, fmt))
 
     def stop(self):
         self._anim_active = False
@@ -206,7 +211,7 @@ class RecordingOverlay:
         self._cancel_flash()
         if state == AppState.RECORDING:
             self._anim_active = False
-            self._set_content("REC", BRAND["red"])
+            self._set_content(t("overlay.rec"), BRAND["red"])
             self._root.deiconify()
         elif state == AppState.TRANSCRIBING:
             # Feld auf den breitesten Animations-Frame dimensionieren, damit die
@@ -230,12 +235,14 @@ class RecordingOverlay:
         self._anim_frame += 1
         self._root.after(ANIMATION_INTERVAL_MS, self._animate_step)
 
-    def _show_flash(self, code: str, duration_ms: int):
+    def _show_flash(self, key: str, duration_ms: int, fmt: dict):
         if not self._root: return
         self._anim_active = False
         self._cancel_flash()
-        color = BRAND.get(_FLASH_COLORS.get(code.split(":")[0], "red"), BRAND["red"])
-        self._set_content(code, color)
+        text_key, color_name = _FLASH.get(key, (None, "red"))
+        text = t(text_key, **fmt) if text_key else key
+        color = BRAND.get(color_name, BRAND["red"])
+        self._set_content(text, color)
         self._root.deiconify()
         self._flash_job = self._root.after(duration_ms, self._end_flash)
 

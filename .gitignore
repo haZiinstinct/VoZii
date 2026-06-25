@@ -14,3 +14,6 @@ vozii.log*
 history.json
 .pytest_cache/
 .ruff_cache/
+# Wegwerf-Smoke-Artefakte (i18n-GUI-Screenshots)
+_i18n_smoke.py
+_smoke/

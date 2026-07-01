@@ -1,141 +1,180 @@
-# VoZii — Voice-to-Text für Windows
+<div align="center">
 
-**Lokales Voice-to-Text für Windows 11 — privat, GPU-beschleunigt, in einer einzigen Datei.**
+<img src="docs/banner.svg" alt="VoZii — Local AI voice-to-text for Windows" width="100%" />
 
-Made by [haZii](https://hazii.org)
+<h1>VoZii</h1>
+
+<p><b>Local AI voice-to-text for Windows.</b><br />
+Hold a hotkey, speak, and your words are typed at the cursor — powered by
+whisper.cpp, GPU-accelerated, and <b>100&nbsp;% offline</b>. No cloud, no API keys,
+no account. One 32&nbsp;MB file.</p>
+
+<p>
+  <a href="https://github.com/haZiinstinct/VoZii/releases/latest"><img alt="Download VoZii.exe" src="https://img.shields.io/badge/%E2%AC%87%20download-VoZii.exe-00d4ff?style=for-the-badge&labelColor=0a0a0f" /></a>
+</p>
+
+<p>
+  <a href="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml/badge.svg" /></a>
+  <img alt="Version" src="https://img.shields.io/badge/version-1.7.0-00d4ff?labelColor=0a0a0f" />
+  <img alt="License Proprietary" src="https://img.shields.io/badge/license-proprietary-94a3b8?labelColor=0a0a0f" />
+  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-00d4ff?labelColor=0a0a0f&logo=python&logoColor=white" />
+  <img alt="Windows 11" src="https://img.shields.io/badge/Windows-11-00d4ff?labelColor=0a0a0f&logo=windows&logoColor=white" />
+  <img alt="whisper.cpp v1.8.6" src="https://img.shields.io/badge/whisper.cpp-v1.8.6-12121a?labelColor=0a0a0f" />
+</p>
+
+<sub><a href="#-highlights">Highlights</a> · <a href="#-how-it-works">How it works</a> · <a href="#-get-vozii">Get it</a> · <a href="#-ai-post-processing-optional">AI post-processing</a> · <a href="#-build-from-source">Build</a></sub>
+
+</div>
 
 ---
 
-## Features
+VoZii turns your voice into text **anywhere you can type** — a chat box, an email, an
+IDE, a form field. Press and hold your hotkey, talk, let go: the transcription lands
+right at the cursor. The Whisper model runs **on your own machine**, so nothing you
+say ever leaves it — no upload, no subscription, no waiting on a server.
 
-- **Push-to-Talk** mit frei wählbarem Hotkey (Tastatur + Maustasten)
-- **100% lokal** — keine Cloud, keine API-Keys, keine Daten-Uploads
-- **Schnell** — das Whisper-Modell bleibt im RAM (whisper-server), keine Ladezeit pro Diktat
-- **GPU-beschleunigt** — NVIDIA (CUDA), AMD (Vulkan), CPU-Fallback
-- **Mehrsprachige Oberfläche** — Deutsch, English, Español, Français, Português,
-  Русский, 中文, 日本語, العربية; oben rechts per 🌐-Picker umschaltbar (Windows-
-  Sprache wird beim ersten Start automatisch erkannt)
-- **Diktat in vielen Sprachen** — 18 gängige Sprachen zur Auswahl plus „Automatisch
-  erkennen" (deckt alle ~99 Whisper-Sprachen ab); unabhängig von der UI-Sprache
-- **Effektive Whisper-Modelle** — Schnell (Tiny, 75 MB), Empfohlen (large-v3-turbo, 550 MB), Beste (large-v3-turbo HQ, 1.5 GB)
-- **Text wird direkt eingefügt** an der Cursor-Position; die vorherige Zwischenablage wird danach wiederhergestellt
-- **Transkriptions-Historie** — die letzten Diktate über das Tray-Menü wieder kopierbar
-- **Schnell/Genau-Modus** — greedy für flottes Diktat oder Beam-Search für maximale Genauigkeit
-- **Single-File .exe** (32 MB), keine Installation erforderlich
-- **Dark UI** im haZii Corporate Design (Inter + JetBrains Mono)
-- **Nachbearbeitung via Ollama (optional)** — Smart- und Prompt-Modus
-- **Verifizierte Downloads** — Modelle und Binaries werden gegen SHA256-Checksummen geprüft
+It ships as a **single 32&nbsp;MB `.exe`**. No Python to install, no runtime to set up.
+The Whisper model stays loaded in RAM between dictations, so there's no per-use lag,
+and an optional local LLM (via [Ollama](https://ollama.com)) can clean up filler words
+and formatting — still 100&nbsp;% offline.
 
-## Installation
+## ✨ Highlights
 
-1. **[VoZii.exe herunterladen](https://github.com/haZiinstinct/VoZii/releases/latest)**
-2. Doppelklick → Settings-Fenster öffnet sich
-3. GPU wird automatisch erkannt, Modell herunterladen (~500 MB beim ersten Start)
-4. Optional: **Mikrofon testen** (Settings → Testen) — Pegelanzeige zeigt sofort, ob alles passt
-5. "Starten" klicken — Tool läuft im System-Tray
+- 🎙️ **Push-to-talk, your key** — any keyboard or mouse button (default `Ctrl+Shift+Space`); press-and-hold or toggle
+- 🔒 **100&nbsp;% local & private** — no cloud, no API keys, no telemetry; works with the network cable pulled
+- ⚡ **No per-dictation lag** — the model stays resident in a persistent `whisper-server`, saving ~2–10&nbsp;s every time
+- 🚀 **GPU-accelerated** — NVIDIA (CUDA) & AMD (Vulkan), automatic detection, CPU fallback; 5–10× faster with a GPU
+- 🌍 **9-language UI + 18 dictation languages + auto-detect** — the interface follows your Windows language; dictation covers all ~99 Whisper languages
+- 🎯 **Speed / Accuracy toggle** — greedy decoding for snappy dictation, beam search when you want it exact
+- 🧹 **Hallucination filter** — silence and phantom phrases (*"thanks for watching"*, …) are dropped, not typed
+- 📋 **Clipboard-safe** — inserts at the cursor and restores whatever was on your clipboard afterwards
+- 🕘 **History** — your last dictations are re-copyable from the tray menu (local, toggleable)
+- 🧠 **Optional AI cleanup** — a local Ollama model removes filler, fixes grammar, or turns speech into a polished prompt
+- 🛡️ **Verified downloads** — models and binaries are checked against pinned SHA-256 hashes before they run
+- 📦 **Single 32&nbsp;MB file** — no installer, no dependencies, dark UI in the haZii design language
 
-> **Datenablage:** Modelle, Config und Log liegen unter `%LOCALAPPDATA%\VoZii`
-> (Bestandsinstallationen mit Daten neben der .exe werden weiter dort genutzt).
+## 🖼️ Screenshots
 
-> **Windows SmartScreen Warnung?** Das ist normal bei unsignierten .exe-Dateien. Klick auf "Weitere Informationen" → "Trotzdem ausführen". Du kannst auch im Explorer Rechtsklick → Eigenschaften → "Zulassen" → Übernehmen.
+<div align="center">
+  <img src="docs/screenshot-en.png" alt="VoZii settings — English" width="31%" />
+  &nbsp;
+  <img src="docs/screenshot-ar.png" alt="VoZii settings — Arabic (right-to-left)" width="31%" />
+  &nbsp;
+  <img src="docs/screenshot-zh.png" alt="VoZii settings — Chinese" width="31%" />
+</div>
 
-## Nutzung
+> One window, many languages — the UI is fully translated (with right-to-left layout for
+> Arabic) and picks your Windows language on first run. Switch any time with the 🌐 picker.
 
-**Push-to-Talk:**
-1. Hotkey gedrückt halten (Standard: `Ctrl+Shift+Space`)
-2. In das Mikrofon sprechen
-3. Hotkey loslassen
-4. Text wird an der aktuellen Cursor-Position eingefügt
+## ⌨️ How it works
 
-**Tray-Menü** (Rechtsklick auf das VoZii-Icon unten rechts):
-- **Letzte Transkriptionen** — die letzten 5 Diktate, Klick kopiert den Volltext
-- **Einstellungen** — Hotkey, Sprache, Modell, Mikrofon ändern
-- **Log öffnen** — bei Problemen die `vozii.log` anschauen
-- **Beenden**
+1. **Hold** your hotkey (default `Ctrl+Shift+Space`).
+2. **Speak** into your microphone — a small status overlay shows `● REC`.
+3. **Release** the hotkey — VoZii transcribes locally (`· · ·`) …
+4. … and **types the text** at your cursor. Optionally, a local LLM cleans it up first.
 
-**Status-Anzeige** (unten rechts, auf dem Monitor mit der Maus):
-- `● REC` — Aufnahme läuft, `· · ·` — transkribiert
-- `CLIP` — Einfügen ging nicht, der Text liegt in der Zwischenablage
-- `SHORT` / `LEER` — Aufnahme zu kurz bzw. nichts erkannt
-- `ERR:MIC` / `ERR:WHISPER` — Fehlerquelle (Details in `vozii.log`)
+Right-click the tray icon for your **last transcriptions**, **settings**, the **log**, or
+to **quit**. The status overlay reports everything at a glance — `CLIP` (text is on the
+clipboard, no field was focused), `SHORT` / `EMPTY`, or `ERR:MIC` / `ERR:WHISPER`.
 
-## System-Anforderungen
+### What's inside
+
+| | |
+| --- | --- |
+| 🗣️ **Whisper models** | Fast (Tiny, 75&nbsp;MB) · **Recommended** (large-v3-turbo Q5, ~550&nbsp;MB) · Best (large-v3-turbo, ~1.5&nbsp;GB) |
+| 🌐 **UI languages** | Deutsch · English · Español · Français · Português · Русский · 中文 · 日本語 · العربية |
+| 🎧 **Dictation** | 18 hand-picked languages + **Auto-detect** covering all ~99 Whisper languages |
+| 🖥️ **Compute** | NVIDIA CUDA · AMD Vulkan · CPU fallback — auto-detected and cached |
+| 🎚️ **Decoding** | **Fast** (greedy) for everyday use · **Accurate** (beam search) when it matters |
+| 🔧 **Extras** | Persistent audio stream (no clipped first syllable) · microphone level test · autostart with Windows |
+
+## 🚀 Get VoZii
+
+1. **[Download `VoZii.exe`](https://github.com/haZiinstinct/VoZii/releases/latest)** from the latest release.
+2. **Double-click** — the settings window opens; your GPU is detected automatically.
+3. **Download a model** (~550&nbsp;MB the first time; the *Recommended* turbo model is a great default).
+4. *(Optional)* **Test your microphone** — a live level meter confirms the signal.
+5. Click **Start** — VoZii lives in your system tray, ready whenever you hold the hotkey.
+
+> **SmartScreen warning?** That's expected for an unsigned `.exe`. Click *More info →
+> Run anyway*, or right-click the file → *Properties → Unblock → Apply*.
+
+**Requirements**
 
 - **OS:** Windows 11 (64-bit)
-- **RAM:** 2 GB frei (4 GB empfohlen für Medium-Modell)
-- **GPU:** Optional, beschleunigt Transkription 5-10x
-  - NVIDIA GeForce GTX/RTX (CUDA)
-  - AMD Radeon RX (Vulkan)
-  - Integrierte GPU funktioniert auch
-- **CPU-Fallback:** Funktioniert ohne GPU (langsamer)
+- **RAM:** 2&nbsp;GB free (4&nbsp;GB recommended for larger models)
+- **GPU:** optional but recommended — NVIDIA GeForce (CUDA), AMD Radeon (Vulkan), or integrated; CPU works too
+- **Data:** models, config and log live under `%LOCALAPPDATA%\VoZii`
 
-## Troubleshooting
+## 🧠 AI post-processing (optional)
 
-**Kein Text wird eingefügt?**
-→ Zeigt das Overlay `CLIP`, liegt der Text in der Zwischenablage (kein Textfeld fokussiert)
-→ Oder über Tray → **Letzte Transkriptionen** wieder kopieren
-→ Details: Tray-Icon → **Log öffnen** → `vozii.log`
+VoZii can polish transcripts with a **local** LLM through [Ollama](https://ollama.com) —
+no text ever leaves your machine. A one-click setup inside VoZii installs Ollama, starts
+it, and pulls a model (with live progress and a cancel button). Pick a tier to match your
+hardware:
 
-**Mikrofon wird nicht erkannt?**
-→ Settings → **Testen** klicken — die Pegelanzeige zeigt, ob Signal ankommt
-→ Anderes Gerät im Dropdown wählen oder "Standard" probieren
+| Tier | Model | Size |
+| --- | --- | --- |
+| Fast | `llama3.2:1b` | ~1.3&nbsp;GB |
+| **Balanced** *(default)* | `qwen2.5:3b` | ~2&nbsp;GB |
+| Best | `gemma3:4b` | ~3&nbsp;GB |
 
-**Zu langsam?**
-→ Settings → Transkription → **Schnell** (greedy statt Beam-Search)
-→ Settings → Modell → "Schnell" wählen (deutlich schneller)
-→ Oder GPU-Treiber updaten
+**Three modes:**
 
-**Windows zeigt dauerhaft das Mikrofon-Symbol?**
-→ Normal: VoZii hält den Audio-Stream offen, damit beim Hotkey-Druck keine
-  erste Silbe verloren geht. Aufgenommen wird nur, solange der Hotkey gedrückt ist.
+- **Off** — raw Whisper output.
+- **Smart** — removes filler, fixes grammar, and understands spoken commands like
+  *"as a list"*, *"as an email"*, *"heading"*, *"as code"*, *"new paragraph"*.
+- **Prompt** — rewrites what you said into a clean, well-structured AI prompt.
 
-## Nachbearbeitung via Ollama (optional)
+If Ollama isn't installed or a call fails, VoZii silently falls back to the raw transcript —
+you never lose a dictation.
 
-VoZii kann transkribierten Text automatisch korrigieren und formatieren — komplett lokal via [Ollama](https://ollama.com).
+## 🔒 Privacy
 
-**One-Click-Setup direkt aus VoZii:**
-1. Settings öffnen → **Nachbearbeitung**
-2. Je nach State klickst du einen Button:
-   - **"Ollama installieren"** — wenn Ollama fehlt
-   - **"Ollama starten"** — wenn installiert, aber nicht gestartet
-   - **"Modell laden (2 GB)"** — wenn nur das Modell fehlt
-3. Live-Progress mit Speed-Anzeige und **Abbrechen-Button**
-4. Fertig — Modi können gewählt werden
+VoZii runs **entirely on your machine**:
 
-**Die 3 Modi:**
-- **Aus** — Roher Whisper-Output (Standard)
-- **Smart** — Intelligentes Cleanup + context-aware Formatierung + Voice Commands
-  - Entfernt Füllwörter und korrigiert Grammatik automatisch
-  - Erkennt Voice Commands im gesprochenen Text: *"als Liste"*, *"als Email"*, *"Überschrift"*, *"als Code"*, *"neuer Absatz"*
-  - Ohne Command: formatiert intelligent je nach Inhalt (Listen, Absätze, einfache Sätze)
-- **Prompt** — verwandelt gesprochenen Text in einen perfekten AI-Prompt
+- ✅ No audio is ever sent to a server — transcription is fully local
+- ✅ No internet needed to run (only once, to download a model)
+- ✅ No telemetry, no analytics, no accounts
+- ✅ History (last 50) stays in a local `history.json` — toggleable and clearable in settings
 
-Ohne Ollama funktioniert VoZii normal weiter (Raw Whisper-Output). Bei Fehlern (Ollama nicht erreichbar, Timeout etc.) fällt VoZii automatisch auf den Raw-Text zurück — nie Datenverlust.
+## 🛠️ Build from source
 
-**Manuelle Installation** (falls der One-Click-Setup nicht klappt):
-- [Ollama herunterladen](https://ollama.com/download)
-- Terminal: `ollama pull qwen2.5:3b` (oder `llama3.2:1b` / `gemma3:4b`)
+Python 3.12+, quality-gated by [ruff](https://github.com/astral-sh/ruff) and a `pytest`
+suite on GitHub Actions; releases are built and published automatically on `v*` tags.
 
-## Datenschutz
+```bash
+python -m venv .venv && .venv\Scripts\activate
+pip install -r requirements.txt
+python -m src.main            # run VoZii
+pytest -q                     # run the test suite
+python scripts/build.py       # build the single-file VoZii.exe (PyInstaller)
+```
 
-VoZii läuft **100% lokal** auf deinem Rechner:
-- ✅ Keine Audio-Daten werden an Server gesendet
-- ✅ Keine Internet-Verbindung im Betrieb nötig (nur für den einmaligen Modell-Download)
-- ✅ Keine Telemetrie, keine Analytics
-- ✅ Transkribierte Texte bleiben auf deinem Rechner
-- ✅ Die Transkriptions-Historie (letzte 50) liegt lokal in `history.json`
-  unter dem VoZii-Datenordner — in den Settings abschaltbar und löschbar
+The tree is a clean set of single-purpose modules — `hotkey.py`, `transcriber.py`,
+`text_processor.py` (Ollama), `filters.py` (hallucinations), `i18n.py`, `overlay.py`,
+`downloader.py` (SHA-256 pins) and friends under [`src/`](src).
 
-## Lizenz
+## ☁️ Why local instead of the cloud?
 
-Proprietär — siehe [LICENSE](LICENSE) und [THIRDPARTY-LICENSES.md](THIRDPARTY-LICENSES.md) für Dritt-Bibliotheken.
+| | VoZii (local) | Typical cloud dictation |
+| --- | --- | --- |
+| Your voice | never leaves the PC | uploaded to a server |
+| Cost | free, no subscription | monthly fee / per-minute |
+| API key / account | none | usually required |
+| Offline | ✅ works fully offline | ❌ needs a connection |
+| Latency | local, model stays in RAM | network round-trip |
 
-## Kontakt & Support
+## 📄 License
 
-- **Bug Reports / Feature Requests:** [GitHub Issues](https://github.com/haZiinstinct/VoZii/issues)
-- **Website:** [hazii.org](https://hazii.org)
-- **E-Mail:** kontakt@hazii.org
+Proprietary — see [LICENSE](LICENSE). Third-party components are listed in
+[THIRDPARTY-LICENSES.md](THIRDPARTY-LICENSES.md). VoZii uses
+[whisper.cpp](https://github.com/ggerganov/whisper.cpp) by Georgi Gerganov for local
+transcription.
 
----
+## 💬 Contact & support
 
-*VoZii nutzt [whisper.cpp](https://github.com/ggerganov/whisper.cpp) von Georgi Gerganov für lokale Transkription.*
+- **Bugs / feature requests:** [GitHub Issues](https://github.com/haZiinstinct/VoZii/issues)
+- **Web:** [hazii.org](https://hazii.org) · **Email:** kontakt@hazii.org
+
+<div align="center"><sub>Built by <a href="https://hazii.org">haZii</a> · <code>// webdesign: haZii.org</code></sub></div>

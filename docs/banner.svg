@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" role="img" aria-label="VoZii — Local AI voice-to-text for Windows">
+  <defs>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00d4ff"/>
+      <stop offset="1" stop-color="#00a8cc"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity="0.025" stroke-width="1"/>
+    </pattern>
+    <radialGradient id="vignette" cx="0.5" cy="0.42" r="0.75">
+      <stop offset="0.5" stop-color="#0a0a0f" stop-opacity="0"/>
+      <stop offset="1" stop-color="#06060a" stop-opacity="0.85"/>
+    </radialGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <radialGradient id="cyanGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#00d4ff" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#00d4ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- background -->
+  <rect width="1200" height="320" rx="24" fill="#0a0a0f"/>
+  <rect width="1200" height="320" rx="24" fill="url(#grid)"/>
+  <rect width="1200" height="320" rx="24" fill="url(#vignette)"/>
+  <rect x="1" y="1" width="1198" height="318" rx="23" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <!-- soft cyan glow behind wordmark -->
+  <ellipse cx="600" cy="122" rx="340" ry="118" fill="url(#cyanGlow)"/>
+
+  <!-- wordmark: Vo Z ii -->
+  <g filter="url(#glow)">
+    <text x="600" y="152" text-anchor="middle" font-family="'JetBrains Mono','Consolas',monospace" font-weight="700" font-size="104" letter-spacing="-3">
+      <tspan fill="#00d4ff">Vo</tspan><tspan fill="#f8fafc">Z</tspan><tspan fill="#00d4ff">ii</tspan>
+    </text>
+  </g>
+
+  <!-- waveform accent under the wordmark -->
+  <g fill="url(#cyan)" filter="url(#glow)">
+    <rect x="460" y="193" width="6" height="10" rx="3"/>
+    <rect x="480" y="189" width="6" height="18" rx="3"/>
+    <rect x="500" y="183" width="6" height="30" rx="3"/>
+    <rect x="520" y="187" width="6" height="22" rx="3"/>
+    <rect x="540" y="178" width="6" height="40" rx="3"/>
+    <rect x="560" y="185" width="6" height="26" rx="3"/>
+    <rect x="580" y="172" width="6" height="52" rx="3"/>
+    <rect x="600" y="164" width="6" height="68" rx="3"/>
+    <rect x="620" y="172" width="6" height="52" rx="3"/>
+    <rect x="640" y="185" width="6" height="26" rx="3"/>
+    <rect x="660" y="178" width="6" height="40" rx="3"/>
+    <rect x="680" y="187" width="6" height="22" rx="3"/>
+    <rect x="700" y="183" width="6" height="30" rx="3"/>
+    <rect x="720" y="189" width="6" height="18" rx="3"/>
+    <rect x="740" y="193" width="6" height="10" rx="3"/>
+  </g>
+
+  <!-- tagline -->
+  <text x="600" y="256" text-anchor="middle" font-family="'Inter','Segoe UI',system-ui,sans-serif" font-size="25" fill="#e2e8f0">Local AI voice-to-text for Windows</text>
+  <!-- mono meta -->
+  <text x="600" y="290" text-anchor="middle" font-family="'JetBrains Mono','Consolas',monospace" font-size="16" fill="#00d4ff" fill-opacity="0.85" letter-spacing="0.5">// push-to-talk · whisper.cpp · gpu · 100% offline</text>
+</svg>

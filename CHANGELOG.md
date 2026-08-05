@@ -7,6 +7,19 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.7.1] — 2026-08-05
+
+### Neu
+- **Credit-Fußzeile:** Dezentes `// code: haZii.org`-Badge unten im
+  Einstellungs-Fenster (unter dem Start-Button) — klickbar, öffnet hazii.org
+  im Standard-Browser. Gleiches Badge im README-Footer.
+
+### Intern
+- CI: `actions/checkout` und `actions/setup-python` auf v7 angehoben
+  (Node-20-Deprecation-Warnung beseitigt).
+
+---
+
 ## [1.7.0] — 2026-06-24
 
 ### Neu

@@ -177,4 +177,4 @@ transcription.
 - **Bugs / feature requests:** [GitHub Issues](https://github.com/haZiinstinct/VoZii/issues)
 - **Web:** [hazii.org](https://hazii.org) · **Email:** kontakt@hazii.org
 
-<div align="center"><sub>Built by <a href="https://hazii.org">haZii</a> · <code>// webdesign: haZii.org</code></sub></div>
+<div align="center"><sub>Built by <a href="https://hazii.org">haZii</a> · <code>// code: haZii.org</code></sub></div>

@@ -4,11 +4,12 @@ import logging
 import os
 import sys
 import threading
+import webbrowser
 
 import customtkinter as ctk
 from pynput import keyboard, mouse
 
-from src import __version__
+from src import __url__, __version__
 from src.theme import BRAND, FONT_BODY, FONT_MONO
 from src.hotkey import key_to_name, mouse_button_to_name
 from src.winutil import enable_dark_titlebar
@@ -180,10 +181,24 @@ class SettingsWindow:
                      font=(FONT_MONO, 11), text_color=BRAND["text_dim"]
                      ).pack(padx=10, pady=2)
 
+        # Credit-Fusszeile "// code: haZii.org" — zuerst gepackt (side="bottom"),
+        # sitzt daher ganz unten, der Start-Button landet darueber
+        credit_bar = ctk.CTkFrame(self.root, fg_color="transparent")
+        credit_bar.pack(side="bottom", pady=(0, 8))
+        for txt, color, weight in (("// code: ", BRAND["text_dim"], "normal"),
+                                   ("ha", BRAND["cyan"], "bold"),
+                                   ("Z", BRAND["text_bright"], "bold"),
+                                   ("ii", BRAND["cyan"], "bold"),
+                                   (".org", BRAND["cyan_dim"], "bold")):
+            lbl = ctk.CTkLabel(credit_bar, text=txt, font=(FONT_MONO, 12, weight),
+                               text_color=color, cursor="hand2")
+            lbl.pack(side="left")
+            lbl.bind("<Button-1>", lambda _e: webbrowser.open(__url__))
+
         # START-Button unten fixiert — bleibt immer sichtbar, egal wie viel
         # Inhalt darueber aufgeklappt ist
         start_bar = ctk.CTkFrame(self.root, fg_color="transparent")
-        start_bar.pack(side="bottom", fill="x", padx=24, pady=(8, 16))
+        start_bar.pack(side="bottom", fill="x", padx=24, pady=(8, 8))
         ctk.CTkButton(start_bar, text=t("btn.start"), height=44, font=(FONT_BODY, 16, "bold"),
                       fg_color=BRAND["cyan"], text_color=BRAND["bg"],
                       hover_color=BRAND["cyan_dim"], corner_radius=10,

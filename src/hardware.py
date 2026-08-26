@@ -6,21 +6,26 @@ import threading
 
 log = logging.getLogger(__name__)
 
-# whisper.cpp pre-built binaries fuer verschiedene GPUs.
-# nvidia/cpu: offizielles whisper.cpp v1.8.6 (aktuellstes Release, Juni 2026).
-# amd: Drittanbieter-Vulkan-Build (kein offizielles v1.8.6 vorhanden) — bleibt.
+# whisper.cpp pre-built binaries fuer verschiedene GPUs — alle aus dem eigenen
+# Mirror-Release backend-v<version> (stabile URLs, kein Dritt-Repo/kein
+# beweglicher Upstream-Ref mehr): nvidia/cpu = gespiegelte offizielle Zips
+# (Digest-verifiziert), amd = eigener Vulkan-Build aus dem Upstream-Source
+# (.github/workflows/build-backend.yml).
+BACKEND_VERSION = "1.9.2"
+_MIRROR = f"https://github.com/haZiinstinct/VoZii/releases/download/backend-v{BACKEND_VERSION}"
+
 BINARY_URLS = {
-    "nvidia": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.6/whisper-cublas-12.4.0-bin-x64.zip",
-    "amd": "https://github.com/jerryshell/whisper.cpp-windows-vulkan-bin/releases/download/v1.0.0/whisper.cpp-windows-vulkan.zip",
-    "cpu": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.6/whisper-blas-bin-x64.zip",
+    "nvidia": f"{_MIRROR}/whisper-cublas-12.4.0-bin-x64.zip",
+    "amd": f"{_MIRROR}/whisper-vulkan-bin-x64.zip",
+    "cpu": f"{_MIRROR}/whisper-blas-bin-x64.zip",
 }
 
-# SHA256 der Release-Zips (GitHub-Asset-Digests, gepinnt am 2026-06-15).
-# Aendert sich ein Upstream-Asset, schlaegt der Download bewusst fehl.
+# SHA256 der Release-Zips (GitHub-Asset-Digests, gepinnt am 2026-08-26).
+# Aendert sich ein Asset, schlaegt der Download bewusst fehl.
 BINARY_SHA256 = {
-    "nvidia": "63b70c91fe2fd7449865c45f6422ab628439eacc6985d8309c77bfb65cc68a19",
-    "amd": "a5d408c72e460433b39875f74a0b6e27e60a3724301d478fe9873db7ff4098e0",
-    "cpu": "12e6681d267b1b3bdb41ac4c0107e7cd4830d27f02f67adee3581ef55be8c3fb",
+    "nvidia": "443110ddaad70d4290ab2e77179e31cf712035bbc4fad56bb4519a90c917b39c",
+    "amd": "b6d8d381b16dcdc73d547b60d071c43b58980b458dd7e65327abd2c989e86f15",
+    "cpu": "ffe5b47ca8e53a7677949f23a9c4641bbec4eee8a5714c3d14b67bb8d7b24a78",
 }
 
 BACKEND_NAMES = {
@@ -29,7 +34,8 @@ BACKEND_NAMES = {
     "cpu": "CPU (BLAS)",
 }
 
-# DLLs die auf den korrekten Backend hinweisen
+# DLL-Namensmuster, die das installierte Backend verraten (Migration von
+# Bestandsinstallationen ohne backend.json-Marker; Reihenfolge = Prioritaet)
 BACKEND_DLLS = {
     "nvidia": ["cublas64"],
     "amd": ["ggml-vulkan.dll"],

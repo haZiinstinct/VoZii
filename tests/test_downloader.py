@@ -160,3 +160,89 @@ def test_model_sha_pins_present():
     """Jedes Modell mit URL braucht einen SHA256-Pin."""
     assert set(downloader.MODEL_SHA256) == set(downloader.MODEL_URLS)
     assert all(len(h) == 64 for h in downloader.MODEL_SHA256.values())
+
+
+def test_model_urls_pinnen_feste_hf_revision():
+    """Regression-Guard: /resolve/main waere ein beweglicher Ref — aendert
+    Upstream eine Datei, braechen alle Downloads am SHA-Mismatch."""
+    for url in downloader.MODEL_URLS.values():
+        assert "/resolve/main/" not in url
+        assert "/resolve/" in url
+    import re
+    assert re.search(r"/resolve/[0-9a-f]{40}$", downloader._HF)
+
+
+def test_binary_urls_zeigen_auf_eigenes_mirror_release():
+    from src import hardware
+    for url in hardware.BINARY_URLS.values():
+        assert url.startswith(
+            "https://github.com/haZiinstinct/VoZii/releases/download/backend-v"
+            + hardware.BACKEND_VERSION)
+    assert set(hardware.BINARY_SHA256) == set(hardware.BINARY_URLS)
+
+
+@pytest.fixture
+def whisper_dir(tmp_path, monkeypatch):
+    d = tmp_path / "whisper-cpp"
+    d.mkdir()
+    monkeypatch.setattr(downloader, "WHISPER_DIR", str(d))
+    return d
+
+
+def test_backend_marker_roundtrip(whisper_dir):
+    assert downloader.read_backend_marker() is None
+    downloader._write_backend_marker("amd")
+    marker = downloader.read_backend_marker()
+    assert marker["gpu_type"] == "amd"
+    assert marker["version"] == downloader.BACKEND_VERSION
+    assert downloader.is_backend_current("amd") is False  # kein Binary da
+
+    (whisper_dir / "whisper-cli.exe").write_bytes(b"MZ")
+    assert downloader.is_backend_current("amd") is True
+    assert downloader.is_backend_current("nvidia") is False  # Typ-Wechsel
+
+
+def test_bestand_ohne_marker_wird_per_dll_sniff_erkannt(whisper_dir):
+    (whisper_dir / "whisper-cli.exe").write_bytes(b"MZ")
+    (whisper_dir / "ggml-vulkan.dll").write_bytes(b"x")
+    assert downloader.installed_backend_type() == "amd"
+    # ohne Marker gilt der Bestand als veraltet -> Update-Button
+    assert downloader.is_backend_current("amd") is False
+
+    (whisper_dir / "cublas64_12.dll").write_bytes(b"x")
+    assert downloader.installed_backend_type() == "nvidia"  # nvidia hat Prioritaet
+
+
+def test_backend_wechsel_laedt_neu_und_raeumt_alte_dlls_weg(whisper_dir, monkeypatch):
+    """Frueher: Early-Return sobald irgendein whisper-cli.exe existierte."""
+    import zipfile as zf_mod
+
+    (whisper_dir / "whisper-cli.exe").write_bytes(b"altes-cpu-cli")
+    (whisper_dir / "libopenblas.dll").write_bytes(b"altes-blas")
+    downloader._write_backend_marker("cpu")
+
+    def fake_download(url, dest, progress_callback=None, expected_sha256=None):
+        with zf_mod.ZipFile(dest, "w") as zf:
+            zf.writestr("whisper-cli.exe", b"neues-vulkan-cli")
+            zf.writestr("whisper-server.exe", b"srv")
+            zf.writestr("ggml-vulkan.dll", b"vulkan")
+        return True
+
+    monkeypatch.setattr(downloader, "download_file", fake_download)
+
+    assert downloader.download_and_extract_binary("amd") is True
+    assert (whisper_dir / "whisper-cli.exe").read_bytes() == b"neues-vulkan-cli"
+    assert (whisper_dir / "ggml-vulkan.dll").exists()
+    assert not (whisper_dir / "libopenblas.dll").exists()  # kein DLL-Mischmasch
+    assert downloader.read_backend_marker()["gpu_type"] == "amd"
+
+
+def test_passendes_backend_wird_nicht_neu_geladen(whisper_dir, monkeypatch):
+    (whisper_dir / "whisper-cli.exe").write_bytes(b"MZ")
+    downloader._write_backend_marker("cpu")
+
+    def boom(*a, **k):
+        raise AssertionError("darf nicht downloaden")
+
+    monkeypatch.setattr(downloader, "download_file", boom)
+    assert downloader.download_and_extract_binary("cpu") is True

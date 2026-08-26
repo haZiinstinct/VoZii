@@ -17,7 +17,8 @@ from src.config import save_config
 from src.i18n import DICTATION_LANGS, UI_LANGUAGES, set_language, t
 from src.downloader import (
     is_binary_installed, is_model_installed, is_server_available,
-    download_and_extract_binary, download_model, ensure_server_binary,
+    is_backend_current, download_and_extract_binary, download_model,
+    ensure_server_binary,
 )
 from src.text_processor import (
     get_ollama_state, install_ollama, pull_model,
@@ -635,9 +636,10 @@ class SettingsWindow:
 
     def _update_dl_button(self):
         ok = is_binary_installed() and is_model_installed(self._get_model_size())
-        if ok and not is_server_available():
-            # Bestandsnutzer: whisper-server.exe fehlt noch (beschleunigt
-            # Transkription deutlich) — als Update anbieten
+        if ok and (not is_server_available() or not is_backend_current(self.gpu_type)):
+            # Bestandsnutzer: whisper-server.exe fehlt ODER das Binary-Set passt
+            # nicht mehr zu Backend/gepinnter whisper.cpp-Version — als Update
+            # anbieten (kein stiller Auto-Download beim Start)
             self.dl_btn.configure(text=t("btn.update"), state="normal",
                                   fg_color=BRAND["cyan"], text_color=BRAND["bg"])
         elif ok:
@@ -660,7 +662,7 @@ class SettingsWindow:
 
         def run():
             try:
-                if not is_binary_installed():
+                if not is_binary_installed() or not is_backend_current(self.gpu_type):
                     self._msg(t("download.whisper"))
                     download_and_extract_binary(self.gpu_type, self._checked_progress)
                 elif not is_server_available():

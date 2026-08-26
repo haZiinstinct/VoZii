@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
     "post_processing_mode": "off",
     "ollama_model": "qwen2.5:3b",
     "performance_mode": "speed",
+    "initial_prompt": "",
     "use_server": True,
     "restore_clipboard": True,
     "history_enabled": True,
@@ -83,6 +84,12 @@ def _validate(config: dict) -> dict:
 
     if not isinstance(config.get("ollama_model"), str) or not config["ollama_model"].strip():
         config["ollama_model"] = DEFAULT_CONFIG["ollama_model"]
+
+    # Eigene Begriffe (Whisper initial_prompt): Whisper sieht nur ~224 Tokens
+    # Prompt-Fenster — laengere Eingaben bringen nichts und werden gekappt
+    if not isinstance(config.get("initial_prompt"), str):
+        config["initial_prompt"] = ""
+    config["initial_prompt"] = config["initial_prompt"].strip()[:600]
 
     # Oberflaechen-Sprache: leer/ungueltig -> aus der System-Sprache ableiten
     if config.get("ui_language") not in UI_LANGUAGES:

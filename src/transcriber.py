@@ -86,10 +86,12 @@ def is_setup_complete(model_size: str) -> bool:
 class CliBackend:
     """Ein whisper-cli.exe-Aufruf pro Transkription (Modell laedt jedes Mal neu)."""
 
-    def __init__(self, model_path: str, language: str, performance_mode: str):
+    def __init__(self, model_path: str, language: str, performance_mode: str,
+                 initial_prompt: str = ""):
         self.model_path = model_path
         self.language = language
         self.performance_mode = performance_mode
+        self.initial_prompt = initial_prompt
         self.last_error_hint = ""
 
     def transcribe(self, wav_path: str) -> str:
@@ -104,6 +106,9 @@ class CliBackend:
             "-bo", str(q["best_of"]),
             "-bs", str(q["beam_size"]),
         ]
+        if self.initial_prompt:
+            # Eigene Begriffe (Namen, Fachwoerter) als Erkennungs-Kontext
+            cmd += ["--prompt", self.initial_prompt]
 
         try:
             result = subprocess.run(
@@ -141,10 +146,12 @@ class ServerBackend:
     Lauscht ausschliesslich auf 127.0.0.1.
     """
 
-    def __init__(self, model_path: str, language: str, performance_mode: str):
+    def __init__(self, model_path: str, language: str, performance_mode: str,
+                 initial_prompt: str = ""):
         self.model_path = model_path
         self.language = language
         self.performance_mode = performance_mode
+        self.initial_prompt = initial_prompt
         self._proc = None
         self._port = None
         self._lock = threading.RLock()
@@ -227,6 +234,8 @@ class ServerBackend:
             "beam_size": str(q["beam_size"]),
             "best_of": str(q["best_of"]),
         }
+        if self.initial_prompt:
+            fields["prompt"] = self.initial_prompt
         with open(wav_path, "rb") as f:
             wav_data = f.read()
         body, content_type = _build_multipart(fields, "file", "audio.wav", wav_data)
@@ -286,14 +295,16 @@ class Transcriber:
     """Facade: Server-Backend wenn verfuegbar, sonst (und bei Fehlern) CLI."""
 
     def __init__(self, model_size: str = "large-v3-turbo-q5_0", language: str = "de",
-                 performance_mode: str = "speed", use_server: bool = True):
+                 performance_mode: str = "speed", use_server: bool = True,
+                 initial_prompt: str = ""):
         self.model_size = model_size
         self.language = language
         self.model_path = os.path.join(MODELS_DIR, MODEL_FILES.get(model_size, "ggml-small.bin"))
-        self._cli = CliBackend(self.model_path, language, performance_mode)
+        self._cli = CliBackend(self.model_path, language, performance_mode, initial_prompt)
         self._server = None
         if use_server and is_server_available():
-            self._server = ServerBackend(self.model_path, language, performance_mode)
+            self._server = ServerBackend(self.model_path, language, performance_mode,
+                                         initial_prompt)
         log.info("Transcriber-Backend: %s", "server" if self._server else "cli")
 
     @property

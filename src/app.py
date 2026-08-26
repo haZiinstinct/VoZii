@@ -206,6 +206,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
         language=config["language"],
         performance_mode=config.get("performance_mode", "speed"),
         use_server=config.get("use_server", True),
+        initial_prompt=config.get("initial_prompt", ""),
     )
     text_processor = TextProcessor(
         mode=config.get("post_processing_mode", "off"),

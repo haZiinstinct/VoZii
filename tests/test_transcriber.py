@@ -74,11 +74,12 @@ def fake_server():
     srv.shutdown()
 
 
-def _backend_on(port: int) -> ServerBackend:
+def _backend_on(port: int, initial_prompt: str = "") -> ServerBackend:
     """ServerBackend ohne __init__ (kein Subprocess, kein atexit)."""
     b = ServerBackend.__new__(ServerBackend)
     b.language = "de"
     b.performance_mode = "speed"
+    b.initial_prompt = initial_prompt
     b._port = port
     b._proc = None
     return b
@@ -94,6 +95,45 @@ def test_server_request_parses_text(fake_server, tmp_path):
     assert b"RIFF-fake-wav" in _Handler.last_body
     assert b'name="beam_size"\r\n\r\n1' in _Handler.last_body
     assert b'name="language"\r\n\r\nde' in _Handler.last_body
+
+
+def test_server_request_sendet_initial_prompt(fake_server, tmp_path):
+    _Handler.response_payload = {"text": "ok"}
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    backend = _backend_on(fake_server.server_address[1], initial_prompt="haZii, VoZii")
+
+    backend._request(str(wav))
+    assert b'name="prompt"\r\n\r\nhaZii, VoZii' in _Handler.last_body
+
+    # Ohne Prompt darf das Feld nicht auftauchen
+    backend = _backend_on(fake_server.server_address[1])
+    backend._request(str(wav))
+    assert b'name="prompt"' not in _Handler.last_body
+
+
+def test_cli_cmd_enthaelt_prompt_nur_wenn_gesetzt(monkeypatch, tmp_path):
+    from src.transcriber import CliBackend
+
+    captured = {}
+
+    class FakeResult:
+        returncode = 0
+        stdout = "text"
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return FakeResult()
+
+    monkeypatch.setattr(transcriber_mod.subprocess, "run", fake_run)
+
+    CliBackend("m.bin", "de", "speed", initial_prompt="haZii, VoZii").transcribe("a.wav")
+    idx = captured["cmd"].index("--prompt")
+    assert captured["cmd"][idx + 1] == "haZii, VoZii"
+
+    CliBackend("m.bin", "de", "speed").transcribe("a.wav")
+    assert "--prompt" not in captured["cmd"]
 
 
 def test_server_request_raises_on_error_payload(fake_server, tmp_path):

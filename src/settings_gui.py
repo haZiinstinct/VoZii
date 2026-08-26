@@ -302,6 +302,19 @@ class SettingsWindow:
                           dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
                           text_color=BRAND["text"], corner_radius=8).pack(fill="x", pady=(0, 14))
 
+        # EIGENE BEGRIFFE (Whisper initial_prompt: Namen/Fachwoerter als Kontext)
+        self._heading(c, t("section.vocab"))
+        self.vocab_box = ctk.CTkTextbox(
+            c, height=56, font=(FONT_BODY, 13), fg_color=BRAND["card"],
+            text_color=BRAND["text"], border_width=1, border_color=BRAND["border"],
+            corner_radius=8, wrap="word")
+        self.vocab_box.pack(fill="x", pady=(0, 2))
+        if self.config.get("initial_prompt"):
+            self.vocab_box.insert("1.0", self.config["initial_prompt"])
+        ctk.CTkLabel(c, text=t("vocab.hint"),
+                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
+                     justify="left").pack(fill="x", pady=(0, 14))
+
         # TRANSKRIPTION (Beam-Search: schnell vs. genau)
         self._heading(c, t("section.transcription"))
         self._perf_label_to_code = {t("perf.fast"): "speed", t("perf.accurate"): "quality"}
@@ -610,6 +623,7 @@ class SettingsWindow:
             "audio_feedback": self.sound_var.get(),
             "restore_clipboard": self.clipres_var.get(),
             "update_check": self.updchk_var.get(),
+            "initial_prompt": self.vocab_box.get("1.0", "end").strip()[:600],
         })
 
     def _on_ollama_tier_change(self, label):

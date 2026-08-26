@@ -24,7 +24,7 @@ BINARY_URLS = {
 # Aendert sich ein Asset, schlaegt der Download bewusst fehl.
 BINARY_SHA256 = {
     "nvidia": "443110ddaad70d4290ab2e77179e31cf712035bbc4fad56bb4519a90c917b39c",
-    "amd": "b6d8d381b16dcdc73d547b60d071c43b58980b458dd7e65327abd2c989e86f15",
+    "amd": "8b76598f0315535954c2e43c52d929e8b4443c5a4b89817349d016cad36507a3",
     "cpu": "ffe5b47ca8e53a7677949f23a9c4641bbec4eee8a5714c3d14b67bb8d7b24a78",
 }
 

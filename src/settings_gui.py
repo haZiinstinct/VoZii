@@ -237,7 +237,7 @@ class SettingsWindow:
         # HOTKEY
         self._heading(c, t("section.hotkey"))
         hk = ctk.CTkFrame(c, fg_color="transparent")
-        hk.pack(fill="x", pady=(0, 14))
+        hk.pack(fill="x", pady=(0, 6))
         self.hotkey_label = ctk.CTkLabel(hk, text=self.config["hotkey"].upper().replace("+", " + "),
                                          font=(FONT_MONO, 18, "bold"), text_color=BRAND["text_bright"])
         self.hotkey_label.pack(side="left")
@@ -246,6 +246,43 @@ class SettingsWindow:
                       hover_color=BRAND["card_hover"], corner_radius=8,
                       border_width=1, border_color=BRAND["border"],
                       command=self._start_recording).pack(side="right")
+
+        # Aufnahme-Modus (war bisher nur per config.yaml erreichbar)
+        self._hkmode_label_to_code = {t("hotkey.mode.ptt"): "push_to_talk",
+                                      t("hotkey.mode.toggle"): "toggle"}
+        hkmode_code_to_label = {v: k for k, v in self._hkmode_label_to_code.items()}
+        self.hkmode_var = ctk.StringVar(
+            value=hkmode_code_to_label.get(self.config.get("mode", "push_to_talk"),
+                                           t("hotkey.mode.ptt")))
+        ctk.CTkSegmentedButton(c, values=list(self._hkmode_label_to_code),
+                               variable=self.hkmode_var, command=self._on_hkmode_change,
+                               **_SEG_STYLE).pack(fill="x", pady=(0, 6))
+
+        # Auto-Stop bei Stille — nur im Umschalt-Modus sinnvoll
+        autostop_row = ctk.CTkFrame(c, fg_color="transparent")
+        autostop_row.pack(fill="x", pady=(0, 14))
+        cur_autostop = float(self.config.get("auto_stop_silence_s", 0) or 0)
+        self.autostop_var = ctk.BooleanVar(value=cur_autostop > 0)
+        self.autostop_switch = ctk.CTkSwitch(
+            autostop_row, text=t("opt.autostop"), variable=self.autostop_var,
+            font=(FONT_BODY, 13), text_color=BRAND["text"],
+            progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
+            button_hover_color=BRAND["text"])
+        self.autostop_switch.pack(side="left")
+        Tooltip(self.autostop_switch, t("opt.autostop.tooltip"))
+        self._autostop_label_to_s = {"2 s": 2.0, "3 s": 3.0, "5 s": 5.0}
+        cur_label = next((lbl for lbl, s in self._autostop_label_to_s.items()
+                          if s == cur_autostop), "3 s")
+        self.autostop_secs_var = ctk.StringVar(value=cur_label)
+        self.autostop_menu = ctk.CTkOptionMenu(
+            autostop_row, values=list(self._autostop_label_to_s),
+            variable=self.autostop_secs_var, width=80, font=(FONT_BODY, 12),
+            fg_color=BRAND["card"], button_color=BRAND["card_hover"],
+            button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
+            dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
+            text_color=BRAND["text"], corner_radius=8)
+        self.autostop_menu.pack(side="right")
+        self._on_hkmode_change()
 
         # MODELL + DOWNLOAD
         self._heading(c, t("section.model"))
@@ -624,6 +661,10 @@ class SettingsWindow:
             "restore_clipboard": self.clipres_var.get(),
             "update_check": self.updchk_var.get(),
             "initial_prompt": self.vocab_box.get("1.0", "end").strip()[:600],
+            "mode": self._hkmode_label_to_code.get(self.hkmode_var.get(), "push_to_talk"),
+            "auto_stop_silence_s": (
+                self._autostop_label_to_s.get(self.autostop_secs_var.get(), 3.0)
+                if self.autostop_var.get() else 0),
         })
 
     def _on_ollama_tier_change(self, label):
@@ -681,6 +722,13 @@ class SettingsWindow:
     def _update_model_desc(self):
         key = MODEL_DESC_KEYS.get(self._get_model_size())
         self.model_desc.configure(text=t(key) if key else "")
+
+    def _on_hkmode_change(self, _=None):
+        """Auto-Stop-Controls nur im Umschalt-Modus bedienbar."""
+        toggle = self._hkmode_label_to_code.get(self.hkmode_var.get()) == "toggle"
+        state = "normal" if toggle else "disabled"
+        self.autostop_switch.configure(state=state)
+        self.autostop_menu.configure(state=state)
 
     def _update_dl_button(self):
         ok = is_binary_installed() and is_model_installed(self._get_model_size())

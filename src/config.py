@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 DEFAULT_CONFIG = {
     "hotkey": "ctrl+shift+space",
     "mode": "push_to_talk",
+    "auto_stop_silence_s": 0,  # 0 = aus; sonst Sekunden Stille bis Auto-Stop
     "language": "auto",
     "ui_language": "",  # leer -> beim First-Run aus System-Sprache erkannt
     "model_size": "large-v3-turbo-q5_0",
@@ -90,6 +91,14 @@ def _validate(config: dict) -> dict:
     if not isinstance(config.get("initial_prompt"), str):
         config["initial_prompt"] = ""
     config["initial_prompt"] = config["initial_prompt"].strip()[:600]
+
+    # Auto-Stop: 0 = aus, sonst auf 1.5-10 s clampen (unter 1.5 s wuerden
+    # normale Sprechpausen das Diktat abschneiden)
+    v = config.get("auto_stop_silence_s")
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        config["auto_stop_silence_s"] = DEFAULT_CONFIG["auto_stop_silence_s"]
+    elif v != 0:
+        config["auto_stop_silence_s"] = min(10.0, max(1.5, float(v)))
 
     # Oberflaechen-Sprache: leer/ungueltig -> aus der System-Sprache ableiten
     if config.get("ui_language") not in UI_LANGUAGES:

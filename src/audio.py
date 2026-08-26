@@ -7,6 +7,7 @@ import wave
 import numpy as np
 import sounddevice as sd
 
+from src.filters import RMS_SILENCE_THRESHOLD
 from src.paths import TMP_DIR
 
 log = logging.getLogger(__name__)
@@ -62,6 +63,11 @@ class AudioRecorder:
         self._device = device
         self._session_id = uuid.uuid4().hex[:8]
         self._actual_rate = SAMPLE_RATE
+        self._auto_stop_timeout = 0.0
+        self._auto_stop_cb = None
+        self._had_speech = False
+        self._silence_frames = 0
+        self._auto_stop_fired = False
         self._device_name = self._resolve_device_name()
 
     def _resolve_device_name(self) -> str:
@@ -78,9 +84,35 @@ class AudioRecorder:
     def device_name(self) -> str:
         return self._device_name
 
+    def set_auto_stop(self, timeout_s: float, callback):
+        """Auto-Stop bei Stille (Toggle-Modus): callback feuert EINMAL pro
+        Aufnahme aus dem PortAudio-Thread, sobald nach erkannter Sprache
+        timeout_s Sekunden Stille vergangen sind. timeout_s <= 0 = aus.
+        Feuert nie, bevor gesprochen wurde (leise Sprecher, Anlauf-Pausen)."""
+        self._auto_stop_timeout = float(timeout_s or 0)
+        self._auto_stop_cb = callback
+
     def _callback(self, indata, frames, time_info, status):
-        if self._recording:
-            self._buffer.append(indata.copy())
+        if not self._recording:
+            return
+        self._buffer.append(indata.copy())
+        if (self._auto_stop_timeout <= 0 or self._auto_stop_cb is None
+                or self._auto_stop_fired):
+            return
+        # Stille-Dauer aus Frames akkumulieren (nicht Wallclock — PortAudio
+        # liefert Bloecke nicht in Echtzeit-Garantie)
+        rms = float(np.sqrt(np.mean(np.square(indata))))
+        if rms >= RMS_SILENCE_THRESHOLD:
+            self._had_speech = True
+            self._silence_frames = 0
+        elif self._had_speech:
+            self._silence_frames += frames
+            if self._silence_frames / self._actual_rate >= self._auto_stop_timeout:
+                self._auto_stop_fired = True
+                try:
+                    self._auto_stop_cb()
+                except Exception:
+                    log.exception("Auto-Stop-Callback fehlgeschlagen")
 
     def _on_stream_finished(self):
         """PortAudio meldet Stream-Ende — unerwartet heisst: Geraet weg oder
@@ -177,6 +209,9 @@ class AudioRecorder:
                 log.info("Audio-Stream nicht aktiv — oeffne neu")
                 self._open_stream_locked()
             self._buffer = []
+            self._had_speech = False
+            self._silence_frames = 0
+            self._auto_stop_fired = False
             self._recording = True
 
     def stop_recording(self) -> tuple[str | None, float, float]:

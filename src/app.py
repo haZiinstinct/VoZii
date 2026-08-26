@@ -302,6 +302,14 @@ def _run_cycle(skip_settings: bool = False) -> str:
                 state.set_state(AppState.IDLE)
                 notify("err_mic")
 
+        # Auto-Stop bei Stille (nur Toggle-Modus): wirkt wie der zweite
+        # Hotkey-Druck; on_deactivate ist reentrant-sicher (State-Guard) und
+        # laeuft heute schon aus fremden Threads (pynput)
+        auto_stop_s = config.get("auto_stop_silence_s", 0)
+        if config.get("mode") == "toggle" and auto_stop_s:
+            recorder.set_auto_stop(auto_stop_s, on_deactivate)
+            log.info("Auto-Stop bei Stille: %.1fs", auto_stop_s)
+
         error_count = [0]
         hint_shown = [False]
 

@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 DEFAULT_CONFIG = {
     "hotkey": "ctrl+shift+space",
     "mode": "push_to_talk",
+    "auto_stop_silence_s": 0,  # 0 = aus; sonst Sekunden Stille bis Auto-Stop
     "language": "auto",
     "ui_language": "",  # leer -> beim First-Run aus System-Sprache erkannt
     "model_size": "large-v3-turbo-q5_0",
@@ -23,9 +24,11 @@ DEFAULT_CONFIG = {
     "post_processing_mode": "off",
     "ollama_model": "qwen2.5:3b",
     "performance_mode": "speed",
+    "initial_prompt": "",
     "use_server": True,
     "restore_clipboard": True,
     "history_enabled": True,
+    "update_check": True,
     "gpu_cache_type": None,
     "gpu_cache_name": None,
     "first_run_done": False,
@@ -45,7 +48,7 @@ _ALLOWED_VALUES = {
 
 _BOOL_KEYS = {
     "audio_feedback", "show_overlay", "auto_start", "use_server",
-    "restore_clipboard", "history_enabled", "first_run_done",
+    "restore_clipboard", "history_enabled", "first_run_done", "update_check",
 }
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
@@ -82,6 +85,20 @@ def _validate(config: dict) -> dict:
 
     if not isinstance(config.get("ollama_model"), str) or not config["ollama_model"].strip():
         config["ollama_model"] = DEFAULT_CONFIG["ollama_model"]
+
+    # Eigene Begriffe (Whisper initial_prompt): Whisper sieht nur ~224 Tokens
+    # Prompt-Fenster — laengere Eingaben bringen nichts und werden gekappt
+    if not isinstance(config.get("initial_prompt"), str):
+        config["initial_prompt"] = ""
+    config["initial_prompt"] = config["initial_prompt"].strip()[:600]
+
+    # Auto-Stop: 0 = aus, sonst auf 1.5-10 s clampen (unter 1.5 s wuerden
+    # normale Sprechpausen das Diktat abschneiden)
+    v = config.get("auto_stop_silence_s")
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        config["auto_stop_silence_s"] = DEFAULT_CONFIG["auto_stop_silence_s"]
+    elif v != 0:
+        config["auto_stop_silence_s"] = min(10.0, max(1.5, float(v)))
 
     # Oberflaechen-Sprache: leer/ungueltig -> aus der System-Sprache ableiten
     if config.get("ui_language") not in UI_LANGUAGES:

@@ -121,3 +121,85 @@ def test_quiet_but_not_phantom_is_kept():
 
 def test_empty_text():
     assert not is_hallucination("", 0.5, 0.0)
+
+
+# --- Auto-Stop bei Stille (M6) ---
+
+def _recorder_for_autostop(timeout_s: float):
+    import numpy as np  # noqa: F401
+    from src.audio import AudioRecorder
+
+    r = AudioRecorder.__new__(AudioRecorder)
+    r._buffer = []
+    r._recording = True
+    r._actual_rate = 16000
+    r._auto_stop_timeout = 0.0
+    r._auto_stop_cb = None
+    r._had_speech = False
+    r._silence_frames = 0
+    r._auto_stop_fired = False
+    fired = []
+    r.set_auto_stop(timeout_s, lambda: fired.append(1))
+    return r, fired
+
+
+def _feed(recorder, rms_level: float, seconds: float, block_s: float = 0.1):
+    import numpy as np
+
+    frames = int(16000 * block_s)
+    block = np.full((frames, 1), rms_level, dtype=np.float32)
+    for _ in range(int(seconds / block_s)):
+        recorder._callback(block, frames, None, None)
+
+
+def test_autostop_feuert_genau_einmal_nach_stille():
+    r, fired = _recorder_for_autostop(2.0)
+    _feed(r, 0.05, 1.0)    # Sprache
+    _feed(r, 0.001, 1.9)   # Stille unter der Schwelle
+    assert fired == []
+    _feed(r, 0.001, 0.3)   # Schwelle ueberschritten
+    assert fired == [1]
+    _feed(r, 0.001, 5.0)   # bleibt bei genau einem Feuern
+    assert fired == [1]
+
+
+def test_autostop_feuert_nicht_bei_kurzer_sprechpause():
+    r, fired = _recorder_for_autostop(2.0)
+    _feed(r, 0.05, 1.0)
+    _feed(r, 0.001, 1.5)   # Pause < 2s
+    _feed(r, 0.05, 1.0)    # weitergesprochen -> Zaehler resettet
+    _feed(r, 0.001, 1.5)
+    assert fired == []
+
+
+def test_autostop_feuert_nie_ohne_sprache():
+    r, fired = _recorder_for_autostop(2.0)
+    _feed(r, 0.001, 30.0)  # nur Stille — nie gesprochen
+    assert fired == []
+
+
+def test_autostop_aus_bei_timeout_null():
+    r, fired = _recorder_for_autostop(0)
+    _feed(r, 0.05, 1.0)
+    _feed(r, 0.001, 30.0)
+    assert fired == []
+
+
+def test_autostop_flags_werden_pro_aufnahme_zurueckgesetzt():
+    from src.audio import AudioRecorder
+
+    r, fired = _recorder_for_autostop(2.0)
+    _feed(r, 0.05, 0.5)
+    _feed(r, 0.001, 2.5)
+    assert fired == [1]
+
+    # start_recording resettet die Flags (Stream-Teil gemockt)
+    r._stream = type("S", (), {"active": True})()
+    r._stream_broken = False
+    import threading
+    r._lock = threading.Lock()
+    AudioRecorder.start_recording(r)
+    assert r._had_speech is False and r._auto_stop_fired is False
+    _feed(r, 0.05, 0.5)
+    _feed(r, 0.001, 2.5)
+    assert fired == [1, 1]

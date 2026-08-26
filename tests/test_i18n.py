@@ -111,7 +111,7 @@ def test_dictation_langs_are_autonyms():
 @pytest.mark.parametrize("lcid_primary,expected", [
     (0x07, "de"), (0x09, "en"), (0x0A, "es"), (0x0C, "fr"),
     (0x16, "pt"), (0x19, "ru"), (0x04, "zh"), (0x11, "ja"), (0x01, "ar"),
-    (0x3F, "de"),  # unbekannt -> Fallback de
+    (0x3F, "en"),  # unbekannt -> Fallback en (weltweiter Default)
 ])
 def test_detect_system_language(monkeypatch, lcid_primary, expected):
     class FakeKernel:

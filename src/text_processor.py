@@ -10,6 +10,8 @@ import tempfile
 import time
 import urllib.request
 
+from src.i18n import t
+
 log = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434"
@@ -28,16 +30,16 @@ OLLAMA_TIERS = {
 
 def tier_for_model(tag: str) -> str:
     """Stufen-ID fuer einen Modell-Tag (Default: balanced)."""
-    for tier_id, (t, _) in OLLAMA_TIERS.items():
-        if t == tag:
+    for tier_id, (tier_tag, _) in OLLAMA_TIERS.items():
+        if tier_tag == tag:
             return tier_id
     return "balanced"
 
 
 def size_label(tag: str) -> str:
     """Ungefaehre Download-Groesse fuer einen Modell-Tag."""
-    for _, (t, size) in OLLAMA_TIERS.items():
-        if t == tag:
+    for _, (tier_tag, size) in OLLAMA_TIERS.items():
+        if tier_tag == tag:
             return size
     return "~2 GB"
 
@@ -314,17 +316,16 @@ def install_ollama(progress_callback=None, cancel_event=None) -> bool:
         if os.path.exists(installer_path):
             try: os.remove(installer_path)
             except OSError: pass
-        raise RuntimeError(f"Download fehlgeschlagen: {e}") from e
+        raise RuntimeError(t("err.ollama_download", error=e)) from e
 
     # Phase 1b: Signatur pruefen BEVOR irgendwas ausgefuehrt wird
     if progress_callback:
-        progress_callback(0, 0, "Pruefe Signatur...", 0)
+        progress_callback(0, 0, t("ollama.verify_sig"), 0)
     if not _verify_authenticode(installer_path):
         try: os.remove(installer_path)
         except OSError: pass
         raise RuntimeError(
-            "Signaturpruefung des Ollama-Installers fehlgeschlagen — Download verworfen.\n"
-            "Bitte erneut versuchen oder Ollama manuell von ollama.com installieren."
+            t("err.ollama_signature")
         )
 
     # Phase 2: Installer starten (User sieht Wizard)
@@ -335,7 +336,7 @@ def install_ollama(progress_callback=None, cancel_event=None) -> bool:
         subprocess.Popen([installer_path])
     except Exception as e:
         log.error("Installer-Start fehlgeschlagen: %s", e)
-        raise RuntimeError(f"Installer-Start fehlgeschlagen: {e}") from e
+        raise RuntimeError(t("err.installer_start", error=e)) from e
 
     # Phase 3: Warte bis API erreichbar (mit Cancel)
     if progress_callback:
@@ -353,7 +354,7 @@ def install_ollama(progress_callback=None, cancel_event=None) -> bool:
             return True
         time.sleep(2)
 
-    raise RuntimeError("Ollama-Installation Timeout (3 Minuten)")
+    raise RuntimeError(t("err.ollama_timeout"))
 
 
 def _download_ollama_installer(url, dest, progress_callback, cancel_event):

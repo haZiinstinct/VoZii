@@ -7,6 +7,54 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.8.0] — 2026-08-26
+
+### Neu
+- **Auto-Stop bei Stille:** Im neuen Umschalt-Modus stoppt die Aufnahme nach
+  wählbarer Stille-Dauer (2/3/5 s) von selbst — Diktat ohne zweiten Tastendruck.
+  Der Aufnahme-Modus (Halten/Umschalten) ist jetzt direkt in den Einstellungen
+  wählbar (vorher nur per config.yaml).
+- **Eigene Begriffe:** Namen und Fachwörter (z. B. Firmennamen) als
+  Erkennungs-Kontext für Whisper — neues Textfeld in den Einstellungen.
+- **Update-Hinweis:** Ein stiller Check gegen GitHub zeigt im Einstellungs-Fenster
+  an, wenn eine neue Version verfügbar ist (nur Versionsnummer, abschaltbar).
+- **Verständliche Fehl-Diagnosen:** Blockiert Windows Smart App Control die
+  Spracherkennung (Code 0xC0E90002) oder fehlt die VC++-Runtime (0xC0000135),
+  erklärt VoZii das jetzt in einem Dialog samt Abhilfe — statt stiller leerer
+  Diktate. Beim Start prüft VoZii die VC++-Runtime aktiv.
+
+### Geändert
+- **whisper.cpp 1.8.6 → 1.9.2**; alle Backend-Binaries kommen jetzt aus einem
+  eigenen, checksummen-verifizierten Mirror-Release (das AMD/Vulkan-Binary wird
+  aus dem Original-Quellcode in unserer CI gebaut — kein Dritt-Repo mehr).
+  Bestandsnutzer bekommen im Einstellungs-Fenster einen Update-Button.
+- Modell-Downloads sind auf eine feste Hugging-Face-Revision gepinnt
+  (Upstream-Änderungen können Downloads nicht mehr brechen).
+- Bei unbekannter Windows-Sprache startet die Oberfläche jetzt auf Englisch
+  statt Deutsch; Download-/Installationsfehler erscheinen in allen 9 Sprachen.
+- Die Exe trägt jetzt Windows-Dateieigenschaften (Version/Hersteller) und wird
+  ohne UPX gebaut (weniger Antivirus-Fehlalarme, dafür ~40 % größer); jedem
+  Release liegt eine `SHA256SUMS.txt` bei.
+
+### Behoben
+- Backend-Wechsel (z. B. CPU → NVIDIA) installierte nie neue Binaries und
+  ließ alte DLLs liegen.
+- Startfehler vor dem Logging endeten in einem stummen Absturz der Exe — jetzt
+  Notfall-Log unter `%TEMP%\vozii_boot_error.log` plus Fehlerdialog; wiederholte
+  Fehler erzeugen keine endlose Dialog-Kette mehr.
+- Konnte die Lock-Datei nicht angelegt werden, meldete VoZii fälschlich
+  „läuft bereits".
+- Overlay-Schärfe im Autostart-Pfad auf High-DPI-Monitoren (DPI-Awareness-Call
+  war auf x64 wirkungslos).
+- Tcl/Tk-Absturz beim Beenden (Event 1000, tcl86t.dll).
+
+### Doku
+- Neu: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) (Smart App Control,
+  VC++-Runtime, SmartScreen, %TEMP%-Policies, Log-Fundorte) + kompakte
+  Troubleshooting-Tabelle im README.
+
+---
+
 ## [1.7.1] — 2026-08-05
 
 ### Neu

@@ -90,3 +90,22 @@ def test_missing_keys_get_defaults(config_paths):
     assert config["language"] == "en"
     for key in DEFAULT_CONFIG:
         assert key in config
+
+
+def test_initial_prompt_default_und_kappung(config_paths):
+    from src.config import load_config, save_config
+
+    cfg = load_config()
+    assert cfg["initial_prompt"] == ""
+
+    cfg["initial_prompt"] = "  haZii, VoZii  "
+    save_config(cfg)
+    assert load_config()["initial_prompt"] == "haZii, VoZii"
+
+    cfg["initial_prompt"] = "x" * 1000
+    save_config(cfg)
+    assert len(load_config()["initial_prompt"]) == 600
+
+    cfg["initial_prompt"] = 42  # kein String -> Default
+    save_config(cfg)
+    assert load_config()["initial_prompt"] == ""

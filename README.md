@@ -15,7 +15,7 @@ no account. One 32&nbsp;MB file.</p>
 
 <p>
   <a href="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-1.7.1-00d4ff?labelColor=0a0a0f" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.8.0-00d4ff?labelColor=0a0a0f" />
   <img alt="License Proprietary" src="https://img.shields.io/badge/license-proprietary-94a3b8?labelColor=0a0a0f" />
   <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-00d4ff?labelColor=0a0a0f&logo=python&logoColor=white" />
   <img alt="Windows 11" src="https://img.shields.io/badge/Windows-11-00d4ff?labelColor=0a0a0f&logo=windows&logoColor=white" />
@@ -87,6 +87,7 @@ clipboard, no field was focused), `SHORT` / `EMPTY`, or `ERR:MIC` / `ERR:WHISPER
 | 🖥️ **Compute** | NVIDIA CUDA · AMD Vulkan · CPU fallback — auto-detected and cached |
 | 🎚️ **Decoding** | **Fast** (greedy) for everyday use · **Accurate** (beam search) when it matters |
 | 🔧 **Extras** | Persistent audio stream (no clipped first syllable) · microphone level test · autostart with Windows |
+| 🆕 **v1.8** | Toggle mode with **auto-stop on silence** · **custom vocabulary** (names & jargon) · update notifications · whisper.cpp 1.9.2 |
 
 ## 🚀 Get VoZii
 
@@ -104,7 +105,19 @@ clipboard, no field was focused), `SHORT` / `EMPTY`, or `ERR:MIC` / `ERR:WHISPER
 - **OS:** Windows 11 (64-bit)
 - **RAM:** 2&nbsp;GB free (4&nbsp;GB recommended for larger models)
 - **GPU:** optional but recommended — NVIDIA GeForce (CUDA), AMD Radeon (Vulkan), or integrated; CPU works too
-- **Data:** models, config and log live under `%LOCALAPPDATA%\VoZii`
+- **Data:** models, config and log live under `%LOCALAPPDATA%\VoZii` (or next to the
+  `.exe` if a `config.yaml`/`whisper-cpp` folder already sits there — portable installs)
+
+## 🩺 Troubleshooting
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| SmartScreen warning on first launch | Unsigned `.exe` (expected) | *More info → Run anyway* |
+| Recording works, but **no text appears** | **Smart App Control** blocks the unsigned speech engine (`0xC0E90002` in the log) | Windows Security → App & browser control → turn Smart App Control **off** — VoZii shows a dialog explaining this since v1.8 |
+| No text on a **fresh Windows** | Microsoft **VC++ Runtime** missing (`0xC0000135`) | Install the [VC++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe) — VoZii detects this and shows a download link |
+| App won't start at all | AV/AppLocker blocks the onefile extraction in `%TEMP%` | Check `%TEMP%\vozii_boot_error.log`; allow the app or adjust the policy |
+
+Full guide with log locations and more cases: **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**
 
 ## 🧠 AI post-processing (optional)
 
@@ -136,6 +149,8 @@ VoZii runs **entirely on your machine**:
 - ✅ No audio is ever sent to a server — transcription is fully local
 - ✅ No internet needed to run (only once, to download a model)
 - ✅ No telemetry, no analytics, no accounts
+- ✅ Optional update check asks GitHub for the latest **version number only** —
+  one request at startup, can be switched off in settings
 - ✅ History (last 50) stays in a local `history.json` — toggleable and clearable in settings
 
 ## 🛠️ Build from source

@@ -13,6 +13,7 @@ import os
 import sys
 import threading
 
+from src import paths
 from src.paths import BASE_DIR
 
 LOG_PATH = os.path.join(BASE_DIR, "vozii.log")
@@ -62,36 +63,46 @@ def setup_logging() -> None:
 
     threading.excepthook = _thread_excepthook
 
+    if paths.BASE_DIR_FALLBACK:
+        logging.getLogger(__name__).warning(
+            "BASE_DIR-Fallback aktiv (%s) — nutze %s", paths.BASE_DIR_FALLBACK, BASE_DIR)
 
-def acquire_single_instance() -> bool:
+
+def acquire_single_instance() -> str:
     """Versucht exklusiven Lock auf vozii.lock zu bekommen.
 
     Returns:
-        True wenn Lock bekommen (wir sind die einzige Instanz).
-        False wenn eine andere Instanz bereits laeuft.
+        "ok"    — Lock bekommen (wir sind die einzige Instanz).
+        "busy"  — eine andere Instanz haelt den Lock.
+        "error" — Lock-Datei nicht anlegbar (read-only Ordner, AV-Sperre) —
+                  NICHT als "laeuft bereits" fehlinterpretieren.
     """
     global _lock_file
     try:
         import msvcrt
     except ImportError:
         # Nicht Windows — skip (Dev auf anderem OS)
-        return True
+        return "ok"
 
     try:
         _lock_file = open(LOCK_PATH, "w")
+    except OSError:
+        _lock_file = None
+        return "error"
+
+    try:
         msvcrt.locking(_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
         _lock_file.write(str(os.getpid()))
         _lock_file.flush()
-        return True
+        return "ok"
     except OSError:
         # Andere Instanz haelt den Lock
-        if _lock_file:
-            try:
-                _lock_file.close()
-            except Exception:
-                pass
-            _lock_file = None
-        return False
+        try:
+            _lock_file.close()
+        except Exception:
+            pass
+        _lock_file = None
+        return "busy"
 
 
 def get_log_path() -> str:

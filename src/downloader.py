@@ -6,6 +6,7 @@ Path-Traversal abgesichert.
 """
 
 import hashlib
+import json
 import logging
 import os
 import shutil
@@ -13,7 +14,13 @@ import time
 import urllib.request
 import zipfile
 
-from src.hardware import get_binary_sha256, get_binary_url
+from src.hardware import (
+    BACKEND_DLLS,
+    BACKEND_VERSION,
+    get_binary_sha256,
+    get_binary_url,
+)
+from src.i18n import t
 from src.paths import BASE_DIR
 
 log = logging.getLogger(__name__)
@@ -24,7 +31,10 @@ MODELS_DIR = os.path.join(WHISPER_DIR, "models")
 # Whisper-Modelle. large-v3-turbo = modernes Diktat-Modell (8x schneller als
 # large-v3, ~gleiche Qualitaet, multilingual inkl. Deutsch). tiny/small/medium
 # bleiben als Keys fuer Bestandsnutzer; der Picker zeigt nur die 3 aktuellen Stufen.
-_HF = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
+# Fester Revision-Commit statt /main: aendert Upstream eine Datei, braechen sonst
+# alle Downloads dauerhaft am SHA-Mismatch (LFS-Hashes am 2026-08-26 verifiziert).
+_HF = ("https://huggingface.co/ggerganov/whisper.cpp/resolve/"
+       "5359861c739e955e79d9a303bcbc70fb988958b1")
 
 MODEL_URLS = {
     "tiny": f"{_HF}/ggml-tiny.bin",
@@ -83,10 +93,7 @@ def _ensure_disk_space(dest_dir: str, required_bytes: int):
     if free < required_bytes + _DISK_SPACE_BUFFER:
         need_mb = (required_bytes + _DISK_SPACE_BUFFER) // 1048576
         free_mb = free // 1048576
-        raise RuntimeError(
-            f"Zu wenig Speicherplatz: {need_mb} MB benoetigt, {free_mb} MB frei.\n"
-            f"Bitte Platz schaffen und erneut versuchen."
-        )
+        raise RuntimeError(t("err.disk_space", need_mb=need_mb, free_mb=free_mb))
 
 
 def download_file(url, dest, progress_callback=None, expected_sha256=None):
@@ -109,7 +116,7 @@ def download_file(url, dest, progress_callback=None, expected_sha256=None):
     try:
         resp = urllib.request.urlopen(req)
     except Exception as e:
-        raise RuntimeError(f"Verbindung fehlgeschlagen: {e}") from e
+        raise RuntimeError(t("err.connection", error=e)) from e
 
     # Resume nur wenn der Server den Range-Request akzeptiert (206 Partial
     # Content). Bei 200 liefert er die ganze Datei -> .part verwerfen,
@@ -144,7 +151,7 @@ def download_file(url, dest, progress_callback=None, expected_sha256=None):
                     last_bytes = downloaded
     except OSError as e:
         # Disk voll, Permission-Fehler etc.
-        raise RuntimeError(f"Schreiben fehlgeschlagen (evtl. Festplatte voll): {e}") from e
+        raise RuntimeError(t("err.write_failed", error=e)) from e
 
     if progress_callback and total > 0:
         progress_callback(downloaded, total, 0)
@@ -160,10 +167,7 @@ def download_file(url, dest, progress_callback=None, expected_sha256=None):
             os.remove(dest)
             log.error("SHA256-Mismatch fuer %s: erwartet %s, erhalten %s",
                       url, expected_sha256, actual)
-            raise RuntimeError(
-                "Checksumme des Downloads stimmt nicht — Datei wurde verworfen.\n"
-                "Bitte erneut versuchen. Bleibt der Fehler, bitte als Issue melden."
-            )
+            raise RuntimeError(t("err.checksum"))
 
     return True
 
@@ -178,8 +182,12 @@ def _safe_extract(zf: zipfile.ZipFile, extract_dir: str):
     zf.extractall(extract_dir)
 
 
-def _extract_binaries(zip_path: str, want_cli: bool, want_server: bool, with_dlls: bool):
-    """Entpackt whitelisted Exe-Dateien (+ optional DLLs) aus dem Zip nach WHISPER_DIR."""
+def _extract_binaries(zip_path: str, want_cli: bool, want_server: bool, with_dlls: bool,
+                      clean_first: bool = False):
+    """Entpackt whitelisted Exe-Dateien (+ optional DLLs) aus dem Zip nach WHISPER_DIR.
+
+    clean_first entfernt vorhandene exe/dll — erst NACH erfolgreichem Unzip,
+    damit ein korruptes Zip den Nutzer nicht ohne Binaries zuruecklaesst."""
     extract_dir = os.path.join(WHISPER_DIR, "_extract")
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:
@@ -189,7 +197,10 @@ def _extract_binaries(zip_path: str, want_cli: bool, want_server: bool, with_dll
         if os.path.exists(zip_path):
             os.remove(zip_path)
         shutil.rmtree(extract_dir, ignore_errors=True)
-        raise RuntimeError(f"Download ist beschaedigt. Bitte erneut versuchen: {e}") from e
+        raise RuntimeError(t("err.zip_corrupt", error=e)) from e
+
+    if clean_first:
+        _remove_old_binaries()
 
     for root, _, files in os.walk(extract_dir):
         for f in files:
@@ -206,19 +217,99 @@ def _extract_binaries(zip_path: str, want_cli: bool, want_server: bool, with_dll
     os.remove(zip_path)
 
 
+# Marker neben den Binaries: welches Backend in welcher Version installiert ist.
+# Ohne ihn (Bestandsinstallationen) wird das Backend per DLL-Sniff erkannt.
+_BACKEND_MARKER = "backend.json"
+
+
+def read_backend_marker() -> dict | None:
+    try:
+        with open(os.path.join(WHISPER_DIR, _BACKEND_MARKER), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _write_backend_marker(gpu_type: str):
+    try:
+        with open(os.path.join(WHISPER_DIR, _BACKEND_MARKER), "w", encoding="utf-8") as f:
+            json.dump({"gpu_type": gpu_type, "version": BACKEND_VERSION,
+                       "installed_at": time.strftime("%Y-%m-%d")}, f)
+    except OSError:
+        log.warning("Backend-Marker nicht schreibbar", exc_info=True)
+
+
+def installed_backend_type() -> str | None:
+    """Installiertes Backend: Marker lesen, sonst DLL-Sniff (Bestandsnutzer).
+
+    None = kein Binary installiert; "unknown" = installiert, aber nicht
+    zuordenbar (wird wie veraltet behandelt)."""
+    if not is_binary_installed():
+        return None
+    marker = read_backend_marker()
+    if marker and marker.get("gpu_type") in BACKEND_DLLS:
+        return marker["gpu_type"]
+    try:
+        files = [f.lower() for f in os.listdir(WHISPER_DIR)]
+    except OSError:
+        return "unknown"
+    for gpu_type, patterns in BACKEND_DLLS.items():
+        if any(p in f for p in patterns for f in files):
+            return gpu_type
+    return "unknown"
+
+
+def is_backend_current(gpu_type: str) -> bool:
+    """Passt das installierte Binary-Set zu gpu_type UND zur gepinnten Version?
+
+    Bestandsinstallationen ohne Marker gelten bewusst als veraltet — sie
+    stammen aus einer aelteren whisper.cpp-Version."""
+    marker = read_backend_marker()
+    return bool(
+        is_binary_installed()
+        and marker
+        and marker.get("gpu_type") == gpu_type
+        and marker.get("version") == BACKEND_VERSION
+    )
+
+
+def _remove_old_binaries():
+    """Alte exe/dll vor dem Neu-Entpacken entfernen — sonst mischen sich
+    CUDA-, Vulkan- und BLAS-DLLs verschiedener Versionen."""
+    try:
+        names = os.listdir(WHISPER_DIR)
+    except OSError:
+        return
+    for f in names:
+        if f.lower().endswith((".exe", ".dll")):
+            try:
+                os.remove(os.path.join(WHISPER_DIR, f))
+            except OSError:
+                log.warning("Konnte %s nicht entfernen", f)
+
+
 def download_and_extract_binary(gpu_type, progress_callback=None):
-    """Laedt das whisper.cpp-Zip und installiert CLI + Server + DLLs."""
+    """Laedt das whisper.cpp-Zip und installiert CLI + Server + DLLs.
+
+    Laedt auch bei vorhandenem Binary neu, wenn Backend-Typ oder gepinnte
+    Version nicht mehr passen (frueher: Early-Return bei irgendeinem
+    whisper-cli.exe — ein Backend-Wechsel installierte nie neue Binaries)."""
     os.makedirs(WHISPER_DIR, exist_ok=True)
     cli_path = os.path.join(WHISPER_DIR, "whisper-cli.exe")
-    if os.path.isfile(cli_path):
+    if os.path.isfile(cli_path) and is_backend_current(gpu_type):
         return True
 
     url = get_binary_url(gpu_type)
     zip_path = os.path.join(WHISPER_DIR, "whisper-cpp.zip")
     download_file(url, zip_path, progress_callback,
                   expected_sha256=get_binary_sha256(gpu_type))
-    _extract_binaries(zip_path, want_cli=True, want_server=True, with_dlls=True)
-    return os.path.isfile(cli_path)
+    _extract_binaries(zip_path, want_cli=True, want_server=True, with_dlls=True,
+                      clean_first=True)
+    if not os.path.isfile(cli_path):
+        return False
+    _write_backend_marker(gpu_type)
+    return True
 
 
 def ensure_server_binary(gpu_type, progress_callback=None) -> bool:
@@ -237,13 +328,17 @@ def ensure_server_binary(gpu_type, progress_callback=None) -> bool:
         zip_path = os.path.join(WHISPER_DIR, "whisper-cpp.zip")
         download_file(url, zip_path, progress_callback,
                       expected_sha256=get_binary_sha256(gpu_type))
-        _extract_binaries(zip_path, want_cli=True, want_server=True, with_dlls=True)
+        _extract_binaries(zip_path, want_cli=True, want_server=True, with_dlls=True,
+                          clean_first=True)
     except InterruptedError:
         raise  # Abbruch durch den Nutzer durchreichen
     except Exception as e:
         log.warning("whisper-server.exe nachladen fehlgeschlagen (CLI-Modus bleibt): %s", e)
         return False
-    return is_server_available()
+    if is_server_available():
+        _write_backend_marker(gpu_type)
+        return True
+    return False
 
 
 def download_model(model_size, progress_callback=None):

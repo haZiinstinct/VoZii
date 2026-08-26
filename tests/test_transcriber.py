@@ -6,6 +6,7 @@ import threading
 
 import pytest
 
+from src import transcriber as transcriber_mod
 from src.transcriber import (
     ServerBackend,
     Transcriber,
@@ -13,6 +14,7 @@ from src.transcriber import (
     _clean_output,
     _quality_args,
     _threads,
+    is_setup_complete,
 )
 
 
@@ -72,11 +74,12 @@ def fake_server():
     srv.shutdown()
 
 
-def _backend_on(port: int) -> ServerBackend:
+def _backend_on(port: int, initial_prompt: str = "") -> ServerBackend:
     """ServerBackend ohne __init__ (kein Subprocess, kein atexit)."""
     b = ServerBackend.__new__(ServerBackend)
     b.language = "de"
     b.performance_mode = "speed"
+    b.initial_prompt = initial_prompt
     b._port = port
     b._proc = None
     return b
@@ -92,6 +95,45 @@ def test_server_request_parses_text(fake_server, tmp_path):
     assert b"RIFF-fake-wav" in _Handler.last_body
     assert b'name="beam_size"\r\n\r\n1' in _Handler.last_body
     assert b'name="language"\r\n\r\nde' in _Handler.last_body
+
+
+def test_server_request_sendet_initial_prompt(fake_server, tmp_path):
+    _Handler.response_payload = {"text": "ok"}
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    backend = _backend_on(fake_server.server_address[1], initial_prompt="haZii, VoZii")
+
+    backend._request(str(wav))
+    assert b'name="prompt"\r\n\r\nhaZii, VoZii' in _Handler.last_body
+
+    # Ohne Prompt darf das Feld nicht auftauchen
+    backend = _backend_on(fake_server.server_address[1])
+    backend._request(str(wav))
+    assert b'name="prompt"' not in _Handler.last_body
+
+
+def test_cli_cmd_enthaelt_prompt_nur_wenn_gesetzt(monkeypatch, tmp_path):
+    from src.transcriber import CliBackend
+
+    captured = {}
+
+    class FakeResult:
+        returncode = 0
+        stdout = "text"
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return FakeResult()
+
+    monkeypatch.setattr(transcriber_mod.subprocess, "run", fake_run)
+
+    CliBackend("m.bin", "de", "speed", initial_prompt="haZii, VoZii").transcribe("a.wav")
+    idx = captured["cmd"].index("--prompt")
+    assert captured["cmd"][idx + 1] == "haZii, VoZii"
+
+    CliBackend("m.bin", "de", "speed").transcribe("a.wav")
+    assert "--prompt" not in captured["cmd"]
 
 
 def test_server_request_raises_on_error_payload(fake_server, tmp_path):
@@ -127,6 +169,38 @@ def test_facade_falls_back_to_cli(monkeypatch):
     monkeypatch.setattr(Transcriber, "is_ready", lambda self: True)
 
     assert t.transcribe("x.wav") == "hallo vom cli"
+
+
+def test_is_setup_complete_reine_dateipruefung(tmp_path, monkeypatch):
+    """Darf KEIN Backend bauen (kein Job-Object/atexit) — war frueher ein Leak
+    pro Autostart-Zyklus."""
+    whisper_dir = tmp_path / "whisper-cpp"
+    models_dir = whisper_dir / "models"
+    models_dir.mkdir(parents=True)
+    monkeypatch.setattr(transcriber_mod, "WHISPER_CLI", str(whisper_dir / "whisper-cli.exe"))
+    monkeypatch.setattr(transcriber_mod, "MODELS_DIR", str(models_dir))
+
+    job_calls = []
+    monkeypatch.setattr(transcriber_mod, "create_kill_on_close_job",
+                        lambda: job_calls.append(1))
+
+    assert is_setup_complete("tiny") is False  # nichts vorhanden
+
+    (whisper_dir / "whisper-cli.exe").write_bytes(b"MZ")
+    model_file = models_dir / transcriber_mod.MODEL_FILES["tiny"]
+    model_file.write_bytes(b"x")  # zu klein
+    assert is_setup_complete("tiny") is False
+
+    model_file.write_bytes(b"x" * transcriber_mod.MODEL_MIN_SIZES["tiny"])
+    assert is_setup_complete("tiny") is True
+    assert job_calls == []
+
+
+def test_server_exit_code_hint_landet_in_exception(monkeypatch):
+    """SAC-Block (0xC0E90002) muss als verstaendlicher Hinweis auftauchen."""
+    hint = transcriber_mod._exit_code_hint(3236495362)
+    assert "Smart App Control" in hint
+    assert transcriber_mod._exit_code_hint(0) == ""
 
 
 def test_facade_uses_server_result(monkeypatch):

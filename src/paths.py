@@ -48,12 +48,31 @@ def _appdata_dir() -> str:
     return path
 
 
+# Grund, falls die normale Aufloesung scheiterte — setup_logging() loggt das
+# als WARNING (frueher gab es hier nur einen stummen Tod der --windowed-Exe)
+BASE_DIR_FALLBACK = None
+
+
 def get_base_dir() -> str:
-    """Schreibbares Verzeichnis fuer config, logs, whisper-cpp, etc."""
-    exe_dir = _exe_dir()
-    if _has_existing_data(exe_dir) and _is_writable(exe_dir):
-        return exe_dir
-    return _appdata_dir()
+    """Schreibbares Verzeichnis fuer config, logs, whisper-cpp, etc.
+
+    Darf niemals werfen — laeuft auf Import-Ebene, vor jedem Logging."""
+    global BASE_DIR_FALLBACK
+    try:
+        exe_dir = _exe_dir()
+        if _has_existing_data(exe_dir) and _is_writable(exe_dir):
+            return exe_dir
+    except Exception as e:
+        BASE_DIR_FALLBACK = f"exe_dir unbrauchbar: {e}"
+    try:
+        return _appdata_dir()
+    except Exception as e:
+        # LOCALAPPDATA umgeleitet/gesperrt (kaputtes Roaming-Profil o. ae.)
+        BASE_DIR_FALLBACK = f"LOCALAPPDATA unbrauchbar: {e}"
+        import tempfile
+        path = os.path.join(tempfile.gettempdir(), "VoZii")
+        os.makedirs(path, exist_ok=True)
+        return path
 
 
 BASE_DIR = get_base_dir()

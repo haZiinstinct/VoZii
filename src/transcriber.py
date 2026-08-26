@@ -20,6 +20,7 @@ import urllib.request
 import uuid
 
 from src.downloader import MODEL_FILES, MODEL_MIN_SIZES, is_server_available
+from src.errors import VCREDIST_URL, classify_win_exit_code
 from src.i18n import t
 from src.paths import BASE_DIR
 from src.winutil import assign_process_to_job, create_kill_on_close_job
@@ -65,13 +66,33 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _exit_code_hint(code: int) -> str:
+    """Verstaendliche Erklaerung fuer einen whisper-Exit-Code ("" wenn keine)."""
+    key = classify_win_exit_code(code)
+    return t(key, url=VCREDIST_URL) if key else ""
+
+
+def is_setup_complete(model_size: str) -> bool:
+    """Binary + Modell vorhanden — reine Dateipruefung, ohne Backend-Aufbau
+    (kein Job-Object, kein atexit-Handler)."""
+    if not os.path.isfile(WHISPER_CLI):
+        return False
+    model_path = os.path.join(MODELS_DIR, MODEL_FILES.get(model_size, "ggml-small.bin"))
+    if not os.path.isfile(model_path):
+        return False
+    return os.path.getsize(model_path) >= MODEL_MIN_SIZES.get(model_size, 0)
+
+
 class CliBackend:
     """Ein whisper-cli.exe-Aufruf pro Transkription (Modell laedt jedes Mal neu)."""
 
-    def __init__(self, model_path: str, language: str, performance_mode: str):
+    def __init__(self, model_path: str, language: str, performance_mode: str,
+                 initial_prompt: str = ""):
         self.model_path = model_path
         self.language = language
         self.performance_mode = performance_mode
+        self.initial_prompt = initial_prompt
+        self.last_error_hint = ""
 
     def transcribe(self, wav_path: str) -> str:
         q = _quality_args(self.performance_mode)
@@ -85,6 +106,9 @@ class CliBackend:
             "-bo", str(q["best_of"]),
             "-bs", str(q["beam_size"]),
         ]
+        if self.initial_prompt:
+            # Eigene Begriffe (Namen, Fachwoerter) als Erkennungs-Kontext
+            cmd += ["--prompt", self.initial_prompt]
 
         try:
             result = subprocess.run(
@@ -105,10 +129,12 @@ class CliBackend:
             return ""
 
         if result.returncode != 0:
-            log.error("whisper-cli Fehler (code %d): %s",
-                      result.returncode, result.stderr[:500])
+            self.last_error_hint = _exit_code_hint(result.returncode)
+            log.error("whisper-cli Fehler (code %d): %s %s",
+                      result.returncode, result.stderr[:500], self.last_error_hint)
             return ""
 
+        self.last_error_hint = ""
         return result.stdout.strip()
 
 
@@ -120,17 +146,22 @@ class ServerBackend:
     Lauscht ausschliesslich auf 127.0.0.1.
     """
 
-    def __init__(self, model_path: str, language: str, performance_mode: str):
+    def __init__(self, model_path: str, language: str, performance_mode: str,
+                 initial_prompt: str = ""):
         self.model_path = model_path
         self.language = language
         self.performance_mode = performance_mode
+        self.initial_prompt = initial_prompt
         self._proc = None
         self._port = None
         self._lock = threading.RLock()
+        self.last_error_hint = ""
         # Job-Object haelt den Server an unseren Prozess gekettet: stirbt VoZii
         # (auch per Force-Kill/Crash), killt Windows den Server automatisch.
+        # atexit erst bei laufendem Prozess registrieren (_start) und in
+        # shutdown() wieder abmelden — sonst akkumulieren sich Handler ueber
+        # Settings-Roundtrips.
         self._job = create_kill_on_close_job()
-        atexit.register(self.shutdown)
 
     def ensure_started(self):
         with self._lock:
@@ -160,13 +191,16 @@ class ServerBackend:
         )
         if self._job:
             assign_process_to_job(self._job, self._proc.pid)
+        atexit.register(self.shutdown)
 
         deadline = time.time() + _SERVER_START_TIMEOUT_S
         while time.time() < deadline:
             if self._proc.poll() is not None:
                 code = self._proc.returncode
                 self._proc = None
-                raise RuntimeError(f"whisper-server sofort beendet (Code {code})")
+                self.last_error_hint = _exit_code_hint(code)
+                hint = f"\n{self.last_error_hint}" if self.last_error_hint else ""
+                raise RuntimeError(f"whisper-server sofort beendet (Code {code}){hint}")
             try:
                 with urllib.request.urlopen(
                         f"http://127.0.0.1:{self._port}/health", timeout=2) as resp:
@@ -200,6 +234,8 @@ class ServerBackend:
             "beam_size": str(q["beam_size"]),
             "best_of": str(q["best_of"]),
         }
+        if self.initial_prompt:
+            fields["prompt"] = self.initial_prompt
         with open(wav_path, "rb") as f:
             wav_data = f.read()
         body, content_type = _build_multipart(fields, "file", "audio.wav", wav_data)
@@ -217,6 +253,7 @@ class ServerBackend:
         return data.get("text", "").strip()
 
     def shutdown(self):
+        atexit.unregister(self.shutdown)
         with self._lock:
             proc, self._proc = self._proc, None
         if proc is None or proc.poll() is not None:
@@ -258,25 +295,28 @@ class Transcriber:
     """Facade: Server-Backend wenn verfuegbar, sonst (und bei Fehlern) CLI."""
 
     def __init__(self, model_size: str = "large-v3-turbo-q5_0", language: str = "de",
-                 performance_mode: str = "speed", use_server: bool = True):
+                 performance_mode: str = "speed", use_server: bool = True,
+                 initial_prompt: str = ""):
         self.model_size = model_size
         self.language = language
         self.model_path = os.path.join(MODELS_DIR, MODEL_FILES.get(model_size, "ggml-small.bin"))
-        self._cli = CliBackend(self.model_path, language, performance_mode)
+        self._cli = CliBackend(self.model_path, language, performance_mode, initial_prompt)
         self._server = None
         if use_server and is_server_available():
-            self._server = ServerBackend(self.model_path, language, performance_mode)
+            self._server = ServerBackend(self.model_path, language, performance_mode,
+                                         initial_prompt)
         log.info("Transcriber-Backend: %s", "server" if self._server else "cli")
 
+    @property
+    def last_error_hint(self) -> str:
+        """Verstaendliche Erklaerung des letzten Backend-Fehlers ("" wenn keiner) —
+        z. B. Smart-App-Control-Block oder fehlende VC++-Runtime."""
+        if self._server is not None and self._server.last_error_hint:
+            return self._server.last_error_hint
+        return self._cli.last_error_hint
+
     def is_ready(self) -> bool:
-        if not os.path.isfile(WHISPER_CLI):
-            return False
-        if not os.path.isfile(self.model_path):
-            return False
-        min_size = MODEL_MIN_SIZES.get(self.model_size, 0)
-        if os.path.getsize(self.model_path) < min_size:
-            return False
-        return True
+        return is_setup_complete(self.model_size)
 
     def warmup(self):
         """Startet den Server im Hintergrund, damit die erste Transkription

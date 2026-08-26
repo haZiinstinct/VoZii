@@ -350,7 +350,7 @@ class SettingsWindow:
             self.vocab_box.insert("1.0", self.config["initial_prompt"])
         ctk.CTkLabel(c, text=t("vocab.hint"),
                      font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
-                     justify="left").pack(fill="x", pady=(0, 14))
+                     justify="left", wraplength=390).pack(fill="x", pady=(0, 14))
 
         # TRANSKRIPTION (Beam-Search: schnell vs. genau)
         self._heading(c, t("section.transcription"))

@@ -20,6 +20,7 @@ from src.hardware import (
     get_binary_sha256,
     get_binary_url,
 )
+from src.i18n import t
 from src.paths import BASE_DIR
 
 log = logging.getLogger(__name__)
@@ -92,10 +93,7 @@ def _ensure_disk_space(dest_dir: str, required_bytes: int):
     if free < required_bytes + _DISK_SPACE_BUFFER:
         need_mb = (required_bytes + _DISK_SPACE_BUFFER) // 1048576
         free_mb = free // 1048576
-        raise RuntimeError(
-            f"Zu wenig Speicherplatz: {need_mb} MB benoetigt, {free_mb} MB frei.\n"
-            f"Bitte Platz schaffen und erneut versuchen."
-        )
+        raise RuntimeError(t("err.disk_space", need_mb=need_mb, free_mb=free_mb))
 
 
 def download_file(url, dest, progress_callback=None, expected_sha256=None):
@@ -118,7 +116,7 @@ def download_file(url, dest, progress_callback=None, expected_sha256=None):
     try:
         resp = urllib.request.urlopen(req)
     except Exception as e:
-        raise RuntimeError(f"Verbindung fehlgeschlagen: {e}") from e
+        raise RuntimeError(t("err.connection", error=e)) from e
 
     # Resume nur wenn der Server den Range-Request akzeptiert (206 Partial
     # Content). Bei 200 liefert er die ganze Datei -> .part verwerfen,
@@ -153,7 +151,7 @@ def download_file(url, dest, progress_callback=None, expected_sha256=None):
                     last_bytes = downloaded
     except OSError as e:
         # Disk voll, Permission-Fehler etc.
-        raise RuntimeError(f"Schreiben fehlgeschlagen (evtl. Festplatte voll): {e}") from e
+        raise RuntimeError(t("err.write_failed", error=e)) from e
 
     if progress_callback and total > 0:
         progress_callback(downloaded, total, 0)
@@ -169,10 +167,7 @@ def download_file(url, dest, progress_callback=None, expected_sha256=None):
             os.remove(dest)
             log.error("SHA256-Mismatch fuer %s: erwartet %s, erhalten %s",
                       url, expected_sha256, actual)
-            raise RuntimeError(
-                "Checksumme des Downloads stimmt nicht — Datei wurde verworfen.\n"
-                "Bitte erneut versuchen. Bleibt der Fehler, bitte als Issue melden."
-            )
+            raise RuntimeError(t("err.checksum"))
 
     return True
 
@@ -202,7 +197,7 @@ def _extract_binaries(zip_path: str, want_cli: bool, want_server: bool, with_dll
         if os.path.exists(zip_path):
             os.remove(zip_path)
         shutil.rmtree(extract_dir, ignore_errors=True)
-        raise RuntimeError(f"Download ist beschaedigt. Bitte erneut versuchen: {e}") from e
+        raise RuntimeError(t("err.zip_corrupt", error=e)) from e
 
     if clean_first:
         _remove_old_binaries()

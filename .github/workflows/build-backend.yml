@@ -34,7 +34,10 @@ jobs:
 
       - name: Build
         run: |
-          cmake -B build -DGGML_VULKAN=1 -DBUILD_SHARED_LIBS=ON -DWHISPER_BUILD_TESTS=OFF
+          # GGML_NATIVE=OFF/GGML_BMI2=OFF wie in der Upstream-Release-CI —
+          # sonst optimiert cmake fuer die Runner-CPU und die Binaries sterben
+          # auf fremden CPUs mit "Illegal instruction"
+          cmake -B build -DGGML_VULKAN=1 -DBUILD_SHARED_LIBS=ON -DWHISPER_BUILD_TESTS=OFF -DGGML_NATIVE=OFF -DGGML_BMI2=OFF
           cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
 
       - name: Package

@@ -1,0 +1,52 @@
+# Baut whisper.cpp mit Vulkan-Backend aus dem Upstream-Source und haengt das Zip
+# ans backend-<version>-Release (Mirror-Release, von VoZii zur Laufzeit geladen).
+# Manuell ausloesen; bei neuen whisper.cpp-Versionen whisper_ref anpassen.
+name: Build Backend (Vulkan)
+
+on:
+  workflow_dispatch:
+    inputs:
+      whisper_ref:
+        description: "whisper.cpp Tag/Ref"
+        required: true
+        default: "v1.9.2"
+
+env:
+  VULKAN_VERSION: 1.4.357.0
+
+jobs:
+  vulkan:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ggml-org/whisper.cpp
+          ref: ${{ inputs.whisper_ref }}
+
+      - name: Install Vulkan SDK
+        run: |
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
+
+      - name: Build
+        run: |
+          cmake -B build -DGGML_VULKAN=1 -DBUILD_SHARED_LIBS=ON -DWHISPER_BUILD_TESTS=OFF
+          cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
+
+      - name: Package
+        run: |
+          New-Item -ItemType Directory pkg | Out-Null
+          Copy-Item build/bin/Release/whisper-cli.exe, build/bin/Release/whisper-server.exe pkg/
+          Copy-Item build/bin/Release/*.dll pkg/
+          Get-ChildItem pkg
+          Compress-Archive -Path pkg/* -DestinationPath whisper-vulkan-bin-x64.zip
+
+      - name: Upload to backend release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "backend-${{ inputs.whisper_ref }}" whisper-vulkan-bin-x64.zip --repo ${{ github.repository }} --clobber

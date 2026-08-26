@@ -15,6 +15,7 @@ from src.hotkey import key_to_name, mouse_button_to_name
 from src.winutil import enable_dark_titlebar
 from src.config import save_config
 from src.i18n import DICTATION_LANGS, UI_LANGUAGES, set_language, t
+from src.update_checker import RELEASES_PAGE, check_async
 from src.downloader import (
     is_binary_installed, is_model_installed, is_server_available,
     is_backend_current, download_and_extract_binary, download_model,
@@ -173,6 +174,30 @@ class SettingsWindow:
             command=self._on_ui_language_change)
         ui_lang_menu.pack(side="right", pady=(2, 0))
         Tooltip(ui_lang_menu, t("header.ui_lang_tooltip"))
+
+        # Stiller Update-Check: bei neuer Version klickbares Label im Header.
+        # Callback kommt aus einem Thread -> after(); das Fenster kann beim
+        # Sprachwechsel-Rebuild schon zerstoert sein, daher die Guards.
+        if self.config.get("update_check", True):
+            def _show_update(latest, head=head):
+                def apply():
+                    try:
+                        if not head.winfo_exists():
+                            return
+                        lbl = ctk.CTkLabel(head, text=t("update.available", version=latest),
+                                           font=(FONT_MONO, 11), text_color=BRAND["cyan"],
+                                           cursor="hand2")
+                        lbl.pack(side="left", padx=(10, 0), pady=(6, 0))
+                        lbl.bind("<Button-1>", lambda _e: webbrowser.open(RELEASES_PAGE))
+                    except Exception:
+                        pass
+
+                try:
+                    self.root.after(0, apply)
+                except Exception:
+                    pass
+
+            check_async(__version__, _show_update)
 
         # Backend-Info als Pill-Badge (hazii.org-Stil)
         badge = ctk.CTkFrame(self.root, fg_color=BRAND["card"], corner_radius=12,
@@ -472,6 +497,14 @@ class SettingsWindow:
                       progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
                       button_hover_color=BRAND["text"]).pack(anchor="w", pady=(0, 6))
 
+        self.updchk_var = ctk.BooleanVar(value=self.config.get("update_check", True))
+        upd_switch = ctk.CTkSwitch(c, text=t("opt.update_check"), variable=self.updchk_var,
+                      font=(FONT_BODY, 13), text_color=BRAND["text"],
+                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
+                      button_hover_color=BRAND["text"])
+        upd_switch.pack(anchor="w", pady=(0, 6))
+        Tooltip(upd_switch, t("opt.update_check.tooltip"))
+
         # Historie: Switch + Loeschen-Button (zweistufig statt Dialog)
         self.history_var = ctk.BooleanVar(value=self.config.get("history_enabled", True))
         hist_row = ctk.CTkFrame(c, fg_color="transparent")
@@ -576,6 +609,7 @@ class SettingsWindow:
             "history_enabled": self.history_var.get(),
             "audio_feedback": self.sound_var.get(),
             "restore_clipboard": self.clipres_var.get(),
+            "update_check": self.updchk_var.get(),
         })
 
     def _on_ollama_tier_change(self, label):

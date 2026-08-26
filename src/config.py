@@ -26,6 +26,7 @@ DEFAULT_CONFIG = {
     "use_server": True,
     "restore_clipboard": True,
     "history_enabled": True,
+    "update_check": True,
     "gpu_cache_type": None,
     "gpu_cache_name": None,
     "first_run_done": False,
@@ -45,7 +46,7 @@ _ALLOWED_VALUES = {
 
 _BOOL_KEYS = {
     "audio_feedback", "show_overlay", "auto_start", "use_server",
-    "restore_clipboard", "history_enabled", "first_run_done",
+    "restore_clipboard", "history_enabled", "first_run_done", "update_check",
 }
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")

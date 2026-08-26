@@ -38,3 +38,22 @@ def test_existing_data_but_readonly_falls_back(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "_appdata_dir", lambda: str(appdata))
     monkeypatch.setattr(paths, "_is_writable", lambda _: False)
     assert paths.get_base_dir() == str(appdata)
+
+
+def test_kaputtes_appdata_faellt_auf_temp_zurueck(tmp_path, monkeypatch):
+    # get_base_dir laeuft auf Import-Ebene — es darf NIE eine Exception
+    # durchlassen (frueher: stummer Tod der --windowed-Exe)
+    import tempfile
+
+    def broken_appdata():
+        raise OSError("LOCALAPPDATA gesperrt")
+
+    monkeypatch.setattr(paths, "BASE_DIR_FALLBACK", None)
+    monkeypatch.setattr(paths, "_exe_dir", lambda: str(tmp_path / "exe"))
+    monkeypatch.setattr(paths, "_appdata_dir", broken_appdata)
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path / "t"))
+
+    result = paths.get_base_dir()
+    assert result == str(tmp_path / "t" / "VoZii")
+    assert paths.BASE_DIR_FALLBACK is not None
+    monkeypatch.setattr(paths, "BASE_DIR_FALLBACK", None)

@@ -6,6 +6,7 @@ import threading
 
 import pytest
 
+from src import transcriber as transcriber_mod
 from src.transcriber import (
     ServerBackend,
     Transcriber,
@@ -13,6 +14,7 @@ from src.transcriber import (
     _clean_output,
     _quality_args,
     _threads,
+    is_setup_complete,
 )
 
 
@@ -127,6 +129,38 @@ def test_facade_falls_back_to_cli(monkeypatch):
     monkeypatch.setattr(Transcriber, "is_ready", lambda self: True)
 
     assert t.transcribe("x.wav") == "hallo vom cli"
+
+
+def test_is_setup_complete_reine_dateipruefung(tmp_path, monkeypatch):
+    """Darf KEIN Backend bauen (kein Job-Object/atexit) — war frueher ein Leak
+    pro Autostart-Zyklus."""
+    whisper_dir = tmp_path / "whisper-cpp"
+    models_dir = whisper_dir / "models"
+    models_dir.mkdir(parents=True)
+    monkeypatch.setattr(transcriber_mod, "WHISPER_CLI", str(whisper_dir / "whisper-cli.exe"))
+    monkeypatch.setattr(transcriber_mod, "MODELS_DIR", str(models_dir))
+
+    job_calls = []
+    monkeypatch.setattr(transcriber_mod, "create_kill_on_close_job",
+                        lambda: job_calls.append(1))
+
+    assert is_setup_complete("tiny") is False  # nichts vorhanden
+
+    (whisper_dir / "whisper-cli.exe").write_bytes(b"MZ")
+    model_file = models_dir / transcriber_mod.MODEL_FILES["tiny"]
+    model_file.write_bytes(b"x")  # zu klein
+    assert is_setup_complete("tiny") is False
+
+    model_file.write_bytes(b"x" * transcriber_mod.MODEL_MIN_SIZES["tiny"])
+    assert is_setup_complete("tiny") is True
+    assert job_calls == []
+
+
+def test_server_exit_code_hint_landet_in_exception(monkeypatch):
+    """SAC-Block (0xC0E90002) muss als verstaendlicher Hinweis auftauchen."""
+    hint = transcriber_mod._exit_code_hint(3236495362)
+    assert "Smart App Control" in hint
+    assert transcriber_mod._exit_code_hint(0) == ""
 
 
 def test_facade_uses_server_result(monkeypatch):

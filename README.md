@@ -19,7 +19,7 @@ no account. One 32&nbsp;MB file.</p>
   <img alt="License Proprietary" src="https://img.shields.io/badge/license-proprietary-94a3b8?labelColor=0a0a0f" />
   <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-00d4ff?labelColor=0a0a0f&logo=python&logoColor=white" />
   <img alt="Windows 11" src="https://img.shields.io/badge/Windows-11-00d4ff?labelColor=0a0a0f&logo=windows&logoColor=white" />
-  <img alt="whisper.cpp v1.9.2" src="https://img.shields.io/badge/whisper.cpp-v1.9.2-12121a?labelColor=0a0a0f" />
+  <img alt="whisper.cpp v1.9.4" src="https://img.shields.io/badge/whisper.cpp-v1.9.4-12121a?labelColor=0a0a0f" />
 </p>
 
 <sub><a href="#-highlights">Highlights</a> · <a href="#-how-it-works">How it works</a> · <a href="#-get-vozii">Get it</a> · <a href="#-ai-post-processing-optional">AI post-processing</a> · <a href="#-build-from-source">Build</a></sub>

@@ -51,6 +51,11 @@ Die Ursachen dafür sind gefunden und behoben.
   wöchentlich.
 
 ### Geändert
+- **whisper.cpp 1.9.2 → 1.9.4.** Die Binaries liegen wie bisher im eigenen,
+  checksummen-verifizierten Mirror-Release (`backend-v1.9.4`); das AMD/Vulkan-
+  Binary wird aus dem Original-Quellcode in unserer CI gebaut. Bestandsnutzer
+  bekommen im Einstellungs-Fenster einen **Update**-Button — VoZii läuft bis
+  dahin unverändert auf dem installierten Backend weiter.
 - **Einstellungs-Fenster:** öffnet mittig auf dem Monitor, auf dem der
   Mauszeiger steht, und passt seine Höhe an den Inhalt an — Hotkey, Modell,
   Diktat-Sprache und Mikrofon sind ohne Scrollen sichtbar. *Eigene Begriffe*,

@@ -23,7 +23,7 @@ _CACHE_MAX_AGE_S = 7 * 24 * 3600
 # beweglicher Upstream-Ref mehr): nvidia/cpu = gespiegelte offizielle Zips
 # (Digest-verifiziert), amd = eigener Vulkan-Build aus dem Upstream-Source
 # (.github/workflows/build-backend.yml).
-BACKEND_VERSION = "1.9.2"
+BACKEND_VERSION = "1.9.4"
 _MIRROR = f"https://github.com/haZiinstinct/VoZii/releases/download/backend-v{BACKEND_VERSION}"
 
 BINARY_URLS = {
@@ -32,12 +32,14 @@ BINARY_URLS = {
     "cpu": f"{_MIRROR}/whisper-blas-bin-x64.zip",
 }
 
-# SHA256 der Release-Zips (GitHub-Asset-Digests, gepinnt am 2026-08-26).
+# SHA256 der Release-Zips (GitHub-Asset-Digests, gepinnt am 2026-09-20).
 # Aendert sich ein Asset, schlaegt der Download bewusst fehl.
+# nvidia/cpu sind die Upstream-Zips aus ggml-org/whisper.cpp Tag b5130
+# (identischer Commit wie v1.9.4), amd ist unser eigener Vulkan-Build.
 BINARY_SHA256 = {
-    "nvidia": "443110ddaad70d4290ab2e77179e31cf712035bbc4fad56bb4519a90c917b39c",
-    "amd": "8b76598f0315535954c2e43c52d929e8b4443c5a4b89817349d016cad36507a3",
-    "cpu": "ffe5b47ca8e53a7677949f23a9c4641bbec4eee8a5714c3d14b67bb8d7b24a78",
+    "nvidia": "af520ddd034d985b55dfeea3e465ed93653ba2aee1a55e865033edc548c272a7",
+    "amd": "f62311ce8b556e51d32acf0fcef71ab9bc6a0035068e7c14c19de622574ecf93",
+    "cpu": "55c06d09e8b9b6cfb2b0b47ddedc71803054f0e48be1f41848b3141c06c703a9",
 }
 
 BACKEND_NAMES = {

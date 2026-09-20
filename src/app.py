@@ -31,6 +31,10 @@ from src.i18n import set_language, t
 
 log = logging.getLogger(__name__)
 
+# Wie oft Hotkey-Hooks und Audio-Stream geprueft werden. 15s ist der
+# Kompromiss: ein Ausfall faellt schnell auf, ohne staendig Last zu erzeugen.
+HEALTH_CHECK_INTERVAL_S = 15
+
 
 def show_error(title: str, msg: str):
     """Zeigt Error-Dialog UND loggt ihn."""
@@ -288,15 +292,23 @@ def _run_cycle(skip_settings: bool = False) -> str:
         def on_deactivate():
             try:
                 if state.state != AppState.RECORDING:
+                    log.debug("on_deactivate ignoriert (State: %s)", state.state.value)
                     return
                 wav_path, duration, rms = recorder.stop_recording()
                 if wav_path:
                     state.set_state(AppState.TRANSCRIBING)
                     audio_queue.put((wav_path, duration, rms))
+                elif duration == 0 and not recorder.is_stream_healthy():
+                    # Kein einziges Sample vom Mikrofon. Frueher passierte
+                    # hier gar nichts — der Nutzer druckte den Hotkey und
+                    # bekam kein Zeichen, dass etwas kaputt ist.
+                    state.set_state(AppState.IDLE)
+                    log.error("Aufnahme ohne Audiodaten — Mikrofon-Stream tot")
+                    notify("err_mic")
+                    recorder.ensure_stream()
                 else:
                     state.set_state(AppState.IDLE)
-                    if duration > 0:
-                        notify("short", 2000)
+                    notify("short", 2000)
             except Exception:
                 log.exception("on_deactivate fehlgeschlagen")
                 state.set_state(AppState.IDLE)
@@ -388,18 +400,32 @@ def _run_cycle(skip_settings: bool = False) -> str:
         )
         hotkey_mgr.start()
 
-        def hotkey_watchdog():
-            """Windows entfernt Low-Level-Hooks gelegentlich (Hook-Timeout) —
-            dann waere der Hotkey bis zum App-Neustart tot. Alle 30s pruefen."""
-            while not shutdown_event.wait(30):
+        def health_watchdog():
+            """Haelt die zwei Dinge am Leben, die ueber Stunden still sterben:
+
+            - Low-Level-Hooks: Windows entfernt sie bei Hook-Timeout, danach
+              waere der Hotkey bis zum App-Neustart tot.
+            - Audio-Stream: USB-Mikro kurz weg oder Windows-Audio-Engine neu
+              gestartet — PortAudio meldet das nicht, `active` bleibt True,
+              es kommen nur keine Samples mehr.
+            """
+            while not shutdown_event.wait(HEALTH_CHECK_INTERVAL_S):
                 try:
                     if not hotkey_mgr.is_healthy():
                         log.warning("Hotkey-Listener tot — starte neu")
                         hotkey_mgr.restart()
+                    else:
+                        hotkey_mgr.release_if_stuck()
                 except Exception:
                     log.exception("Hotkey-Watchdog fehlgeschlagen")
+                try:
+                    if state.state == AppState.IDLE:
+                        recorder.ensure_stream()
+                except Exception:
+                    log.exception("Audio-Watchdog fehlgeschlagen")
 
-        threading.Thread(target=hotkey_watchdog, daemon=True).start()
+        threading.Thread(target=health_watchdog, daemon=True,
+                         name="health-watchdog").start()
 
         tray = TrayApp(
             state, on_quit,

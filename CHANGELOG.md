@@ -7,6 +7,65 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.9.0] — 2026-09-20
+
+Stabilitäts-Release. Nach längerer Nutzung hörte VoZii gelegentlich auf,
+Diktate einzufügen — oder fügte den vorherigen Zwischenablage-Inhalt ein.
+Die Ursachen dafür sind gefunden und behoben.
+
+### Behoben
+- **Einfügen brach ab, wenn der Mauszeiger in einer Bildschirmecke stand.**
+  PyAutoGUIs „Fail-Safe" hat dort jeden programmatischen Tastendruck mit einer
+  Exception abgebrochen — der Text blieb nur in der Zwischenablage liegen.
+  Tastendrücke laufen jetzt direkt über die Win32-API (`SendInput`), ohne
+  diese Falle. (Im Log nachweisbar als `PyAutoGUI fail-safe triggered`.)
+- **Der vorherige Zwischenablage-Inhalt landete im Text.** Die Wiederherstellung
+  der Zwischenablage lief nach festen 0,6 s — wenn die Ziel-App (Browser,
+  Electron-Apps) unter Last länger für das Einfügen brauchte, kam sie zu früh.
+  Sie läuft jetzt im Hintergrund mit 1,5 s und nur, wenn unser Text noch in der
+  Ablage liegt.
+- **„Kopiert nicht mehr".** Die Zwischenablage ist eine globale Systemressource;
+  hält eine andere App (Office, Teams, RDP, Clipboard-Manager) sie kurz
+  exklusiv, scheiterte das Schreiben sofort. VoZii versucht es jetzt bis zu 1 s
+  lang erneut, prüft anschließend gegen, dass der Text wirklich drin steht —
+  und fügt lieber gar nichts ein, als den falschen Inhalt.
+- **Aufnahme ohne Ton, ohne jede Rückmeldung.** Wird das USB-Mikrofon kurz
+  getrennt oder startet die Windows-Audio-Engine neu, liefert PortAudio keine
+  Samples mehr, meldet das aber nicht — `stream.active` bleibt `True`. Der
+  Hotkey tat dann bis zum Neustart nichts. Ein Watchdog prüft jetzt alle 15 s,
+  ob noch Audio ankommt, und öffnet den Stream sonst neu; eine Aufnahme ohne
+  Daten wird als Mikrofon-Fehler angezeigt statt stillschweigend verworfen.
+- **Verlorene Hotkey-Events.** Aufnahme-Start und -Stopp liefen in je einem
+  eigenen Thread ohne garantierte Reihenfolge — bei kurzem Druck konnte der
+  Stopp vor dem Start ankommen und die Aufnahme lief endlos weiter. Beide
+  laufen jetzt serialisiert über einen Dispatcher. Verschluckt Windows ein
+  Release-Event (Hook-Timeout, Fokuswechsel), holt der Watchdog den Stopp nach,
+  statt den Hotkey bis zum Neustart tot zu lassen.
+- **Lange Diktate wurden abgeschnitten.** Der feste 60-s-Timeout reichte im
+  Qualitätsmodus nicht für mehrminütige Aufnahmen — die Aufnahme war dann weg.
+  Der Timeout wächst jetzt mit der Aufnahmelänge.
+- **Start dauerte bis zu mehreren Minuten.** `wmic` gibt es auf aktuellen
+  Win11-Builds nicht mehr, der PowerShell-Ersatz kostete je nach Maschine
+  Sekunden bis Minuten — und lief bei *jedem* Start. Die GPU wird jetzt direkt
+  aus der Registry gelesen (< 1 ms); der Hintergrund-Abgleich läuft nur noch
+  wöchentlich.
+
+### Geändert
+- **Einstellungs-Fenster:** öffnet mittig auf dem Monitor, auf dem der
+  Mauszeiger steht, und passt seine Höhe an den Inhalt an — Hotkey, Modell,
+  Diktat-Sprache und Mikrofon sind ohne Scrollen sichtbar. *Eigene Begriffe*,
+  *Transkription*, *Nachbearbeitung* und *Optionen* sind ein- und ausklappbar.
+  (Die Zentrierung war auf High-DPI-Monitoren sichtbar daneben: CustomTkinter
+  skaliert in `geometry()` nur Größe, nicht Position.)
+- Zwischenablage und Tastendruck laufen unter Windows über eine eigene
+  Win32-Anbindung (`src/winclip.py`); **PyAutoGUI entfällt** als Abhängigkeit
+  (kleinere Exe, weniger Angriffsfläche).
+- Abhängigkeiten aktualisiert: pynput 1.8.2, sounddevice 0.5.6, numpy 2.5.3,
+  Pillow 12.3.0. CustomTkinter bleibt bewusst auf 5.2.2 — 6.0.0 ist ein
+  Major-Release und gehört nicht in einen Stabilitäts-Release.
+
+---
+
 ## [1.8.0] — 2026-08-26
 
 ### Neu

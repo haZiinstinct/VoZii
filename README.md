@@ -15,11 +15,11 @@ no account. One 32&nbsp;MB file.</p>
 
 <p>
   <a href="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-1.8.0-00d4ff?labelColor=0a0a0f" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.9.0-00d4ff?labelColor=0a0a0f" />
   <img alt="License Proprietary" src="https://img.shields.io/badge/license-proprietary-94a3b8?labelColor=0a0a0f" />
   <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-00d4ff?labelColor=0a0a0f&logo=python&logoColor=white" />
   <img alt="Windows 11" src="https://img.shields.io/badge/Windows-11-00d4ff?labelColor=0a0a0f&logo=windows&logoColor=white" />
-  <img alt="whisper.cpp v1.8.6" src="https://img.shields.io/badge/whisper.cpp-v1.8.6-12121a?labelColor=0a0a0f" />
+  <img alt="whisper.cpp v1.9.2" src="https://img.shields.io/badge/whisper.cpp-v1.9.2-12121a?labelColor=0a0a0f" />
 </p>
 
 <sub><a href="#-highlights">Highlights</a> · <a href="#-how-it-works">How it works</a> · <a href="#-get-vozii">Get it</a> · <a href="#-ai-post-processing-optional">AI post-processing</a> · <a href="#-build-from-source">Build</a></sub>
@@ -47,10 +47,11 @@ and formatting — still 100&nbsp;% offline.
 - 🌍 **9-language UI + 18 dictation languages + auto-detect** — the interface follows your Windows language; dictation covers all ~99 Whisper languages
 - 🎯 **Speed / Accuracy toggle** — greedy decoding for snappy dictation, beam search when you want it exact
 - 🧹 **Hallucination filter** — silence and phantom phrases (*"thanks for watching"*, …) are dropped, not typed
-- 📋 **Clipboard-safe** — inserts at the cursor and restores whatever was on your clipboard afterwards
+- 📋 **Clipboard-safe** — inserts at the cursor and restores whatever was on your clipboard afterwards; if another app is holding the clipboard, VoZii retries instead of pasting the wrong text
 - 🕘 **History** — your last dictations are re-copyable from the tray menu (local, toggleable)
 - 🧠 **Optional AI cleanup** — a local Ollama model removes filler, fixes grammar, or turns speech into a polished prompt
 - 🛡️ **Verified downloads** — models and binaries are checked against pinned SHA-256 hashes before they run
+- 🩺 **Self-healing** — a watchdog re-arms the global hotkey and reopens the microphone stream if Windows drops either, so long sessions don't need a restart
 - 📦 **Single 32&nbsp;MB file** — no installer, no dependencies, dark UI in the haZii design language
 
 ## 🖼️ Screenshots

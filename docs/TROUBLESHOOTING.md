@@ -67,6 +67,22 @@ dialog; you can also install it directly:
 
 ---
 
+## It worked for hours, then stopped (pre-1.9 issue)
+
+Four separate causes were found and fixed in **v1.9.0**. If you are on an older
+build, update — the workaround for all of them was restarting VoZii.
+
+| Symptom in the log | Cause |
+| --- | --- |
+| `PyAutoGUI fail-safe triggered` | The mouse pointer sat in a screen corner; the old input library aborted every keystroke there. Text stayed on the clipboard. |
+| Nothing at all after `Aufnahme gestartet` | The audio stream had gone silent (USB mic re-enumerated, Windows audio engine restarted) without PortAudio reporting it. |
+| The *previous* clipboard content was pasted | The clipboard was restored before the target app had read it. |
+| `Zwischenablage ... belegt` (v1.9+) | Another app (Office, Teams, RDP, a clipboard manager) held the clipboard. VoZii now retries for up to a second and refuses to paste rather than paste the wrong text. |
+
+Since v1.9.0 a watchdog checks the hotkey hooks and the audio stream every 15
+seconds and repairs both on its own, and a dead microphone shows up as
+`ERR:MIC` in the overlay instead of doing nothing.
+
 ## Microphone issues
 
 - Use the built-in **Test** button (settings → Microphone) — a live level meter
@@ -74,7 +90,8 @@ dialog; you can also install it directly:
 - If your configured microphone was unplugged, VoZii automatically falls back
   to the system default and logs a warning.
 - USB microphones sometimes re-enumerate after standby; VoZii reopens the
-  stream on the next recording automatically.
+  stream on the next recording automatically — and since v1.9.0 also while
+  idle, so the next hotkey press records again without a restart.
 
 ## Model / download issues
 

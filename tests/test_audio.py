@@ -1,11 +1,12 @@
 """Audio: numpy-Resampling (Aliasing!), WAV-Schreiben, Halluzinations-Filter."""
 
 import threading
+import time
 import wave
 
 import numpy as np
 
-from src.audio import SAMPLE_RATE, AudioRecorder, _resample
+from src.audio import SAMPLE_RATE, STREAM_STALE_S, AudioRecorder, _resample
 from src.filters import is_hallucination
 
 
@@ -63,6 +64,8 @@ def _recorder_with_buffer(samples: np.ndarray, rate: int) -> AudioRecorder:
     r._stream_broken = False
     r._session_id = "test1234"
     r._actual_rate = rate
+    r._last_callback = time.monotonic()
+    r._record_started = time.monotonic()
     return r
 
 
@@ -97,6 +100,41 @@ def test_stop_recording_empty_buffer():
     rec = _recorder_with_buffer(_sine(440, 16000, 1.0), 16000)
     rec._buffer = []
     assert rec.stop_recording() == (None, 0.0, 0.0)
+
+
+def test_stop_recording_without_data_marks_stream_broken():
+    """Lange gedrueckt und kein einziges Sample: der Stream ist stumm geworden.
+    Frueher blieb das unbemerkt und das Tool nahm bis zum Neustart nichts mehr auf."""
+    rec = _recorder_with_buffer(_sine(440, 16000, 1.0), 16000)
+    rec._buffer = []
+    rec._record_started = time.monotonic() - 3.0
+    assert rec.stop_recording() == (None, 0.0, 0.0)
+    assert rec._stream_broken is True
+
+
+def test_stop_recording_very_short_press_keeps_stream():
+    """Kurzer Fehlklick darf den Stream nicht als kaputt markieren."""
+    rec = _recorder_with_buffer(_sine(440, 16000, 1.0), 16000)
+    rec._buffer = []
+    rec._record_started = time.monotonic()
+    rec.stop_recording()
+    assert rec._stream_broken is False
+
+
+class _FakeStream:
+    def __init__(self, active=True):
+        self.active = active
+
+
+def test_stream_unhealthy_when_callbacks_stop():
+    """Kern der v1.9.0-Diagnose: PortAudio meldet nichts, `active` bleibt True,
+    es kommen nur keine Samples mehr."""
+    rec = _recorder_with_buffer(_sine(440, 16000, 1.0), 16000)
+    rec._stream = _FakeStream(active=True)
+    rec._last_callback = time.monotonic()
+    assert rec.is_stream_healthy() is True
+    rec._last_callback = time.monotonic() - (STREAM_STALE_S + 1)
+    assert rec.is_stream_healthy() is False
 
 
 # --- Halluzinations-Filter ---

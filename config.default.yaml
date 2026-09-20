@@ -17,4 +17,5 @@ restore_clipboard: true         # Zwischenablage nach dem Einfuegen wiederherste
 history_enabled: true           # letzte 50 Transkriptionen lokal speichern
 gpu_cache_type: null            # wird automatisch gefuellt (GPU-Erkennungs-Cache)
 gpu_cache_name: null
+gpu_cache_at: null
 first_run_done: false           # einmaliger Hotkey-Hinweis beim ersten Start

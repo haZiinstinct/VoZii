@@ -7,6 +7,7 @@ plattformneutral bleibt.
 import ctypes
 import logging
 import sys
+from ctypes import wintypes
 
 log = logging.getLogger(__name__)
 
@@ -115,3 +116,35 @@ def assign_process_to_job(job, pid: int) -> bool:
     except Exception:
         log.debug("AssignProcessToJobObject fehlgeschlagen", exc_info=True)
         return False
+
+
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", wintypes.RECT),
+        ("rcWork", wintypes.RECT),
+        ("dwFlags", wintypes.DWORD),
+    ]
+
+
+def work_area() -> dict:
+    """Nutzbarer Bereich (ohne Taskleiste) des Monitors unter dem Mauszeiger.
+
+    Returns {"left", "top", "width", "height"} in echten Pixeln. Auf
+    Mehrschirm-Setups landen Fenster damit dort, wo der Nutzer gerade
+    arbeitet — und nicht immer auf dem Hauptmonitor.
+    """
+    if IS_WINDOWS:
+        try:
+            pt = wintypes.POINT()
+            ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+            mon = ctypes.windll.user32.MonitorFromPoint(pt, 2)  # DEFAULTTONEAREST
+            info = _MONITORINFO()
+            info.cbSize = ctypes.sizeof(_MONITORINFO)
+            if ctypes.windll.user32.GetMonitorInfoW(mon, ctypes.byref(info)):
+                r = info.rcWork
+                return {"left": r.left, "top": r.top,
+                        "width": r.right - r.left, "height": r.bottom - r.top}
+        except Exception:
+            log.debug("Arbeitsbereich nicht ermittelbar", exc_info=True)
+    return {"left": 0, "top": 0, "width": 1920, "height": 1080}

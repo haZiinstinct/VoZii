@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+import time
 import uuid
 import wave
 
@@ -16,6 +17,13 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = "float32"
 MIN_DURATION = 0.3
+
+# PortAudio ruft den Callback waehrend eines offenen Streams durchgehend auf
+# (auch ohne laufende Aufnahme). Kommt laenger nichts, ist der Stream tot,
+# ohne dass PortAudio das meldet: USB-Mikro kurz weg, Windows-Audio-Engine
+# neu gestartet, Standby/Resume. `stream.active` bleibt dabei True — genau
+# deshalb hat das Tool frueher still aufgehoert aufzunehmen.
+STREAM_STALE_S = 5.0
 
 # 16000 zuerst: DirectSound konvertiert die Rate selbst -> kein Resampling
 # noetig. Danach gaengige native Raten als Fallback.
@@ -68,6 +76,8 @@ class AudioRecorder:
         self._had_speech = False
         self._silence_frames = 0
         self._auto_stop_fired = False
+        self._last_callback = 0.0
+        self._record_started = 0.0
         self._device_name = self._resolve_device_name()
 
     def _resolve_device_name(self) -> str:
@@ -93,6 +103,9 @@ class AudioRecorder:
         self._auto_stop_cb = callback
 
     def _callback(self, indata, frames, time_info, status):
+        # Herzschlag zuerst — er muss auch ausserhalb einer Aufnahme ticken,
+        # sonst faende der Watchdog einen gesunden Stream nie wieder gesund
+        self._last_callback = time.monotonic()
         if not self._recording:
             return
         self._buffer.append(indata.copy())
@@ -134,6 +147,7 @@ class AudioRecorder:
             )
             self._stream.start()
             self._actual_rate = samplerate
+            self._last_callback = time.monotonic()
             return True
         except Exception:
             if self._stream:
@@ -172,6 +186,41 @@ class AudioRecorder:
         with self._lock:
             self._open_stream_locked()
 
+    def is_stream_healthy(self) -> bool:
+        """Liefert der Stream noch Audio? Basis fuer Watchdog und Aufnahmestart."""
+        with self._lock:
+            return self._is_stream_healthy_locked()
+
+    def _is_stream_healthy_locked(self) -> bool:
+        if self._stream is None or self._stream_broken:
+            return False
+        if not getattr(self._stream, "active", False):
+            return False
+        return (time.monotonic() - self._last_callback) < STREAM_STALE_S
+
+    def ensure_stream(self) -> bool:
+        """Oeffnet den Stream neu, falls er stumm geworden ist.
+
+        Returns True, wenn danach ein gesunder Stream steht. Wird vom
+        Watchdog gerufen, damit ein toter Stream nicht bis zum naechsten
+        App-Neustart tot bleibt.
+        """
+        with self._lock:
+            if self._is_stream_healthy_locked():
+                return True
+            if self._recording:
+                # Mitten in einer Aufnahme neu oeffnen wuerde das bereits
+                # aufgenommene Material verlieren — das uebernimmt der
+                # naechste start_recording()
+                return False
+            log.warning("Audio-Stream liefert nichts mehr — oeffne neu")
+            try:
+                self._open_stream_locked()
+                return True
+            except Exception:
+                log.exception("Audio-Stream konnte nicht neu geoeffnet werden")
+                return False
+
     def _open_stream_locked(self):
         self._close_stream_locked()
         self._stream_broken = False
@@ -200,18 +249,14 @@ class AudioRecorder:
 
     def start_recording(self):
         with self._lock:
-            stream_dead = (
-                self._stream is None
-                or self._stream_broken
-                or not getattr(self._stream, "active", False)
-            )
-            if stream_dead:
+            if not self._is_stream_healthy_locked():
                 log.info("Audio-Stream nicht aktiv — oeffne neu")
                 self._open_stream_locked()
             self._buffer = []
             self._had_speech = False
             self._silence_frames = 0
             self._auto_stop_fired = False
+            self._record_started = time.monotonic()
             self._recording = True
 
     def stop_recording(self) -> tuple[str | None, float, float]:
@@ -224,8 +269,16 @@ class AudioRecorder:
             self._recording = False
             buffer, self._buffer = self._buffer, []
             rate = self._actual_rate
+            held_s = time.monotonic() - self._record_started
 
         if not buffer:
+            # Laenger gedrueckt und trotzdem kein einziger Block: der Stream
+            # ist stumm geworden, ohne dass PortAudio das gemeldet hat.
+            # Markieren, damit die naechste Aufnahme ihn neu oeffnet.
+            if held_s >= MIN_DURATION:
+                log.warning("Aufnahme ueber %.1fs ohne Audiodaten — Stream wird "
+                            "neu geoeffnet", held_s)
+                self._stream_broken = True
             return None, 0.0, 0.0
 
         audio = np.concatenate(buffer, axis=0).flatten()

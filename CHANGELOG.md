@@ -60,6 +60,9 @@ Die Ursachen dafür sind gefunden und behoben.
   Mauszeiger steht, und passt seine Höhe an den Inhalt an — Hotkey, Modell,
   Diktat-Sprache und Mikrofon sind ohne Scrollen sichtbar. *Eigene Begriffe*,
   *Transkription*, *Nachbearbeitung* und *Optionen* sind ein- und ausklappbar.
+  Die Scrollleiste am rechten Rand erscheint erst, wenn ein Abschnitt
+  aufgeklappt wird und der Inhalt über die Fensterhöhe hinauswächst — im
+  Ruhezustand ist sie weg (CustomTkinter blendet sie von sich aus nie aus).
   (Die Zentrierung war auf High-DPI-Monitoren sichtbar daneben: CustomTkinter
   skaliert in `geometry()` nur Größe, nicht Position.)
 - Zwischenablage und Tastendruck laufen unter Windows über eine eigene

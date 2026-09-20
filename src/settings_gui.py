@@ -37,8 +37,10 @@ ctk.set_appearance_mode("dark")
 WINDOW_W = 470
 WINDOW_MIN_H = 400
 # Summe der pady-Werte der vier festen Bloecke (Kopf, Badge, Start, Credit)
-# plus etwas Luft — Basis fuer die inhaltsabhaengige Fensterhoehe.
-CHROME_PAD = 78
+CHROME_PAD = 54
+# Sichtbare Luft unter dem letzten Abschnitt. Ohne die stuende der Inhalt
+# genau auf Kante und die Scrollleiste waere schon im Ruhezustand noetig.
+CONTENT_SLACK = 48
 
 # Whisper-Modell-Key -> i18n-Key (Picker-Label). large-v3-turbo = modernes
 # Diktat-Modell: nahezu beste Qualitaet, schnell, multilingual.
@@ -293,7 +295,7 @@ class SettingsWindow:
 
         work = work_area()
         # Physische Pixel: Inhalt + feste Bloecke (Kopf, Badge, Start, Credit)
-        wanted_h = chrome_h + content_h + round(CHROME_PAD * scaling)
+        wanted_h = chrome_h + content_h + round((CHROME_PAD + CONTENT_SLACK) * scaling)
         max_h = max(round(WINDOW_MIN_H * scaling), work["height"] - round(80 * scaling))
         phys_h = max(round(WINDOW_MIN_H * scaling), min(wanted_h, max_h))
         phys_w = round(WINDOW_W * scaling)
@@ -301,6 +303,36 @@ class SettingsWindow:
         # Groesse unskaliert (CTk multipliziert selbst)
         self.root.geometry(f"{WINDOW_W}x{round(phys_h / scaling)}")
         self._place_window(phys_w, phys_h, work, center)
+        self._sync_scrollbar()
+
+    def _sync_scrollbar(self):
+        """Scrollleiste nur zeigen, wenn der Inhalt wirklich nicht mehr passt.
+
+        CustomTkinter 5.2.2 blendet sie nie aus — im zugeklappten Zustand stand
+        sie also dekorativ am Rand, obwohl es nichts zu scrollen gab. Sie
+        erscheint jetzt erst, wenn ein Abschnitt aufgeklappt wird und der
+        Inhalt ueber die Fensterhoehe hinauswaechst.
+        """
+        try:
+            self.root.update_idletasks()
+            canvas = self._content._parent_canvas
+            scrollbar = self._content._scrollbar
+            if canvas.winfo_height() <= 1:
+                # Fenster noch nicht gemappt — die Canvas kennt ihre Hoehe erst
+                # danach. Gleich nochmal versuchen, sonst bliebe die Leiste beim
+                # ersten Oeffnen stehen.
+                self.root.after(50, self._sync_scrollbar)
+                return
+            needed = self._content.winfo_reqheight() > canvas.winfo_height()
+            if needed:
+                if not scrollbar.winfo_ismapped():
+                    scrollbar.grid()
+            elif scrollbar.winfo_ismapped():
+                scrollbar.grid_remove()
+        except Exception:
+            # Interna von CustomTkinter — ein Versionswechsel darf hoechstens
+            # die Scrollleiste dauerhaft sichtbar lassen, nicht das Fenster brechen
+            log.debug("Scrollleiste nicht umschaltbar", exc_info=True)
 
     def _place_window(self, phys_w: int, phys_h: int, work: dict, center: bool):
         """Positioniert das Fenster inkl. Titelleiste/Rahmen im Arbeitsbereich."""

@@ -67,11 +67,8 @@ Alle bleiben unter ihrer jeweiligen Lizenz.
 - **Autor:** Al Sweigart
 - **Lizenz:** BSD 3-Clause
 - **URL:** https://github.com/asweigart/pyperclip
-
-### PyAutoGUI
-- **Autor:** Al Sweigart
-- **Lizenz:** BSD 3-Clause
-- **URL:** https://github.com/asweigart/pyautogui
+- **Hinweis:** nur noch Fallback ausserhalb von Windows; unter Windows nutzt
+  VoZii die Zwischenablage direkt ueber die Win32-API (`src/winclip.py`).
 
 ---
 

@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
     "update_check": True,
     "gpu_cache_type": None,
     "gpu_cache_name": None,
+    "gpu_cache_at": None,  # Unix-Zeit der letzten GPU-Erkennung
     "first_run_done": False,
 }
 

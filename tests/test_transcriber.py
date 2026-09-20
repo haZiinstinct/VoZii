@@ -217,3 +217,24 @@ def test_facade_uses_server_result(monkeypatch):
     monkeypatch.setattr(Transcriber, "is_ready", lambda self: True)
 
     assert t.transcribe("x.wav") == "text vom server"
+
+
+# --- Timeout skaliert mit der Aufnahmelaenge ---
+
+def test_timeout_scales_with_audio_length(tmp_path):
+    """Fest 60 s haben lange Diktate im Qualitaetsmodus abgeschnitten."""
+    from src.transcriber import _REQUEST_TIMEOUT_S, _WAV_BYTES_PER_S, _timeout_for
+
+    short = tmp_path / "kurz.wav"
+    short.write_bytes(b"\0" * (_WAV_BYTES_PER_S * 5))       # 5 s
+    assert _timeout_for(str(short)) == _REQUEST_TIMEOUT_S
+
+    long = tmp_path / "lang.wav"
+    long.write_bytes(b"\0" * (_WAV_BYTES_PER_S * 300))      # 5 min
+    assert _timeout_for(str(long)) == 300 * 4 + 30
+
+
+def test_timeout_falls_back_for_missing_file(tmp_path):
+    from src.transcriber import _REQUEST_TIMEOUT_S, _timeout_for
+
+    assert _timeout_for(str(tmp_path / "gibtsnicht.wav")) == _REQUEST_TIMEOUT_S

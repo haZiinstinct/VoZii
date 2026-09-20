@@ -48,7 +48,7 @@ def test_history_submenu_builds_with_entries():
 def test_history_action_copies_full_text(monkeypatch):
     copied = []
     import src.tray as tray_mod
-    monkeypatch.setattr(tray_mod.pyperclip, "copy", copied.append)
+    monkeypatch.setattr(tray_mod.winclip, "set_text", copied.append)
 
     long_text = "Dies ist ein sehr langer Transkriptionstext, der gekuerzt angezeigt wird"
     tray = _tray(FakeHistory([long_text]))

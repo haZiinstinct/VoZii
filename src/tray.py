@@ -1,9 +1,9 @@
 """VoZii System Tray — haZii Design."""
 
-import pyperclip
 import pystray
 from PIL import Image, ImageDraw
 
+from src import winclip
 from src.i18n import t
 from src.state import AppState
 from src.theme import BRAND
@@ -97,7 +97,7 @@ class TrayApp:
         Signatur ueber co_argcount und lehnt alles andere ab (auch Lambdas
         mit Default-Parametern!)."""
         def _copy(icon, item):
-            pyperclip.copy(text)
+            winclip.set_text(text)
         return _copy
 
     def _open_settings(self, icon, item):

@@ -12,7 +12,7 @@ from pynput import keyboard, mouse
 from src import __url__, __version__
 from src.theme import BRAND, FONT_BODY, FONT_MONO
 from src.hotkey import key_to_name, mouse_button_to_name
-from src.winutil import enable_dark_titlebar
+from src.winutil import enable_dark_titlebar, work_area
 from src.config import save_config
 from src.i18n import DICTATION_LANGS, UI_LANGUAGES, set_language, t
 from src.update_checker import RELEASES_PAGE, check_async
@@ -30,6 +30,17 @@ from src.text_processor import (
 log = logging.getLogger(__name__)
 
 ctk.set_appearance_mode("dark")
+
+# Fenstermasse in CTk-Einheiten (CustomTkinter multipliziert sie mit dem
+# DPI-Faktor). Die Hoehe richtet sich nach dem Inhalt: alles Wichtige ist
+# offen sichtbar, der Rest steckt in einklappbaren Abschnitten.
+WINDOW_W = 470
+WINDOW_MIN_H = 400
+# Summe der pady-Werte der vier festen Bloecke (Kopf, Badge, Start, Credit)
+CHROME_PAD = 54
+# Sichtbare Luft unter dem letzten Abschnitt. Ohne die stuende der Inhalt
+# genau auf Kante und die Scrollleiste waere schon im Ruhezustand noetig.
+CONTENT_SLACK = 48
 
 # Whisper-Modell-Key -> i18n-Key (Picker-Label). large-v3-turbo = modernes
 # Diktat-Modell: nahezu beste Qualitaet, schnell, multilingual.
@@ -147,11 +158,9 @@ class SettingsWindow:
         # Nativer Schliessen-Button (X) = Abbrechen
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)
 
-        w = 460
-        h = min(760, self.root.winfo_screenheight() - 120)
-        sx = (self.root.winfo_screenwidth() - w) // 2
-        sy = (self.root.winfo_screenheight() - h) // 2
-        self.root.geometry(f"{w}x{h}+{sx}+{sy}")
+        # Vorlaeufige Groesse; die endgueltige Hoehe richtet sich nach dem
+        # Inhalt und wird am Ende von _fit_window() gesetzt
+        self.root.geometry(f"{WINDOW_W}x{WINDOW_MIN_H}")
         enable_dark_titlebar(self.root)
 
         # Branding-Kopfzeile + Sprachwaehler (🌐) rechts
@@ -230,11 +239,172 @@ class SettingsWindow:
                       hover_color=BRAND["cyan_dim"], corner_radius=10,
                       command=self._save).pack(fill="x")
 
-        # Inhalt scrollbar zwischen Badge und Start-Button
+        # Inhalt zwischen Badge und Start-Button. Scrollbar ist nur das
+        # Sicherheitsnetz fuer kleine Displays — das Fenster passt sich unten
+        # an den Inhalt an, im Normalfall muss niemand scrollen.
         c = ctk.CTkScrollableFrame(self.root, fg_color="transparent")
         c.pack(fill="both", expand=True, padx=20)
+        self._content = c
+        # Alles ausser dem Inhaltsbereich — daraus ergibt sich die Grundhoehe
+        self._chrome = (head, badge, start_bar, credit_bar)
 
-        # HOTKEY
+        self._build_hotkey_section(c)
+        self._build_model_section(c)
+        self._build_language_section(c)
+        self._build_mic_section(c)
+
+        # Ab hier: alles, was man einmal einstellt und dann nie wieder
+        # anfasst — eingeklappt, damit das Fenster ohne Scrollen auskommt
+        self._build_vocab_section(self._collapsible(c, t("section.vocab")))
+        self._build_transcription_section(self._collapsible(c, t("section.transcription")))
+        self._build_postproc_section(c)
+        self._build_options_section(self._collapsible(c, t("section.options")))
+
+        self._fit_window()
+        self.root.mainloop()
+        if self._relaunch:
+            self._relaunch = False
+            return self.run()  # Sprache gewechselt -> Fenster neu aufbauen
+        return self._result
+
+    # --- Fenstergeometrie ---
+
+    def _fit_window(self, center: bool = True):
+        """Fenster auf die Inhaltshoehe bringen und mittig positionieren.
+
+        CustomTkinter skaliert in geometry() nur Breite/Hoehe, nicht die
+        Position — mit unskalierten Koordinaten zu rechnen schob das Fenster
+        auf High-DPI-Monitoren sichtbar aus der Mitte. Darum: Groesse
+        unskaliert an CTk geben, Position in echten Pixeln selbst rechnen.
+
+        center=False behaelt die aktuelle Position (Auf-/Zuklappen soll das
+        Fenster nicht unter dem Mauszeiger wegspringen) und schiebt nur
+        zurueck, wenn es sonst unten aus dem Bild liefe.
+        """
+        try:
+            self.root.update_idletasks()
+            scaling = self.root._get_window_scaling()
+        except Exception:
+            scaling = 1.0
+
+        try:
+            content_h = self._content.winfo_reqheight()
+            chrome_h = sum(w.winfo_reqheight() for w in self._chrome)
+        except Exception:
+            content_h = chrome_h = 0
+
+        work = work_area()
+        # Physische Pixel: Inhalt + feste Bloecke (Kopf, Badge, Start, Credit)
+        wanted_h = chrome_h + content_h + round((CHROME_PAD + CONTENT_SLACK) * scaling)
+        max_h = max(round(WINDOW_MIN_H * scaling), work["height"] - round(80 * scaling))
+        phys_h = max(round(WINDOW_MIN_H * scaling), min(wanted_h, max_h))
+        phys_w = round(WINDOW_W * scaling)
+
+        # Groesse unskaliert (CTk multipliziert selbst)
+        self.root.geometry(f"{WINDOW_W}x{round(phys_h / scaling)}")
+        self._place_window(phys_w, phys_h, work, center)
+        self._sync_scrollbar()
+
+    def _sync_scrollbar(self):
+        """Scrollleiste nur zeigen, wenn der Inhalt wirklich nicht mehr passt.
+
+        CustomTkinter 5.2.2 blendet sie nie aus — im zugeklappten Zustand stand
+        sie also dekorativ am Rand, obwohl es nichts zu scrollen gab. Sie
+        erscheint jetzt erst, wenn ein Abschnitt aufgeklappt wird und der
+        Inhalt ueber die Fensterhoehe hinauswaechst.
+        """
+        try:
+            self.root.update_idletasks()
+            canvas = self._content._parent_canvas
+            scrollbar = self._content._scrollbar
+            if canvas.winfo_height() <= 1:
+                # Fenster noch nicht gemappt — die Canvas kennt ihre Hoehe erst
+                # danach. Gleich nochmal versuchen, sonst bliebe die Leiste beim
+                # ersten Oeffnen stehen.
+                self.root.after(50, self._sync_scrollbar)
+                return
+            needed = self._content.winfo_reqheight() > canvas.winfo_height()
+            if needed:
+                if not scrollbar.winfo_ismapped():
+                    scrollbar.grid()
+            elif scrollbar.winfo_ismapped():
+                scrollbar.grid_remove()
+        except Exception:
+            # Interna von CustomTkinter — ein Versionswechsel darf hoechstens
+            # die Scrollleiste dauerhaft sichtbar lassen, nicht das Fenster brechen
+            log.debug("Scrollleiste nicht umschaltbar", exc_info=True)
+
+    def _place_window(self, phys_w: int, phys_h: int, work: dict, center: bool):
+        """Positioniert das Fenster inkl. Titelleiste/Rahmen im Arbeitsbereich."""
+        try:
+            self.root.update_idletasks()
+            # Rahmen und Titelleiste zaehlen zur sichtbaren Fenstergroesse,
+            # sind aber nicht Teil von phys_w/phys_h
+            border = max(0, self.root.winfo_rootx() - self.root.winfo_x())
+            title = max(0, self.root.winfo_rooty() - self.root.winfo_y())
+        except Exception:
+            border = title = 0
+
+        outer_w = phys_w + 2 * border
+        outer_h = phys_h + title + border
+
+        if center:
+            x = work["left"] + (work["width"] - outer_w) // 2
+            y = work["top"] + (work["height"] - outer_h) // 2
+        else:
+            try:
+                x, y = self.root.winfo_x(), self.root.winfo_y()
+            except Exception:
+                return
+            y = min(y, work["top"] + work["height"] - outer_h)
+
+        x = max(work["left"], x)
+        y = max(work["top"], y)
+        self.root.geometry(f"+{x}+{y}")
+
+    def _collapsible(self, parent, title: str, collapsed: bool = True, tooltip: str = ""):
+        """Abschnitt mit klickbarer Kopfzeile. Returns den Container fuer den Inhalt.
+
+        Alles, was nicht zum taeglichen Betrieb gehoert, startet zugeklappt —
+        so passt der wichtige Teil ohne Scrollen ins Fenster.
+        """
+        header = ctk.CTkFrame(parent, fg_color="transparent", cursor="hand2")
+        header.pack(fill="x", pady=(0, 4))
+        arrow = ctk.CTkLabel(header, text="▸" if collapsed else "▾",
+                             font=(FONT_BODY, 12, "bold"),
+                             text_color=BRAND["text_dim"], width=14)
+        arrow.pack(side="left")
+        label = ctk.CTkLabel(header, text=title.upper(), font=(FONT_BODY, 12, "bold"),
+                             text_color=BRAND["text_dim"])
+        label.pack(side="left", padx=(4, 0))
+
+        container = ctk.CTkFrame(parent, fg_color="transparent")
+        if not collapsed:
+            container.pack(fill="x", after=header)
+        spacer = ctk.CTkFrame(parent, fg_color="transparent", height=10)
+        spacer.pack(fill="x")
+
+        state = {"collapsed": collapsed}
+
+        def toggle(_e=None):
+            state["collapsed"] = not state["collapsed"]
+            if state["collapsed"]:
+                container.pack_forget()
+                arrow.configure(text="▸")
+            else:
+                container.pack(fill="x", after=header)
+                arrow.configure(text="▾")
+            self._fit_window(center=False)
+
+        for widget in (header, arrow, label):
+            widget.bind("<Button-1>", toggle)
+        if tooltip:
+            Tooltip(label, tooltip)
+        return container
+
+    # --- Abschnitte ---
+
+    def _build_hotkey_section(self, c):
         self._heading(c, t("section.hotkey"))
         hk = ctk.CTkFrame(c, fg_color="transparent")
         hk.pack(fill="x", pady=(0, 6))
@@ -284,7 +454,7 @@ class SettingsWindow:
         self.autostop_menu.pack(side="right")
         self._on_hkmode_change()
 
-        # MODELL + DOWNLOAD
+    def _build_model_section(self, c):
         self._heading(c, t("section.model"))
         mr = ctk.CTkFrame(c, fg_color="transparent")
         mr.pack(fill="x", pady=(0, 4))
@@ -324,6 +494,7 @@ class SettingsWindow:
         self.progress_text.pack(anchor="w", pady=(0, 10))
         self._update_dl_button()
 
+    def _build_language_section(self, c):
         # DIKTAT-SPRACHE (Auto deckt alle ~99 Whisper-Sprachen ab)
         self._heading(c, t("section.language"))
         dic_labels = {t("lang.auto"): "auto"}
@@ -339,150 +510,7 @@ class SettingsWindow:
                           dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
                           text_color=BRAND["text"], corner_radius=8).pack(fill="x", pady=(0, 14))
 
-        # EIGENE BEGRIFFE (Whisper initial_prompt: Namen/Fachwoerter als Kontext)
-        self._heading(c, t("section.vocab"))
-        self.vocab_box = ctk.CTkTextbox(
-            c, height=56, font=(FONT_BODY, 13), fg_color=BRAND["card"],
-            text_color=BRAND["text"], border_width=1, border_color=BRAND["border"],
-            corner_radius=8, wrap="word")
-        self.vocab_box.pack(fill="x", pady=(0, 2))
-        if self.config.get("initial_prompt"):
-            self.vocab_box.insert("1.0", self.config["initial_prompt"])
-        ctk.CTkLabel(c, text=t("vocab.hint"),
-                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
-                     justify="left", wraplength=390).pack(fill="x", pady=(0, 14))
-
-        # TRANSKRIPTION (Beam-Search: schnell vs. genau)
-        self._heading(c, t("section.transcription"))
-        self._perf_label_to_code = {t("perf.fast"): "speed", t("perf.accurate"): "quality"}
-        perf_code_to_label = {v: k for k, v in self._perf_label_to_code.items()}
-        self.perf_var = ctk.StringVar(
-            value=perf_code_to_label.get(self.config.get("performance_mode", "speed"), t("perf.fast")))
-        ctk.CTkSegmentedButton(c, values=list(self._perf_label_to_code), variable=self.perf_var,
-                               **_SEG_STYLE).pack(fill="x", pady=(0, 2))
-        ctk.CTkLabel(c, text=t("perf.desc"),
-                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w"
-                     ).pack(fill="x", pady=(0, 14))
-
-        # NACHBEARBEITUNG — einklappbar (optional, braucht Ollama)
-        self._ollama_collapsed = self.config.get("post_processing_mode", "off") == "off"
-        self._ollama_header = ctk.CTkFrame(c, fg_color="transparent", cursor="hand2")
-        self._ollama_header.pack(fill="x", pady=(0, 4))
-        self._ollama_arrow = ctk.CTkLabel(
-            self._ollama_header, text="▾" if not self._ollama_collapsed else "▸",
-            font=(FONT_BODY, 12, "bold"), text_color=BRAND["text_dim"], width=14)
-        self._ollama_arrow.pack(side="left")
-        header_lbl = ctk.CTkLabel(self._ollama_header, text=t("section.postproc").upper(),
-                                  font=(FONT_BODY, 12, "bold"), text_color=BRAND["text_dim"])
-        header_lbl.pack(side="left", padx=(4, 0))
-        for widget in (self._ollama_header, self._ollama_arrow, header_lbl):
-            widget.bind("<Button-1>", self._toggle_ollama_section)
-        Tooltip(header_lbl, t("postproc.tooltip"))
-
-        self.ollama_container = ctk.CTkFrame(c, fg_color="transparent")
-        if not self._ollama_collapsed:
-            self.ollama_container.pack(fill="x", after=self._ollama_header)
-
-        self._mode_label_to_code = {t("mode.off"): "off", t("mode.smart"): "smart", t("mode.prompt"): "prompt"}
-        mode_code_to_label = {v: k for k, v in self._mode_label_to_code.items()}
-        self.mode_var = ctk.StringVar(
-            value=mode_code_to_label.get(self.config.get("post_processing_mode", "off"), t("mode.off")))
-        self.mode_btn = ctk.CTkSegmentedButton(
-            self.ollama_container, values=list(self._mode_label_to_code),
-            variable=self.mode_var, **_SEG_STYLE,
-        )
-        self.mode_btn.pack(fill="x", pady=(0, 2))
-        ctk.CTkLabel(self.ollama_container, text=t("mode.desc"),
-                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
-                     wraplength=400, justify="left").pack(fill="x", pady=(0, 4))
-
-        # KI-Modell-Picker (Stufen lokalisiert, intern stabile IDs)
-        self._tier_label_to_id = {t(v): k for k, v in AITIER_LABEL_KEYS.items()}
-        tier_id_to_label = {k: t(v) for k, v in AITIER_LABEL_KEYS.items()}
-        self.ollama_tier_var = ctk.StringVar(
-            value=tier_id_to_label.get(tier_for_model(self.config.get("ollama_model", DEFAULT_MODEL)),
-                                       t("aimodel.balanced")))
-        tier_btn = ctk.CTkSegmentedButton(
-            self.ollama_container, values=list(self._tier_label_to_id),
-            variable=self.ollama_tier_var, command=self._on_ollama_tier_change, **_SEG_STYLE,
-        )
-        tier_btn.pack(fill="x", pady=(0, 2))
-        ctk.CTkLabel(self.ollama_container, text=t("aimodel.desc"),
-                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
-                     wraplength=400, justify="left").pack(fill="x", pady=(0, 4))
-
-        # Ollama Status-Row: Label + Mini-Button (Start/Stop)
-        self.ollama_status_row = ctk.CTkFrame(self.ollama_container, fg_color="transparent")
-        self.ollama_status_row.pack(fill="x", pady=(0, 2))
-
-        self.ollama_status_label = ctk.CTkLabel(
-            self.ollama_status_row, text="", font=(FONT_BODY, 11),
-            text_color=BRAND["text_dim"], anchor="w",
-        )
-        self.ollama_status_label.pack(side="left", fill="x", expand=True)
-
-        self.ollama_mini_btn = ctk.CTkButton(
-            self.ollama_status_row, text="", width=28, height=22,
-            font=(FONT_MONO, 11),
-            fg_color="transparent", text_color=BRAND["text_dim"],
-            border_width=1, border_color=BRAND["border"],
-            hover_color=BRAND["card_hover"], corner_radius=6,
-            command=self._handle_ollama_mini_btn,
-        )
-        # Wird in _render_ollama_section() gepackt je nach state
-
-        Tooltip(self.ollama_mini_btn, t("ollama.mini.tooltip"))
-
-        # Action-Button (Install/Start/Pull) - nur wenn noetig
-        self.ollama_action_btn = ctk.CTkButton(
-            self.ollama_container, text="", height=34, font=(FONT_BODY, 13, "bold"),
-            fg_color=BRAND["cyan"], text_color=BRAND["bg"],
-            hover_color=BRAND["cyan_dim"], corner_radius=8,
-            command=self._handle_ollama_action,
-        )
-
-        # Download-Container (erscheint waehrend Install/Pull)
-        self.ollama_dl_frame = ctk.CTkFrame(self.ollama_container, fg_color="transparent")
-
-        # Grosse Prozent-Anzeige
-        self.ollama_percent_label = ctk.CTkLabel(
-            self.ollama_dl_frame, text="0%",
-            font=(FONT_MONO, 20, "bold"), text_color=BRAND["cyan"],
-        )
-        self.ollama_percent_label.pack(anchor="w")
-
-        # Progress-Bar (groesser)
-        self.ollama_progress = ctk.CTkProgressBar(
-            self.ollama_dl_frame, progress_color=BRAND["cyan"],
-            fg_color=BRAND["card"], height=8, corner_radius=4,
-        )
-        self.ollama_progress.pack(fill="x", pady=(2, 4))
-        self.ollama_progress.set(0)
-
-        # Detail-Zeile: "650 MB / 2 GB · 12 MB/s · Status"
-        self.ollama_detail_label = ctk.CTkLabel(
-            self.ollama_dl_frame, text="",
-            font=(FONT_BODY, 11), text_color=BRAND["text_dim"],
-        )
-        self.ollama_detail_label.pack(anchor="w", pady=(0, 6))
-
-        # Cancel-Button
-        self.ollama_cancel_btn = ctk.CTkButton(
-            self.ollama_dl_frame, text=t("btn.cancel"),
-            height=30, font=(FONT_BODY, 12),
-            fg_color="transparent", text_color=BRAND["text_dim"],
-            border_width=1, border_color=BRAND["border"],
-            hover_color=BRAND["red"], corner_radius=8,
-            command=self._cancel_ollama_action,
-        )
-        self.ollama_cancel_btn.pack(fill="x")
-
-        self._render_ollama_section()
-        # Spacer nach Section
-        self._ollama_spacer = ctk.CTkFrame(c, fg_color="transparent", height=14)
-        self._ollama_spacer.pack()
-
-        # MIKROFON
+    def _build_mic_section(self, c):
         self._heading(c, t("section.microphone"))
         devs = [t("mic.default")] + [d["name"] for d in self.available_devices]
         cur_dev = t("mic.default")
@@ -518,7 +546,135 @@ class SettingsWindow:
                                            text_color=BRAND["text_dim"], height=16)
         self.mic_test_label.pack(anchor="w", pady=(0, 10))
 
-        # OPTIONS
+    def _build_vocab_section(self, c):
+        # EIGENE BEGRIFFE (Whisper initial_prompt: Namen/Fachwoerter als Kontext)
+        self.vocab_box = ctk.CTkTextbox(
+            c, height=56, font=(FONT_BODY, 13), fg_color=BRAND["card"],
+            text_color=BRAND["text"], border_width=1, border_color=BRAND["border"],
+            corner_radius=8, wrap="word")
+        self.vocab_box.pack(fill="x", pady=(0, 2))
+        if self.config.get("initial_prompt"):
+            self.vocab_box.insert("1.0", self.config["initial_prompt"])
+        ctk.CTkLabel(c, text=t("vocab.hint"),
+                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
+                     justify="left", wraplength=390).pack(fill="x", pady=(0, 4))
+
+    def _build_transcription_section(self, c):
+        # TRANSKRIPTION (Beam-Search: schnell vs. genau)
+        self._perf_label_to_code = {t("perf.fast"): "speed", t("perf.accurate"): "quality"}
+        perf_code_to_label = {v: k for k, v in self._perf_label_to_code.items()}
+        self.perf_var = ctk.StringVar(
+            value=perf_code_to_label.get(self.config.get("performance_mode", "speed"), t("perf.fast")))
+        ctk.CTkSegmentedButton(c, values=list(self._perf_label_to_code), variable=self.perf_var,
+                               **_SEG_STYLE).pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(c, text=t("perf.desc"),
+                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w"
+                     ).pack(fill="x", pady=(0, 4))
+
+    def _build_postproc_section(self, parent):
+        # NACHBEARBEITUNG — offen, wenn sie aktiv ist, sonst eingeklappt
+        collapsed = self.config.get("post_processing_mode", "off") == "off"
+        c = self._collapsible(parent, t("section.postproc"), collapsed=collapsed,
+                              tooltip=t("postproc.tooltip"))
+        self.ollama_container = c
+
+        self._mode_label_to_code = {t("mode.off"): "off", t("mode.smart"): "smart",
+                                    t("mode.prompt"): "prompt"}
+        mode_code_to_label = {v: k for k, v in self._mode_label_to_code.items()}
+        self.mode_var = ctk.StringVar(
+            value=mode_code_to_label.get(self.config.get("post_processing_mode", "off"), t("mode.off")))
+        self.mode_btn = ctk.CTkSegmentedButton(
+            c, values=list(self._mode_label_to_code), variable=self.mode_var, **_SEG_STYLE,
+        )
+        self.mode_btn.pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(c, text=t("mode.desc"),
+                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
+                     wraplength=400, justify="left").pack(fill="x", pady=(0, 4))
+
+        # KI-Modell-Picker (Stufen lokalisiert, intern stabile IDs)
+        self._tier_label_to_id = {t(v): k for k, v in AITIER_LABEL_KEYS.items()}
+        tier_id_to_label = {k: t(v) for k, v in AITIER_LABEL_KEYS.items()}
+        self.ollama_tier_var = ctk.StringVar(
+            value=tier_id_to_label.get(tier_for_model(self.config.get("ollama_model", DEFAULT_MODEL)),
+                                       t("aimodel.balanced")))
+        tier_btn = ctk.CTkSegmentedButton(
+            c, values=list(self._tier_label_to_id),
+            variable=self.ollama_tier_var, command=self._on_ollama_tier_change, **_SEG_STYLE,
+        )
+        tier_btn.pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(c, text=t("aimodel.desc"),
+                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
+                     wraplength=400, justify="left").pack(fill="x", pady=(0, 4))
+
+        # Ollama Status-Row: Label + Mini-Button (Start/Stop)
+        self.ollama_status_row = ctk.CTkFrame(c, fg_color="transparent")
+        self.ollama_status_row.pack(fill="x", pady=(0, 2))
+
+        self.ollama_status_label = ctk.CTkLabel(
+            self.ollama_status_row, text="", font=(FONT_BODY, 11),
+            text_color=BRAND["text_dim"], anchor="w",
+        )
+        self.ollama_status_label.pack(side="left", fill="x", expand=True)
+
+        self.ollama_mini_btn = ctk.CTkButton(
+            self.ollama_status_row, text="", width=28, height=22,
+            font=(FONT_MONO, 11),
+            fg_color="transparent", text_color=BRAND["text_dim"],
+            border_width=1, border_color=BRAND["border"],
+            hover_color=BRAND["card_hover"], corner_radius=6,
+            command=self._handle_ollama_mini_btn,
+        )
+        # Wird in _render_ollama_section() gepackt je nach state
+
+        Tooltip(self.ollama_mini_btn, t("ollama.mini.tooltip"))
+
+        # Action-Button (Install/Start/Pull) - nur wenn noetig
+        self.ollama_action_btn = ctk.CTkButton(
+            c, text="", height=34, font=(FONT_BODY, 13, "bold"),
+            fg_color=BRAND["cyan"], text_color=BRAND["bg"],
+            hover_color=BRAND["cyan_dim"], corner_radius=8,
+            command=self._handle_ollama_action,
+        )
+
+        # Download-Container (erscheint waehrend Install/Pull)
+        self.ollama_dl_frame = ctk.CTkFrame(c, fg_color="transparent")
+
+        # Grosse Prozent-Anzeige
+        self.ollama_percent_label = ctk.CTkLabel(
+            self.ollama_dl_frame, text="0%",
+            font=(FONT_MONO, 20, "bold"), text_color=BRAND["cyan"],
+        )
+        self.ollama_percent_label.pack(anchor="w")
+
+        # Progress-Bar (groesser)
+        self.ollama_progress = ctk.CTkProgressBar(
+            self.ollama_dl_frame, progress_color=BRAND["cyan"],
+            fg_color=BRAND["card"], height=8, corner_radius=4,
+        )
+        self.ollama_progress.pack(fill="x", pady=(2, 4))
+        self.ollama_progress.set(0)
+
+        # Detail-Zeile: "650 MB / 2 GB · 12 MB/s · Status"
+        self.ollama_detail_label = ctk.CTkLabel(
+            self.ollama_dl_frame, text="",
+            font=(FONT_BODY, 11), text_color=BRAND["text_dim"],
+        )
+        self.ollama_detail_label.pack(anchor="w", pady=(0, 6))
+
+        # Cancel-Button
+        self.ollama_cancel_btn = ctk.CTkButton(
+            self.ollama_dl_frame, text=t("btn.cancel"),
+            height=30, font=(FONT_BODY, 12),
+            fg_color="transparent", text_color=BRAND["text_dim"],
+            border_width=1, border_color=BRAND["border"],
+            hover_color=BRAND["red"], corner_radius=8,
+            command=self._cancel_ollama_action,
+        )
+        self.ollama_cancel_btn.pack(fill="x")
+
+        self._render_ollama_section()
+
+    def _build_options_section(self, c):
         self.overlay_var = ctk.BooleanVar(value=self.config.get("show_overlay", True))
         ov_switch = ctk.CTkSwitch(c, text=t("opt.overlay"), variable=self.overlay_var,
                       font=(FONT_BODY, 13), text_color=BRAND["text"],
@@ -558,7 +714,7 @@ class SettingsWindow:
         # Historie: Switch + Loeschen-Button (zweistufig statt Dialog)
         self.history_var = ctk.BooleanVar(value=self.config.get("history_enabled", True))
         hist_row = ctk.CTkFrame(c, fg_color="transparent")
-        hist_row.pack(fill="x", pady=(0, 16))
+        hist_row.pack(fill="x", pady=(0, 6))
         ctk.CTkSwitch(hist_row, text=t("opt.history"), variable=self.history_var,
                       font=(FONT_BODY, 13), text_color=BRAND["text"],
                       progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
@@ -571,12 +727,6 @@ class SettingsWindow:
             border_color=BRAND["border"], hover_color=BRAND["card_hover"],
             corner_radius=8, command=self._clear_history)
         self.hist_clear_btn.pack(side="right")
-
-        self.root.mainloop()
-        if self._relaunch:
-            self._relaunch = False
-            return self.run()  # Sprache gewechselt -> Fenster neu aufbauen
-        return self._result
 
     # --- Mikrofontest ---
 
@@ -673,15 +823,6 @@ class SettingsWindow:
         self.config["ollama_model"] = OLLAMA_TIERS[tier_id][0]
         self._refresh_ollama_state()
         self._render_ollama_section()
-
-    def _toggle_ollama_section(self, _e=None):
-        self._ollama_collapsed = not self._ollama_collapsed
-        if self._ollama_collapsed:
-            self.ollama_container.pack_forget()
-            self._ollama_arrow.configure(text="▸")
-        else:
-            self.ollama_container.pack(fill="x", after=self._ollama_header)
-            self._ollama_arrow.configure(text="▾")
 
     def _hist_clear_label(self) -> str:
         from src.history import TranscriptionHistory

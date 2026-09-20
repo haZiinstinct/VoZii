@@ -3,15 +3,27 @@
 import logging
 import subprocess
 import threading
+import time
 
 log = logging.getLogger(__name__)
+
+# Display-Adapter-Klasse in der Registry — dort steht der Adaptername ohne
+# jeden Subprozess. wmic ist auf aktuellen Win11-Builds entfernt und ein
+# PowerShell-Start kostet je nach Maschine Sekunden bis Minuten; genau das
+# hat den App-Start blockiert.
+_DISPLAY_CLASS_KEY = (r"SYSTEM\CurrentControlSet\Control\Class"
+                      r"\{4d36e968-e325-11ce-bfc1-08002be10318}")
+
+# Die GPU wechselt praktisch nie. Der Hintergrund-Refresh laeuft daher nur
+# noch woechentlich statt bei jedem Start.
+_CACHE_MAX_AGE_S = 7 * 24 * 3600
 
 # whisper.cpp pre-built binaries fuer verschiedene GPUs — alle aus dem eigenen
 # Mirror-Release backend-v<version> (stabile URLs, kein Dritt-Repo/kein
 # beweglicher Upstream-Ref mehr): nvidia/cpu = gespiegelte offizielle Zips
 # (Digest-verifiziert), amd = eigener Vulkan-Build aus dem Upstream-Source
 # (.github/workflows/build-backend.yml).
-BACKEND_VERSION = "1.9.2"
+BACKEND_VERSION = "1.9.4"
 _MIRROR = f"https://github.com/haZiinstinct/VoZii/releases/download/backend-v{BACKEND_VERSION}"
 
 BINARY_URLS = {
@@ -20,12 +32,14 @@ BINARY_URLS = {
     "cpu": f"{_MIRROR}/whisper-blas-bin-x64.zip",
 }
 
-# SHA256 der Release-Zips (GitHub-Asset-Digests, gepinnt am 2026-08-26).
+# SHA256 der Release-Zips (GitHub-Asset-Digests, gepinnt am 2026-09-20).
 # Aendert sich ein Asset, schlaegt der Download bewusst fehl.
+# nvidia/cpu sind die Upstream-Zips aus ggml-org/whisper.cpp Tag b5130
+# (identischer Commit wie v1.9.4), amd ist unser eigener Vulkan-Build.
 BINARY_SHA256 = {
-    "nvidia": "443110ddaad70d4290ab2e77179e31cf712035bbc4fad56bb4519a90c917b39c",
-    "amd": "8b76598f0315535954c2e43c52d929e8b4443c5a4b89817349d016cad36507a3",
-    "cpu": "ffe5b47ca8e53a7677949f23a9c4641bbec4eee8a5714c3d14b67bb8d7b24a78",
+    "nvidia": "af520ddd034d985b55dfeea3e465ed93653ba2aee1a55e865033edc548c272a7",
+    "amd": "f62311ce8b556e51d32acf0fcef71ab9bc6a0035068e7c14c19de622574ecf93",
+    "cpu": "55c06d09e8b9b6cfb2b0b47ddedc71803054f0e48be1f41848b3141c06c703a9",
 }
 
 BACKEND_NAMES = {
@@ -43,8 +57,38 @@ BACKEND_DLLS = {
 }
 
 
+def _try_registry() -> str | None:
+    """Versuch 1: Adapternamen aus der Registry (sofort, kein Subprozess)."""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    names = []
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _DISPLAY_CLASS_KEY) as root:
+            index = 0
+            while True:
+                try:
+                    sub = winreg.EnumKey(root, index)
+                except OSError:
+                    break
+                index += 1
+                if not sub.isdigit():  # "Properties", "Configuration", ...
+                    continue
+                try:
+                    with winreg.OpenKey(root, sub) as key:
+                        desc, _ = winreg.QueryValueEx(key, "DriverDesc")
+                    if isinstance(desc, str) and desc.strip():
+                        names.append(desc.strip())
+                except OSError:
+                    continue
+    except OSError:
+        return None
+    return "\n".join(names) if names else None
+
+
 def _try_wmic() -> str | None:
-    """Versuch 1: wmic (schnell, aber in neueren Win11 deprecated)."""
+    """Versuch 2: wmic (auf aktuellen Win11-Builds nicht mehr vorhanden)."""
     try:
         result = subprocess.run(
             ["wmic", "path", "win32_videocontroller", "get", "name"],
@@ -59,7 +103,7 @@ def _try_wmic() -> str | None:
 
 
 def _try_powershell() -> str | None:
-    """Versuch 2: PowerShell Get-CimInstance (funktioniert ohne wmic)."""
+    """Versuch 3: PowerShell Get-CimInstance (letzter Ausweg, langsam)."""
     try:
         result = subprocess.run(
             ["powershell", "-NoProfile", "-Command",
@@ -80,9 +124,11 @@ def detect_gpu() -> tuple[str, str]:
     gpu_type: 'nvidia', 'amd', oder 'cpu'
     gpu_name: z.B. 'NVIDIA GeForce RTX 4070' oder 'AMD Radeon RX 6750 XT'
     """
-    output = _try_wmic()
+    output = _try_registry()
     if not output:
-        log.info("wmic nicht verfuegbar, versuche PowerShell...")
+        output = _try_wmic()
+    if not output:
+        log.info("Registry/wmic ohne Ergebnis, versuche PowerShell...")
         output = _try_powershell()
     if not output:
         log.warning("GPU-Erkennung fehlgeschlagen, fallback auf CPU")
@@ -119,8 +165,9 @@ def detect_gpu_cached(config: dict) -> tuple[str, str, bool]:
     cached_type = config.get("gpu_cache_type")
     if cached_type in BINARY_URLS:
         cached_name = config.get("gpu_cache_name") or ""
-        threading.Thread(target=_refresh_gpu_cache,
-                         args=(cached_type, cached_name), daemon=True).start()
+        if _cache_is_stale(config):
+            threading.Thread(target=_refresh_gpu_cache, name="gpu-cache-refresh",
+                             args=(cached_type, cached_name), daemon=True).start()
         return cached_type, cached_name, True
 
     gpu_type, gpu_name = detect_gpu()
@@ -128,11 +175,18 @@ def detect_gpu_cached(config: dict) -> tuple[str, str, bool]:
     return gpu_type, gpu_name, False
 
 
+def _cache_is_stale(config: dict) -> bool:
+    stored = config.get("gpu_cache_at")
+    if not isinstance(stored, (int, float)):
+        return True
+    return (time.time() - stored) > _CACHE_MAX_AGE_S
+
+
 def _refresh_gpu_cache(old_type: str, old_name: str):
     try:
         gpu_type, gpu_name = detect_gpu()
+        _store_gpu_cache(gpu_type, gpu_name)
         if (gpu_type, gpu_name) != (old_type, old_name):
-            _store_gpu_cache(gpu_type, gpu_name)
             log.info("GPU-Cache aktualisiert: %s (%s) — wirkt ab dem naechsten Start",
                      gpu_name or "CPU", gpu_type)
     except Exception:
@@ -147,6 +201,7 @@ def _store_gpu_cache(gpu_type: str, gpu_name: str):
         cfg = load_config()
         cfg["gpu_cache_type"] = gpu_type
         cfg["gpu_cache_name"] = gpu_name
+        cfg["gpu_cache_at"] = time.time()
         save_config(cfg)
     except Exception:
         log.exception("GPU-Cache speichern fehlgeschlagen")

@@ -34,7 +34,12 @@ MODELS_DIR = os.path.join(WHISPER_DIR, "models")
 
 # medium braucht auf langsamen Platten lange zum Laden
 _SERVER_START_TIMEOUT_S = 90
+# Untergrenze; der echte Timeout waechst mit der Aufnahmelaenge (_timeout_for).
+# Fest 60s haben lange Diktate im Qualitaetsmodus abgeschnitten — die Aufnahme
+# war dann weg, obwohl die Transkription nur ein paar Sekunden gefehlt haetten.
 _REQUEST_TIMEOUT_S = 60
+# 16 kHz mono, 16 Bit -> Bytes pro Sekunde Audio
+_WAV_BYTES_PER_S = 16000 * 2
 
 
 def _threads() -> int:
@@ -58,6 +63,19 @@ def _clean_output(text: str) -> str:
         return ""
     text = re.sub(r"\[.*?\]", "", text)
     return " ".join(text.split()).strip()
+
+
+def _timeout_for(wav_path: str) -> int:
+    """Timeout passend zur Aufnahmelaenge (Minimum _REQUEST_TIMEOUT_S).
+
+    Faustregel: bis zum Vierfachen der Audiolaenge plus Anlauf — deckt auch
+    den Qualitaetsmodus (Beam 5) auf reiner CPU ab.
+    """
+    try:
+        duration = os.path.getsize(wav_path) / _WAV_BYTES_PER_S
+    except OSError:
+        duration = 0.0
+    return max(_REQUEST_TIMEOUT_S, int(duration * 4) + 30)
 
 
 def _free_port() -> int:
@@ -95,6 +113,7 @@ class CliBackend:
         self.last_error_hint = ""
 
     def transcribe(self, wav_path: str) -> str:
+        timeout_s = _timeout_for(wav_path)
         q = _quality_args(self.performance_mode)
         cmd = [
             WHISPER_CLI,
@@ -117,12 +136,12 @@ class CliBackend:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=_REQUEST_TIMEOUT_S,
+                timeout=timeout_s,
                 creationflags=subprocess.CREATE_NO_WINDOW,
                 cwd=WHISPER_DIR,
             )
         except subprocess.TimeoutExpired:
-            log.warning("whisper-cli Timeout nach %ds", _REQUEST_TIMEOUT_S)
+            log.warning("whisper-cli Timeout nach %ds", timeout_s)
             return ""
         except FileNotFoundError as e:
             log.error("whisper-cli nicht gefunden: %s", e)
@@ -246,7 +265,7 @@ class ServerBackend:
             headers={"Content-Type": content_type},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT_S) as resp:
+        with urllib.request.urlopen(req, timeout=_timeout_for(wav_path)) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
         if data.get("error"):
             raise RuntimeError(f"whisper-server: {data['error']}")

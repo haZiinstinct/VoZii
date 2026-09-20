@@ -1,11 +1,16 @@
 """VoZii Hotkey Manager — unterstuetzt Tastatur UND Maustasten (Mouse4, Mouse5 etc.)."""
 
+import ctypes
 import logging
+import queue
+import sys
 import threading
 
 from pynput import keyboard, mouse
 
 log = logging.getLogger(__name__)
+
+IS_WINDOWS = sys.platform == "win32"
 
 
 # Map readable names to pynput Key objects
@@ -44,6 +49,29 @@ try:
     MOUSE_BUTTONS["mouse5"] = mouse.Button.x2
 except AttributeError:
     pass  # Not available on all platforms
+
+# Windows-VK-Codes je Hotkey-Teil — nur fuer die Stuck-Erkennung: geht ein
+# Release-Event verloren (Hook kurz weg, Fokuswechsel, Remote-Session), haelt
+# der Manager sich fuer "noch gedrueckt" und ignoriert jeden weiteren Druck.
+# GetAsyncKeyState sagt, was der Nutzer *wirklich* haelt.
+_PART_VKS = {
+    "ctrl": (0x11,), "shift": (0x10,), "alt": (0x12,),
+    "space": (0x20,), "tab": (0x09,), "enter": (0x0D,),
+    "caps_lock": (0x14,), "scroll_lock": (0x91,), "pause": (0x13,),
+    "insert": (0x2D,), "delete": (0x2E,), "home": (0x24,), "end": (0x23,),
+    "page_up": (0x21,), "page_down": (0x22,),
+    "mouse1": (0x01,), "mouse2": (0x02,), "mouse3": (0x04,),
+    "mouse4": (0x05,), "mouse5": (0x06,),
+}
+_PART_VKS.update({f"f{n}": (0x6F + n,) for n in range(1, 13)})
+
+
+def _part_vks(part: str) -> tuple[int, ...]:
+    if part in _PART_VKS:
+        return _PART_VKS[part]
+    if len(part) == 1:
+        return (ord(part.upper()),)
+    return ()
 
 
 def _parse_hotkey(hotkey_str: str) -> list[str]:
@@ -108,6 +136,13 @@ class HotkeyManager:
         self._pressed_parts = set()
         self._has_mouse_parts = any(p.startswith("mouse") for p in self._parts)
         self._has_kb_parts = any(not p.startswith("mouse") for p in self._parts)
+        # Callbacks laufen serialisiert ueber genau einen Thread. Frueher bekam
+        # jedes Event einen eigenen Thread — bei kurzem Druck konnte das
+        # Release-Callback vor dem Press-Callback ankommen und die Aufnahme
+        # lief endlos weiter.
+        self._events = queue.Queue()
+        self._dispatcher = None
+        self._dispatcher_stop = threading.Event()
 
     def _match_key(self, key) -> str | None:
         for part in self._parts:
@@ -166,9 +201,36 @@ class HotkeyManager:
                 self._handle_release(part)
 
     def _fire(self, callback):
-        threading.Thread(target=callback, daemon=True).start()
+        self._events.put(callback)
+
+    def _ensure_dispatcher(self):
+        # Auch das Stop-Flag pruefen: nach stop() lebt der Thread noch bis zu
+        # einem Queue-Timeout weiter — ohne diese Bedingung wuerde restart()
+        # ihn fuer gesund halten und danach staende gar kein Dispatcher mehr
+        if (self._dispatcher is not None and self._dispatcher.is_alive()
+                and not self._dispatcher_stop.is_set()):
+            return
+        if self._dispatcher is not None:
+            self._dispatcher_stop.set()
+            self._dispatcher.join(timeout=1)
+        self._dispatcher_stop.clear()
+        self._dispatcher = threading.Thread(target=self._dispatch_loop, daemon=True,
+                                            name="hotkey-dispatch")
+        self._dispatcher.start()
+
+    def _dispatch_loop(self):
+        while not self._dispatcher_stop.is_set():
+            try:
+                callback = self._events.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            try:
+                callback()
+            except Exception:
+                log.exception("Hotkey-Callback fehlgeschlagen")
 
     def start(self):
+        self._ensure_dispatcher()
         if self._has_kb_parts:
             self._kb_listener = keyboard.Listener(
                 on_press=self._on_kb_press,
@@ -185,12 +247,47 @@ class HotkeyManager:
             self._mouse_listener.start()
 
     def stop(self):
+        self._dispatcher_stop.set()
         if self._kb_listener:
             self._kb_listener.stop()
             self._kb_listener = None
         if self._mouse_listener:
             self._mouse_listener.stop()
             self._mouse_listener = None
+
+    def _physically_held(self) -> bool:
+        """Haelt der Nutzer den Hotkey laut Windows gerade wirklich?"""
+        if not IS_WINDOWS:
+            return True  # ohne Gegenprobe lieber nichts erzwingen
+        try:
+            get_state = ctypes.windll.user32.GetAsyncKeyState
+        except Exception:
+            return True
+        for part in self._parts:
+            vks = _part_vks(part)
+            if not vks:
+                return True  # unbekannter Teil -> nicht raten
+            if not any(get_state(vk) & 0x8000 for vk in vks):
+                return False
+        return True
+
+    def release_if_stuck(self) -> bool:
+        """Loest ein verlorengegangenes Release nach. Returns True, wenn
+        nachgeholt wurde.
+
+        Ohne das bliebe der Manager nach einem verschluckten Release-Event
+        dauerhaft im Zustand "gedrueckt" — der Hotkey waere bis zum
+        App-Neustart tot und die Aufnahme liefe weiter.
+        """
+        if not self._active or self.mode != "push_to_talk":
+            return False
+        if self._physically_held():
+            return False
+        log.warning("Hotkey-Release verpasst — hole Aufnahme-Stopp nach")
+        self._pressed_parts.clear()
+        self._active = False
+        self._fire(self.on_deactivate)
+        return True
 
     def is_healthy(self) -> bool:
         """Leben alle benoetigten Listener noch? Windows entfernt Low-Level-
@@ -201,12 +298,19 @@ class HotkeyManager:
         if self._has_mouse_parts:
             if self._mouse_listener is None or not self._mouse_listener.is_alive():
                 return False
+        if self._dispatcher is None or not self._dispatcher.is_alive():
+            return False
         return True
 
     def restart(self):
         """Listener neu aufbauen (vom Watchdog gerufen)."""
         log.warning("Hotkey-Listener werden neu gestartet")
+        was_active = self._active
         self.stop()
         self._pressed_parts = set()
         self._active = False
         self.start()
+        if was_active:
+            # Waehrend einer laufenden Aufnahme neu gestartet: das Release
+            # kommt nie mehr an, also selbst stoppen (sonst laeuft sie ewig)
+            self._fire(self.on_deactivate)

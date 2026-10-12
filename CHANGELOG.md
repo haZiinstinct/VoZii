@@ -9,7 +9,8 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ## [Unreleased]
 
-Audit-Runde (siehe [docs/AUDIT-2026-10.md](docs/AUDIT-2026-10.md)).
+Audit-Runde (Bericht: [docs/AUDIT-2026-10.md](docs/AUDIT-2026-10.md),
+offene Punkte: [docs/AUDIT-2026-10-MASSNAHMEN.md](docs/AUDIT-2026-10-MASSNAHMEN.md)).
 
 ### Behoben
 - **Umschalt-Modus:** Hotkey länger als ~0,5 s gehalten schaltete die Aufnahme

@@ -160,6 +160,11 @@ class HotkeyManager:
         return self._pressed_parts == set(self._parts)
 
     def _handle_press(self, part: str):
+        if part in self._pressed_parts:
+            # Tasten-Auto-Repeat: Windows liefert beim Halten laufend weitere
+            # Key-Down-Events. Im Umschalt-Modus wuerde jedes davon die
+            # Aufnahme erneut umschalten — Halten > 0,5 s stoppte sie sofort.
+            return
         self._pressed_parts.add(part)
         if self._all_pressed():
             if self.mode == "push_to_talk":
@@ -254,6 +259,20 @@ class HotkeyManager:
         if self._mouse_listener:
             self._mouse_listener.stop()
             self._mouse_listener = None
+
+    def deactivate(self):
+        """Aufnahme von aussen beenden (Auto-Stop bei Stille).
+
+        Haelt den internen Zustand synchron: wuerde nur der Recorder gestoppt,
+        hielte sich der Manager im Umschalt-Modus weiter fuer 'aktiv' und der
+        naechste Hotkey-Druck holte erst das 'Aus' nach, statt eine neue
+        Aufnahme zu starten. Der Callback laeuft wie alle anderen ueber den
+        Dispatcher-Thread — nicht im Audio-Callback des Aufrufers.
+        """
+        if not self._active:
+            return
+        self._active = False
+        self._fire(self.on_deactivate)
 
     def _physically_held(self) -> bool:
         """Haelt der Nutzer den Hotkey laut Windows gerade wirklich?"""

@@ -7,6 +7,26 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [Unreleased]
+
+Audit-Runde (siehe [docs/AUDIT-2026-10.md](docs/AUDIT-2026-10.md)).
+
+### Behoben
+- **Umschalt-Modus:** Hotkey länger als ~0,5 s gehalten schaltete die Aufnahme
+  durch den Tasten-Auto-Repeat sofort wieder aus.
+- **Auto-Stop bei Stille:** das nächste Diktat brauchte zwei Hotkey-Drücke, weil
+  der Hotkey-Manager vom automatischen Stopp nichts erfuhr. Der Stopp läuft
+  jetzt außerdem nicht mehr im Audio-Callback-Thread.
+- **Download abbrechen** zeigte „Schreiben fehlgeschlagen (Festplatte voll)“
+  statt „Abgebrochen“; ein zweiter Klick konnte einen parallelen Download-Thread
+  auf dieselbe Datei starten. Downloads haben jetzt einen 30-s-Socket-Timeout,
+  damit eine eingeschlafene Verbindung nicht endlos hängt.
+- **Hotkey-Aufnahme:** nicht abbildbare Tasten (Win, Numpad, Medientasten) werden
+  verworfen statt als toter Hotkey gespeichert.
+- `config.default.yaml` um `auto_stop_silence_s`, `initial_prompt`, `update_check` ergänzt.
+
+---
+
 ## [1.9.0] — 2026-09-20
 
 Stabilitäts-Release. Nach längerer Nutzung hörte VoZii gelegentlich auf,

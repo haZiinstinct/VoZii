@@ -300,3 +300,69 @@ def test_restart_keeps_dispatcher_alive(monkeypatch):
         assert fired.wait(2), "Dispatcher verarbeitet nach restart() nichts mehr"
     finally:
         m._dispatcher_stop.set()
+
+
+# --- Umschalt-Modus: Auto-Repeat + Auto-Stop ---
+
+def _toggle_manager(events):
+    m = HotkeyManager("f9", on_activate=lambda: events.append("on"),
+                      on_deactivate=lambda: events.append("off"), mode="toggle")
+    m._fire = lambda cb: cb()  # synchron statt Dispatcher-Thread
+    return m
+
+
+def test_toggle_ignoriert_tasten_autorepeat():
+    """Windows liefert beim Halten laufend Key-Down-Events. Frueher schaltete
+    jedes davon die Aufnahme um — Halten > 0,5 s stoppte sie sofort wieder."""
+    events = []
+    m = _toggle_manager(events)
+    for _ in range(5):
+        m._handle_press("f9")  # Auto-Repeat
+    m._handle_release("f9")
+    assert events == ["on"]
+
+    m._handle_press("f9")
+    m._handle_release("f9")
+    assert events == ["on", "off"]
+
+
+def test_deactivate_von_aussen_haelt_zustand_synchron():
+    """Auto-Stop bei Stille beendet die Aufnahme ohne Hotkey-Druck. Der
+    Manager muss das mitbekommen — sonst holte der naechste Druck erst das
+    'Aus' nach, statt eine neue Aufnahme zu starten."""
+    events = []
+    m = _toggle_manager(events)
+    m._handle_press("f9")
+    m._handle_release("f9")
+    assert events == ["on"] and m._active is True
+
+    m.deactivate()  # Auto-Stop
+    assert events == ["on", "off"] and m._active is False
+    m.deactivate()  # idempotent
+    assert events == ["on", "off"]
+
+    m._handle_press("f9")  # naechstes Diktat startet beim ERSTEN Druck
+    m._handle_release("f9")
+    assert events == ["on", "off", "on"]
+
+
+def test_deactivate_laeuft_ueber_den_dispatcher():
+    """Der Auto-Stop feuert aus dem PortAudio-Callback — das Stoppen (WAV
+    schreiben, Resampling) gehoert nicht in den Audio-Thread."""
+    fired = threading.Event()
+    caller = {}
+
+    def deactivate():
+        caller["thread"] = threading.current_thread().name
+        fired.set()
+
+    m = HotkeyManager("f9", on_activate=lambda: None, on_deactivate=deactivate,
+                      mode="toggle")
+    m._ensure_dispatcher()
+    try:
+        m._active = True
+        m.deactivate()
+        assert fired.wait(2)
+        assert caller["thread"] == "hotkey-dispatch"
+    finally:
+        m._dispatcher_stop.set()

@@ -72,6 +72,9 @@ MODEL_SHA256 = {
 # 500 MB Puffer, damit Windows/andere Apps nicht auf 0 laufen
 _DISK_SPACE_BUFFER = 500 * 1024 * 1024
 
+# Socket-Timeout fuer Verbindungsaufbau und jeden Chunk-Read
+_NET_TIMEOUT_S = 30
+
 # CLI-Namen je nach whisper.cpp-Version (aeltere Releases: main.exe)
 _CLI_NAMES = ("whisper-cli.exe", "main.exe", "whisper.exe")
 
@@ -114,7 +117,10 @@ def download_file(url, dest, progress_callback=None, expected_sha256=None):
         req.add_header("Range", f"bytes={existing}-")
 
     try:
-        resp = urllib.request.urlopen(req)
+        # Timeout pro Socket-Operation: ohne ihn haengt ein eingeschlafener
+        # Download endlos — und der Abbrechen-Button greift nie, weil der
+        # Progress-Callback nur zwischen zwei Chunks laeuft
+        resp = urllib.request.urlopen(req, timeout=_NET_TIMEOUT_S)
     except Exception as e:
         raise RuntimeError(t("err.connection", error=e)) from e
 
@@ -149,6 +155,11 @@ def download_file(url, dest, progress_callback=None, expected_sha256=None):
                     progress_callback(downloaded, total, speed)
                     last_update = now
                     last_bytes = downloaded
+    except InterruptedError:
+        # Abbruch durch den Nutzer (Progress-Callback wirft). Muss VOR OSError
+        # stehen: InterruptedError ist eine OSError-Unterklasse und wuerde
+        # sonst als "Schreiben fehlgeschlagen (Festplatte voll)" gemeldet.
+        raise
     except OSError as e:
         # Disk voll, Permission-Fehler etc.
         raise RuntimeError(t("err.write_failed", error=e)) from e

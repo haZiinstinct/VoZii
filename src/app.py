@@ -315,11 +315,19 @@ def _run_cycle(skip_settings: bool = False) -> str:
                 notify("err_mic")
 
         # Auto-Stop bei Stille (nur Toggle-Modus): wirkt wie der zweite
-        # Hotkey-Druck; on_deactivate ist reentrant-sicher (State-Guard) und
-        # laeuft heute schon aus fremden Threads (pynput)
+        # Hotkey-Druck — ueber den HotkeyManager, damit dessen Zustand
+        # mitgeht und der Stopp im Dispatcher-Thread laeuft statt im
+        # PortAudio-Callback (hotkey_mgr wird weiter unten gesetzt; der
+        # Callback kann erst nach dem Start einer Aufnahme feuern)
         auto_stop_s = config.get("auto_stop_silence_s", 0)
         if config.get("mode") == "toggle" and auto_stop_s:
-            recorder.set_auto_stop(auto_stop_s, on_deactivate)
+            def auto_stop():
+                if hotkey_mgr is not None:
+                    hotkey_mgr.deactivate()
+                else:
+                    on_deactivate()
+
+            recorder.set_auto_stop(auto_stop_s, auto_stop)
             log.info("Auto-Stop bei Stille: %.1fs", auto_stop_s)
 
         error_count = [0]

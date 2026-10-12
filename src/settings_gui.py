@@ -13,7 +13,7 @@ from src import __url__, __version__
 from src.theme import BRAND, FONT_BODY, FONT_MONO
 from src.hotkey import key_to_name, mouse_button_to_name
 from src.winutil import enable_dark_titlebar, work_area
-from src.config import save_config
+from src.config import _is_valid_hotkey, save_config
 from src.i18n import DICTATION_LANGS, UI_LANGUAGES, set_language, t
 from src.update_checker import RELEASES_PAGE, check_async
 from src.downloader import (
@@ -888,8 +888,10 @@ class SettingsWindow:
 
     def _download_current_model(self):
         if self._downloading:
+            # Nur das Signal setzen — das Flag raeumt der Download-Thread in
+            # seinem finally. Sonst startet ein zweiter Klick einen zweiten
+            # Thread, der parallel in dieselbe .part-Datei schreibt.
             self._cancel_download.set()
-            self._downloading = False
             return
 
         size = self._get_model_size()
@@ -1190,8 +1192,16 @@ class SettingsWindow:
         if not self._recording_hotkey: return
         self._recording_hotkey = False
         self._stop_listeners()
-        self.config["hotkey"] = "+".join(self._current_combo)
-        d = " + ".join(k.upper() for k in self._current_combo)
+        combo = "+".join(self._current_combo)
+        if not _is_valid_hotkey(combo):
+            # Taste, die der HotkeyManager nicht kennt (Win, Numpad, Medien:
+            # key_to_name liefert z. B. "Key.cmd"). Frueher wurde sie
+            # gespeichert, der Hotkey war in dieser Sitzung tot und beim
+            # naechsten Start setzte load_config() still den Default.
+            log.warning("Hotkey-Aufnahme verworfen (nicht abbildbar): %r", combo)
+            combo = self.config.get("hotkey", "ctrl+shift+space")
+        self.config["hotkey"] = combo
+        d = combo.upper().replace("+", " + ")
         self.root.after(0, lambda: self.hotkey_label.configure(text=d, text_color=BRAND["text_bright"]))
 
     def _stop_listeners(self):

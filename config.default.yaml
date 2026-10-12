@@ -1,6 +1,7 @@
 # VoZii — Voice-to-Text by haZii
 hotkey: "ctrl+shift+space"
 mode: "push_to_talk"            # push_to_talk oder toggle
+auto_stop_silence_s: 0          # toggle: Sekunden Stille bis Auto-Stop (0 = aus, 1.5-10)
 language: "auto"                # Diktat-Sprache: auto (alle ~99) oder z.B. de, en, es, fr, zh, ja, ar
 ui_language: ""                 # Oberflaeche: "" = System-Sprache; de/en/es/fr/pt/ru/zh/ja/ar
 model_size: "large-v3-turbo-q5_0"  # tiny, large-v3-turbo-q5_0 (empfohlen), large-v3-turbo
@@ -12,9 +13,11 @@ auto_start: false               # Mit Windows starten (direkt in den Tray)
 post_processing_mode: "off"     # off, smart, prompt (braucht Ollama)
 ollama_model: "qwen2.5:3b"      # Ollama-Modell: llama3.2:1b / qwen2.5:3b / gemma3:4b
 performance_mode: "speed"       # speed (greedy, schnell) oder quality (Beam 5)
+initial_prompt: ""              # Eigene Begriffe (Namen, Fachwoerter) als Whisper-Kontext
 use_server: true                # whisper-server: Modell bleibt im RAM (schneller)
 restore_clipboard: true         # Zwischenablage nach dem Einfuegen wiederherstellen
 history_enabled: true           # letzte 50 Transkriptionen lokal speichern
+update_check: true              # stiller Versions-Check gegen GitHub beim Start
 gpu_cache_type: null            # wird automatisch gefuellt (GPU-Erkennungs-Cache)
 gpu_cache_name: null
 gpu_cache_at: null

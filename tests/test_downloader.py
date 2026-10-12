@@ -246,3 +246,36 @@ def test_passendes_backend_wird_nicht_neu_geladen(whisper_dir, monkeypatch):
 
     monkeypatch.setattr(downloader, "download_file", boom)
     assert downloader.download_and_extract_binary("cpu") is True
+
+
+def test_cancel_im_download_loop_bleibt_interrupted_error(tmp_path, fake_urlopen, monkeypatch):
+    """Abbrechen-Button: der Progress-Callback wirft InterruptedError — eine
+    OSError-Unterklasse. Frueher fing `except OSError` sie und meldete
+    'Schreiben fehlgeschlagen (Festplatte voll)' statt 'Abgebrochen'."""
+    import itertools
+
+    clock = itertools.count(0, 1.0)  # jeder time.time()-Aufruf +1 s -> Callback feuert im Loop
+    monkeypatch.setattr(downloader.time, "time", lambda: float(next(clock)))
+    dest = str(tmp_path / "file.bin")
+    fake_urlopen["response"] = FakeResponse(b"x" * 200_000)
+
+    def cancel(*_):
+        raise InterruptedError
+
+    with pytest.raises(InterruptedError):
+        downloader.download_file("https://example.com/f", dest, cancel)
+    assert not os.path.exists(dest)
+
+
+def test_download_nutzt_socket_timeout(tmp_path, monkeypatch):
+    """Ohne Timeout haengt ein eingeschlafener Download endlos und der
+    Abbrechen-Button greift nie (Callback laeuft nur zwischen Chunks)."""
+    seen = {}
+
+    def _urlopen(req, *args, **kwargs):
+        seen["timeout"] = kwargs.get("timeout")
+        return FakeResponse(b"ok")
+
+    monkeypatch.setattr(downloader.urllib.request, "urlopen", _urlopen)
+    downloader.download_file("https://example.com/f", str(tmp_path / "f.bin"))
+    assert seen["timeout"] == downloader._NET_TIMEOUT_S

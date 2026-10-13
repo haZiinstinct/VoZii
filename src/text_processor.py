@@ -11,12 +11,17 @@ import time
 import urllib.request
 
 from src.i18n import t
+from src.winutil import system32
 
 log = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
 DEFAULT_MODEL = "qwen2.5:3b"
+# CN des Code-Signing-Zertifikats von Ollama (abgelesen per
+# Get-AuthenticodeSignature an ollama.exe, Oktober 2026). Exakter Vergleich —
+# ein Teilstring "ollama" wuerde auch fremde Zertifikate durchlassen.
+OLLAMA_SIGNER_CN = "Ollama Inc."
 
 # 3-Stufen-Auswahl fuers Post-Processing: stabile ID -> (Ollama-Tag, Groesse).
 # Die Anzeige-Namen kommen aus der i18n (aimodel.fast/balanced/best).
@@ -220,7 +225,7 @@ def stop_ollama() -> bool:
     for proc_name in ("ollama app.exe", "ollama.exe"):
         try:
             result = subprocess.run(
-                ["taskkill", "/f", "/im", proc_name],
+                [system32("taskkill.exe"), "/f", "/im", proc_name],
                 capture_output=True, text=True, timeout=5,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
@@ -263,6 +268,15 @@ def start_ollama(ollama_path: str, timeout: int = 30) -> bool:
 
 # --- Ollama Installer mit Cancel + Speed ---
 
+def _subject_field(subject: str, name: str) -> str | None:
+    """Liest ein RDN-Feld (z. B. CN) aus einem X.500-Subject; Werte mit Komma
+    stehen dort in Anfuehrungszeichen."""
+    m = re.search(rf'(?:^|,)\s*{name}=("([^"]*)"|[^,]*)', subject)
+    if not m:
+        return None
+    return (m.group(2) if m.group(2) is not None else m.group(1)).strip()
+
+
 def _verify_authenticode(path: str) -> bool:
     """Prueft Code-Signatur des Installers: Status Valid + Aussteller Ollama.
 
@@ -273,7 +287,7 @@ def _verify_authenticode(path: str) -> bool:
     safe_path = path.replace("'", "''")
     try:
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
+            [system32("WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-Command",
              f"$s = Get-AuthenticodeSignature -LiteralPath '{safe_path}'; "
              "Write-Output $s.Status; Write-Output $s.SignerCertificate.Subject"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -283,7 +297,7 @@ def _verify_authenticode(path: str) -> bool:
         if len(lines) < 2 or lines[0] != "Valid":
             log.error("Installer-Signatur ungueltig: %s", lines[:1] or "keine Ausgabe")
             return False
-        if "ollama" not in lines[1].lower():
+        if _subject_field(lines[1], "CN") != OLLAMA_SIGNER_CN:
             log.error("Installer-Signatur von unerwartetem Aussteller: %s", lines[1])
             return False
         return True

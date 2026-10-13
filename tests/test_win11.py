@@ -405,3 +405,17 @@ def test_deactivate_laeuft_ueber_den_dispatcher():
         assert caller["thread"] == "hotkey-dispatch"
     finally:
         m._dispatcher_stop.set()
+
+
+def test_gpu_fallbacks_nutzen_absolute_pfade(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd[0].lower())
+        raise OSError("nicht ausfuehren")
+
+    monkeypatch.setattr(hardware.subprocess, "run", fake_run)
+    hardware._try_wmic()
+    hardware._try_powershell()
+    assert calls[0].endswith(r"\system32\wbem\wmic.exe")
+    assert calls[1].endswith(r"\system32\windowspowershell\v1.0\powershell.exe")

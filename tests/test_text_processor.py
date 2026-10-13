@@ -98,3 +98,57 @@ def test_process_fallback_on_error(monkeypatch):
         raise OSError("Ollama weg")
     monkeypatch.setattr(tp.urllib.request, "urlopen", boom)
     assert TextProcessor(mode="smart").process("mein text") == "mein text"
+
+
+# --- Authenticode-Pruefung des Ollama-Installers (C2) ---
+
+_REAL_SUBJECT = ("CN=Ollama Inc., O=Ollama Inc., L=Toronto, S=Ontario, C=CA, "
+                 "SERIALNUMBER=2713355, OID.2.5.4.15=Private Organization")
+
+
+def _fake_signature(monkeypatch, stdout):
+    calls = []
+
+    class Result:
+        returncode = 0
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        r = Result()
+        r.stdout = stdout
+        return r
+
+    monkeypatch.setattr(tp.subprocess, "run", fake_run)
+    return calls
+
+
+def test_authenticode_gueltig(monkeypatch):
+    calls = _fake_signature(monkeypatch, f"Valid\n{_REAL_SUBJECT}\n")
+    assert tp._verify_authenticode(r"C:\x\OllamaSetup.exe") is True
+    # PowerShell mit absolutem Pfad, nicht ueber PATH (C1)
+    assert calls[0][0].lower().endswith(r"\system32\windowspowershell\v1.0\powershell.exe")
+
+
+def test_authenticode_falscher_cn_trotz_teilstring(monkeypatch):
+    for subject in ("CN=Not Ollama Inc., O=Evil", "CN=ollama-fake, O=Ollama Inc.",
+                    "CN=Evil Corp, OU=ollama"):
+        _fake_signature(monkeypatch, f"Valid\n{subject}\n")
+        assert tp._verify_authenticode("x.exe") is False, subject
+
+
+def test_authenticode_status_nicht_valid(monkeypatch):
+    _fake_signature(monkeypatch, f"HashMismatch\n{_REAL_SUBJECT}\n")
+    assert tp._verify_authenticode("x.exe") is False
+    _fake_signature(monkeypatch, "")
+    assert tp._verify_authenticode("x.exe") is False
+
+
+def test_subject_field_mit_anfuehrungszeichen():
+    assert tp._subject_field('CN="Ollama, Inc.", O=X', "CN") == "Ollama, Inc."
+    assert tp._subject_field("O=X", "CN") is None
+
+
+def test_stop_ollama_nutzt_absoluten_taskkill_pfad(monkeypatch):
+    calls = _fake_signature(monkeypatch, "")
+    tp.stop_ollama()
+    assert calls and all(c[0].lower().endswith(r"\system32\taskkill.exe") for c in calls)

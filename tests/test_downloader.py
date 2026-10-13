@@ -279,3 +279,30 @@ def test_download_nutzt_socket_timeout(tmp_path, monkeypatch):
     monkeypatch.setattr(downloader.urllib.request, "urlopen", _urlopen)
     downloader.download_file("https://example.com/f", str(tmp_path / "f.bin"))
     assert seen["timeout"] == downloader._NET_TIMEOUT_S
+
+
+def test_download_model_zu_kleine_bin_und_part_kollidieren_nicht(tmp_path, monkeypatch):
+    """Altlast ggml-x.bin (zu klein) + ggml-x.bin.part: kein FileExistsError,
+    die laengere Datei bleibt als Resume-Basis."""
+    monkeypatch.setattr(downloader, "MODELS_DIR", str(tmp_path))
+    filename = downloader.MODEL_FILES["tiny"]
+    model = tmp_path / filename
+    part = tmp_path / (filename + ".part")
+    model.write_bytes(b"x" * 10)
+    part.write_bytes(b"y" * 20)
+
+    seen = {}
+
+    def fake_download(url, dest, progress=None, expected_sha256=None):
+        seen["part"] = (tmp_path / (filename + ".part")).read_bytes()
+        seen["bin_exists"] = os.path.exists(dest)
+
+    monkeypatch.setattr(downloader, "download_file", fake_download)
+    downloader.download_model("tiny")
+    assert seen == {"part": b"y" * 20, "bin_exists": False}
+
+    # Umgekehrt: die .bin ist laenger -> sie ersetzt die .part
+    model.write_bytes(b"x" * 30)
+    part.write_bytes(b"y" * 5)
+    downloader.download_model("tiny")
+    assert seen == {"part": b"x" * 30, "bin_exists": False}

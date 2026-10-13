@@ -13,6 +13,7 @@ from src import __url__, __version__
 from src.theme import BRAND, FONT_BODY, FONT_MONO
 from src.hotkey import key_to_name, mouse_button_to_name
 from src.winutil import enable_dark_titlebar, work_area
+from src.hardware import effective_gpu_type, get_backend_name
 from src.config import _is_valid_hotkey, save_config
 from src.i18n import DICTATION_LANGS, UI_LANGUAGES, set_language, t
 from src.update_checker import RELEASES_PAGE, check_async
@@ -123,10 +124,11 @@ class Tooltip:
 
 class SettingsWindow:
 
-    def __init__(self, config, gpu_info, backend_name, available_devices):
+    def __init__(self, config, gpu_info, available_devices):
         self.config = dict(config)
-        self.gpu_type, self.gpu_name = gpu_info
-        self.backend_name = backend_name
+        # gpu_info = Erkennung; die manuelle Wahl (Optionen) kann sie ueberstimmen
+        self._detected_gpu, self.gpu_name = gpu_info
+        self.gpu_type = effective_gpu_type(self.config.get("gpu_type"), self._detected_gpu)
         self.available_devices = available_devices
         self._recording_hotkey = False
         self._pressed_keys = set()
@@ -212,9 +214,9 @@ class SettingsWindow:
         badge = ctk.CTkFrame(self.root, fg_color=BRAND["card"], corner_radius=12,
                              border_width=1, border_color=BRAND["border"])
         badge.pack(anchor="w", padx=24, pady=(6, 10))
-        ctk.CTkLabel(badge, text=f"{self.backend_name}  ·  {self.gpu_name or 'CPU'}",
-                     font=(FONT_MONO, 11), text_color=BRAND["text_dim"]
-                     ).pack(padx=10, pady=2)
+        self._badge_label = ctk.CTkLabel(badge, text=self._badge_text(),
+                                         font=(FONT_MONO, 11), text_color=BRAND["text_dim"])
+        self._badge_label.pack(padx=10, pady=2)
 
         # Credit-Fusszeile "// code: haZii.org" — zuerst gepackt (side="bottom"),
         # sitzt daher ganz unten, der Start-Button landet darueber
@@ -674,7 +676,40 @@ class SettingsWindow:
 
         self._render_ollama_section()
 
+    def _badge_text(self) -> str:
+        return f"{get_backend_name(self.gpu_type)}  ·  {self.gpu_name or 'CPU'}"
+
+    def _build_accel_row(self, c):
+        """Backend-Override: Erkennung kann sich irren (Treiberleiche einer
+        ausgebauten Karte) — bisher nur per Hand in config.yaml korrigierbar."""
+        self._accel_label_to_code = {t("accel.auto"): "auto", "NVIDIA (CUDA)": "nvidia",
+                                     "AMD (Vulkan)": "amd", "CPU": "cpu"}
+        code_to_label = {v: k for k, v in self._accel_label_to_code.items()}
+        self.accel_var = ctk.StringVar(
+            value=code_to_label.get(self.config.get("gpu_type", "auto"), t("accel.auto")))
+        row = ctk.CTkFrame(c, fg_color="transparent")
+        row.pack(fill="x", pady=(0, 6))
+        ctk.CTkLabel(row, text=t("accel.label"), font=(FONT_BODY, 13),
+                     text_color=BRAND["text"]).pack(side="left")
+        ctk.CTkOptionMenu(
+            row, values=list(self._accel_label_to_code), variable=self.accel_var,
+            command=self._on_accel_change, width=150, font=(FONT_BODY, 12),
+            fg_color=BRAND["card"], button_color=BRAND["card_hover"],
+            button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
+            dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
+            text_color=BRAND["text"], corner_radius=8).pack(side="right")
+
+    def _on_accel_change(self, label):
+        """Backend wechseln: Badge aktualisieren, Download-Button bietet bei
+        Bedarf das passende Binary-Set als Update an."""
+        self.config["gpu_type"] = self._accel_label_to_code.get(label, "auto")
+        self.gpu_type = effective_gpu_type(self.config["gpu_type"], self._detected_gpu)
+        self._badge_label.configure(text=self._badge_text())
+        self._update_dl_button()
+
     def _build_options_section(self, c):
+        self._build_accel_row(c)
+
         self.overlay_var = ctk.BooleanVar(value=self.config.get("show_overlay", True))
         ov_switch = ctk.CTkSwitch(c, text=t("opt.overlay"), variable=self.overlay_var,
                       font=(FONT_BODY, 13), text_color=BRAND["text"],
@@ -812,6 +847,7 @@ class SettingsWindow:
             "update_check": self.updchk_var.get(),
             "initial_prompt": self.vocab_box.get("1.0", "end").strip()[:600],
             "mode": self._hkmode_label_to_code.get(self.hkmode_var.get(), "push_to_talk"),
+            "gpu_type": self._accel_label_to_code.get(self.accel_var.get(), "auto"),
             "auto_stop_silence_s": (
                 self._autostop_label_to_s.get(self.autostop_secs_var.get(), 3.0)
                 if self.autostop_var.get() else 0),
@@ -1200,6 +1236,13 @@ class SettingsWindow:
             # naechsten Start setzte load_config() still den Default.
             log.warning("Hotkey-Aufnahme verworfen (nicht abbildbar): %r", combo)
             combo = self.config.get("hotkey", "ctrl+shift+space")
+            d = combo.upper().replace("+", " + ")
+            # Kurz erklaeren statt still den alten Hotkey zurueckzuholen
+            self.root.after(0, lambda: self.hotkey_label.configure(
+                text=t("hotkey.unsupported"), text_color=BRAND["amber"]))
+            self.root.after(2000, lambda: self.hotkey_label.configure(
+                text=d, text_color=BRAND["text_bright"]))
+            return
         self.config["hotkey"] = combo
         d = combo.upper().replace("+", " + ")
         self.root.after(0, lambda: self.hotkey_label.configure(text=d, text_color=BRAND["text_bright"]))

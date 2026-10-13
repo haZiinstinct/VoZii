@@ -6,6 +6,7 @@ plattformneutral bleibt.
 
 import ctypes
 import logging
+import os
 import sys
 from ctypes import wintypes
 
@@ -14,6 +15,13 @@ log = logging.getLogger(__name__)
 IS_WINDOWS = sys.platform == "win32"
 
 # DWMWA_USE_IMMERSIVE_DARK_MODE: 20 ab Win10 20H1/Win11, 19 auf aelteren Builds
+def system32(*parts: str) -> str:
+    """Absoluter Pfad unter System32. Systemwerkzeuge nie ueber PATH
+    aufloesen — ein beschreibbares Verzeichnis davor koennte sie ersetzen."""
+    root = os.environ.get("SystemRoot", r"C:\Windows")
+    return os.path.join(root, "System32", *parts)
+
+
 _DWMWA_DARK = 20
 _DWMWA_DARK_OLD = 19
 

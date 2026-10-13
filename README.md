@@ -76,7 +76,7 @@ and formatting — still 100&nbsp;% offline.
 
 Right-click the tray icon for your **last transcriptions**, **settings**, the **log**, or
 to **quit**. The status overlay reports everything at a glance — `CLIP` (text is on the
-clipboard, no field was focused), `SHORT` / `EMPTY`, or `ERR:MIC` / `ERR:WHISPER`.
+clipboard, no field was focused), `SHORT` / `EMPTY` / `TOO LONG`, or `ERR:MIC` / `ERR:WHISPER`.
 
 ### What's inside
 
@@ -116,6 +116,9 @@ clipboard, no field was focused), `SHORT` / `EMPTY`, or `ERR:MIC` / `ERR:WHISPER
 | SmartScreen warning on first launch | Unsigned `.exe` (expected) | *More info → Run anyway* |
 | Recording works, but **no text appears** | **Smart App Control** blocks the unsigned speech engine (`0xC0E90002` in the log) | Windows Security → App & browser control → turn Smart App Control **off** — VoZii shows a dialog explaining this since v1.8 |
 | No text on a **fresh Windows** | Microsoft **VC++ Runtime** missing (`0xC0000135`) | Install the [VC++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe) — VoZii detects this and shows a download link |
+| Overlay shows **`TOO LONG`** | The dictation took longer to transcribe than the timeout allows (long recording, *Accurate* mode on CPU) | Dictate in shorter chunks or switch to *Fast* in settings |
+| Wrong backend in the settings badge (e.g. CUDA on an AMD system) | Leftover driver entry of a removed graphics card | Settings → Options → **Acceleration**: pick your GPU, then click *Update* |
+| A copied **image or file** is gone after dictating | Clipboard restore only covers text (known limitation) | Paste the image before dictating, or turn off *Restore clipboard* |
 | App won't start at all | AV/AppLocker blocks the onefile extraction in `%TEMP%` | Check `%TEMP%\vozii_boot_error.log`; allow the app or adjust the policy |
 
 Full guide with log locations and more cases: **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**
@@ -153,6 +156,8 @@ VoZii runs **entirely on your machine**:
 - ✅ Optional update check asks GitHub for the latest **version number only** —
   one request at startup, can be switched off in settings
 - ✅ History (last 50) stays in a local `history.json` — toggleable and clearable in settings
+- ✅ The speech engine runs as a local helper process on `127.0.0.1` with a random port —
+  only programs on the same computer can reach it
 
 ## 🛠️ Build from source
 
@@ -161,7 +166,7 @@ suite on GitHub Actions; releases are built and published automatically on `v*` 
 
 ```bash
 python -m venv .venv && .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 python -m src.main            # run VoZii
 pytest -q                     # run the test suite
 python scripts/build.py       # build the single-file VoZii.exe (PyInstaller)

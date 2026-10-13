@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+import threading
 
 import yaml
 
@@ -54,6 +55,11 @@ _BOOL_KEYS = {
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
 DEFAULT_CONFIG_PATH = os.path.join(BASE_DIR, "config.default.yaml")
+
+# Schreiber in mehreren Threads (UI, gpu-cache-refresh) — ohne Lock gewinnt
+# der letzte und ueberschreibt die Aenderung des anderen. RLock, weil
+# load_config() bei Erststart/Migration selbst save_config() aufruft.
+_lock = threading.RLock()
 
 
 def _is_valid_hotkey(hotkey_str) -> bool:
@@ -109,6 +115,11 @@ def _validate(config: dict) -> dict:
 
 
 def load_config() -> dict:
+    with _lock:
+        return _load_locked()
+
+
+def _load_locked() -> dict:
     if not os.path.exists(CONFIG_PATH):
         if os.path.exists(DEFAULT_CONFIG_PATH):
             shutil.copy2(DEFAULT_CONFIG_PATH, CONFIG_PATH)
@@ -141,5 +152,26 @@ def load_config() -> dict:
 
 
 def save_config(config: dict):
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+    """Atomar via .tmp + os.replace — ein Absturz mitten im Dump laesst die
+    alte Datei unversehrt statt alle Einstellungen zu verlieren."""
+    with _lock:
+        tmp = CONFIG_PATH + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+            os.replace(tmp, CONFIG_PATH)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+
+
+def update_config(**changes):
+    """Setzt einzelne Keys in der Datei (lesen-aendern-schreiben unter dem
+    Lock). Fuer Hintergrund-Threads, die nicht die ganze Config besitzen."""
+    with _lock:
+        cfg = _load_locked()
+        cfg.update(changes)
+        save_config(cfg)

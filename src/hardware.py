@@ -1,9 +1,12 @@
 """GPU-Erkennung und whisper.cpp Binary-URL Mapping."""
 
 import logging
+import os
 import subprocess
 import threading
 import time
+
+from src.winutil import system32
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +94,7 @@ def _try_wmic() -> str | None:
     """Versuch 2: wmic (auf aktuellen Win11-Builds nicht mehr vorhanden)."""
     try:
         result = subprocess.run(
-            ["wmic", "path", "win32_videocontroller", "get", "name"],
+            [system32("wbem", "wmic.exe"), "path", "win32_videocontroller", "get", "name"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=5, creationflags=subprocess.CREATE_NO_WINDOW,
         )
@@ -106,7 +109,7 @@ def _try_powershell() -> str | None:
     """Versuch 3: PowerShell Get-CimInstance (letzter Ausweg, langsam)."""
     try:
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
+            [system32("WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-Command",
              "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=10, creationflags=subprocess.CREATE_NO_WINDOW,
@@ -116,6 +119,15 @@ def _try_powershell() -> str | None:
     except Exception:
         pass
     return None
+
+
+def _has_cuda_driver() -> bool:
+    return os.path.isfile(system32("nvcuda.dll"))
+
+
+def effective_gpu_type(configured: str | None, detected: str) -> str:
+    """Manuelle Wahl (Settings/config.yaml) schlaegt die Erkennung."""
+    return configured if configured in BINARY_URLS else detected
 
 
 def detect_gpu() -> tuple[str, str]:
@@ -140,7 +152,11 @@ def detect_gpu() -> tuple[str, str]:
     # Prioritaet: nvidia > amd > intel (als cpu) > cpu
     for line in lines:
         if "NVIDIA" in line.upper():
-            return ("nvidia", line)
+            # Die Registry listet auch Treiberleichen ausgebauter Karten. Ohne
+            # nvcuda.dll startet das CUDA-Backend nicht — naechsten Treffer nehmen.
+            if _has_cuda_driver():
+                return ("nvidia", line)
+            log.warning("NVIDIA-Adapter %r ohne nvcuda.dll — ignoriert", line)
     for line in lines:
         upper = line.upper()
         if "AMD" in upper or "RADEON" in upper:
@@ -196,13 +212,10 @@ def _refresh_gpu_cache(old_type: str, old_name: str):
 def _store_gpu_cache(gpu_type: str, gpu_name: str):
     # Lazy-Import vermeidet einen Import-Zyklus (config braucht paths, wir
     # werden von downloader importiert)
-    from src.config import load_config, save_config
+    from src.config import update_config
     try:
-        cfg = load_config()
-        cfg["gpu_cache_type"] = gpu_type
-        cfg["gpu_cache_name"] = gpu_name
-        cfg["gpu_cache_at"] = time.time()
-        save_config(cfg)
+        update_config(gpu_cache_type=gpu_type, gpu_cache_name=gpu_name,
+                      gpu_cache_at=time.time())
     except Exception:
         log.exception("GPU-Cache speichern fehlgeschlagen")
 

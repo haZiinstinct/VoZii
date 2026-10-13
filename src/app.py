@@ -17,12 +17,12 @@ from src.state import AppState, StateManager
 from src.config import load_config, save_config
 from src.audio import AudioRecorder
 from src.errors import VCREDIST_URL, check_vcredist
-from src.transcriber import Transcriber, is_setup_complete
+from src.transcriber import Transcriber, TranscriptionTimeout, is_setup_complete
 from src.text_inserter import insert_text
 from src.hotkey import HotkeyManager
 from src.tray import TrayApp
 from src.settings_gui import SettingsWindow
-from src.hardware import detect_gpu_cached, get_backend_name
+from src.hardware import detect_gpu_cached, effective_gpu_type, get_backend_name
 from src.overlay import RecordingOverlay
 from src.text_processor import TextProcessor
 from src.filters import is_hallucination
@@ -37,15 +37,17 @@ HEALTH_CHECK_INTERVAL_S = 15
 
 
 def show_error(title: str, msg: str):
-    """Zeigt Error-Dialog UND loggt ihn."""
+    """Zeigt Error-Dialog UND loggt ihn.
+
+    MessageBoxW statt tk.Tk(): wird auch aus Worker-Threads aufgerufen, und
+    eine zweite Tk-Instanz neben dem Overlay-Thread ist nicht thread-sicher."""
     log.error("%s: %s", title, msg)
     try:
-        import tkinter as tk
-        from tkinter import messagebox
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showerror(title, msg)
-        root.destroy()
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(
+            None, msg, title,
+            0x10 | 0x10000,  # MB_ICONERROR | MB_SETFOREGROUND
+        )
     except Exception:
         pass
 
@@ -163,9 +165,8 @@ def _run_cycle(skip_settings: bool = False) -> str:
     config = load_config()
     set_language(config.get("ui_language", "de"))
 
-    gpu_type, gpu_name, from_cache = detect_gpu_cached(config)
-    if config.get("gpu_type", "auto") != "auto":
-        gpu_type = config["gpu_type"]
+    detected_gpu, gpu_name, from_cache = detect_gpu_cached(config)
+    gpu_type = effective_gpu_type(config.get("gpu_type"), detected_gpu)
     backend_name = get_backend_name(gpu_type)
 
     log.info("GPU: %s (%s)%s", gpu_name or "CPU", backend_name,
@@ -178,8 +179,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
     else:
         settings = SettingsWindow(
             config=config,
-            gpu_info=(gpu_type, gpu_name),
-            backend_name=backend_name,
+            gpu_info=(detected_gpu, gpu_name),
             available_devices=available_devices,
         )
         result = settings.run()
@@ -189,6 +189,8 @@ def _run_cycle(skip_settings: bool = False) -> str:
 
         config = result
         save_config(config)
+        gpu_type = effective_gpu_type(config.get("gpu_type"), detected_gpu)
+        backend_name = get_backend_name(gpu_type)
         _set_auto_start(config.get("auto_start", False))
 
     # Audio device aufloesen — verschwundene Geraete (USB ab) -> Standard
@@ -369,6 +371,9 @@ def _run_cycle(skip_settings: bool = False) -> str:
                             hint_shown[0] = True
                             show_error(t("dialog.backend_blocked.title"), hint)
                         notify("empty", 2000)
+                except TranscriptionTimeout:
+                    log.warning("Transkription im Timeout (%.1fs Audio) — verworfen", duration)
+                    notify("too_long")
                 except Exception:
                     log.exception("Transkription fehlgeschlagen")
                     error_count[0] += 1

@@ -1,6 +1,13 @@
 """Single-Instance-Lock: ok / busy / error (tri-state)."""
 
+import sys
+
+import pytest
+
 from src import logger
+
+# Lock ueber msvcrt — nur unter Windows
+pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows-Lock (msvcrt)")
 
 
 def _use_lock(monkeypatch, path):

@@ -144,3 +144,13 @@ def test_update_config_aendert_nur_genannte_keys(config_paths):
     cfg = load_config()
     assert cfg["hotkey"] == "f8"
     assert (cfg["gpu_cache_type"], cfg["gpu_cache_name"]) == ("amd", "RX 6750 XT")
+
+
+def test_auto_stop_clamping(config_paths):
+    from src.config import save_config
+
+    for given, expected in ((0, 0), (0.5, 1.5), (3, 3.0), (99, 10.0), (True, 0), ("5", 0)):
+        cfg = load_config()
+        cfg["auto_stop_silence_s"] = given
+        save_config(cfg)
+        assert load_config()["auto_stop_silence_s"] == expected, given

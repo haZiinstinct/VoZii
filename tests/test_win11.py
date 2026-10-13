@@ -419,3 +419,33 @@ def test_gpu_fallbacks_nutzen_absolute_pfade(monkeypatch):
     hardware._try_powershell()
     assert calls[0].endswith(r"\system32\wbem\wmic.exe")
     assert calls[1].endswith(r"\system32\windowspowershell\v1.0\powershell.exe")
+
+
+# --- _wait_for_modifier_release (D3) ---
+
+class _FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, s):
+        self.now += s
+
+
+def test_modifier_release_wartet_bis_losgelassen(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(text_inserter, "time", clock)
+    # 0,1 s lang gehalten, dann losgelassen
+    monkeypatch.setattr(text_inserter.winclip, "modifiers_held", lambda: clock.now < 0.1)
+    assert text_inserter._wait_for_modifier_release(timeout_s=1.0) is True
+    assert 0.1 <= clock.now < 0.2
+
+
+def test_modifier_release_timeout(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(text_inserter, "time", clock)
+    monkeypatch.setattr(text_inserter.winclip, "modifiers_held", lambda: True)
+    assert text_inserter._wait_for_modifier_release(timeout_s=0.5) is False
+    assert clock.now >= 0.5

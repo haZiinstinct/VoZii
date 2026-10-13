@@ -2,6 +2,7 @@
 
 import http.server
 import json
+import sys
 import threading
 import time
 
@@ -113,6 +114,7 @@ def test_server_request_sendet_initial_prompt(fake_server, tmp_path):
     assert b'name="prompt"' not in _Handler.last_body
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="subprocess.CREATE_NO_WINDOW")
 def test_cli_cmd_enthaelt_prompt_nur_wenn_gesetzt(monkeypatch, tmp_path):
     from src.transcriber import CliBackend
 

@@ -45,7 +45,10 @@ def _write_version_file() -> str:
     return path
 
 
-def build():
+def build(dist_dir: str | None = None):
+    """dist_dir: Zielordner (Default dist/). dist/ ist oft eine laufende
+    portable Installation — zum Testen woanders hin bauen."""
+    dist_dir = os.path.abspath(dist_dir or os.path.join(BASE_DIR, "dist"))
     print("=" * 40)
     print("  VoZii — Build (Single .exe)")
     print("=" * 40)
@@ -53,6 +56,7 @@ def build():
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm",
+        "--distpath", dist_dir,
         "--clean",                  # Cache loeschen fuer sauberen Build
         "--onefile",                # EINE .exe
         "--windowed",               # Keine Konsole
@@ -80,7 +84,7 @@ def build():
         print("[FEHLER] Build fehlgeschlagen!")
         sys.exit(1)
 
-    exe_path = os.path.join(BASE_DIR, "dist", "VoZii.exe")
+    exe_path = os.path.join(dist_dir, "VoZii.exe")
     if os.path.isfile(exe_path):
         size_mb = os.path.getsize(exe_path) / (1024 * 1024)
         print(f"\n  Fertig: {exe_path}")
@@ -90,4 +94,8 @@ def build():
 
 
 if __name__ == "__main__":
-    build()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="VoZii als Single-Exe bauen")
+    parser.add_argument("--distpath", help="Zielordner (Default: dist/)")
+    build(parser.parse_args().distpath)

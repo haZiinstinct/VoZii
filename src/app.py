@@ -24,7 +24,7 @@ from src.tray import TrayApp
 from src.settings_gui import SettingsWindow
 from src.hardware import detect_gpu_cached, effective_gpu_type, get_backend_name
 from src.overlay import RecordingOverlay
-from src.text_processor import TextProcessor
+from src.text_processor import DEFAULT_MODEL, TextProcessor, prompt_language
 from src.filters import is_hallucination
 from src.history import TranscriptionHistory
 from src.i18n import set_language, t
@@ -216,7 +216,8 @@ def _run_cycle(skip_settings: bool = False) -> str:
     )
     text_processor = TextProcessor(
         mode=config.get("post_processing_mode", "off"),
-        model=config.get("ollama_model", "llama3.2:3b"),
+        model=config.get("ollama_model", DEFAULT_MODEL),
+        prompt_lang=prompt_language(config["language"], config.get("ui_language", "de")),
     )
     log.info("Post-processing: %s", text_processor.mode)
     history = TranscriptionHistory() if config.get("history_enabled", True) else None

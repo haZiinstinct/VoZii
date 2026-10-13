@@ -19,7 +19,8 @@ RMS_SILENCE_THRESHOLD = 0.008
 # Maximaldauer in Sekunden, unter der eine Aufnahme als "sehr kurz" gilt
 SHORT_DURATION_S = 1.0
 
-# Exakte Treffer (normalisiert: lowercase, ohne Satzzeichen)
+# Exakte Treffer (normalisiert: lowercase, ohne Satzzeichen). Umlaut- und
+# ae/oe/ue-Variante stehen bewusst beide drin: Whisper liefert echte Umlaute.
 PHANTOM_EXACT = {
     "vielen dank",
     "danke",

@@ -87,14 +87,67 @@ _PROMPT_FEWSHOT = [
      "professionell und knapp."),
 ]
 
-# Modus -> (System-Prompt, Few-Shot, Temperatur)
+# Fuer alle anderen Diktat-Sprachen: englische Anweisungen + englische
+# Beispiele. Deutsche Few-Shots zogen kleine Modelle sonst ins Deutsche.
+_SMART_SYSTEM_EN = (
+    "You clean up dictated text for a voice-to-text app. Improve the spoken "
+    "text:\n"
+    "1. Remove filler words (um, uh, like, you know, basically).\n"
+    "2. Fix grammar, punctuation and obvious slips of the tongue.\n"
+    "3. Keep the language of the input - never translate.\n"
+    "4. Follow voice commands and remove them from the text: 'as a list' -> "
+    "Markdown list with '-'; 'as an email' -> formal email style; 'as code' -> "
+    "code block with ```; 'heading'/'as a title' -> '# '; 'new paragraph' -> "
+    "paragraph break.\n"
+    "5. Without a command, format sensibly: enumeration -> list, several "
+    "thoughts -> paragraphs, otherwise one clean sentence.\n"
+    "Output ONLY the finished text - no explanation, no quotes, no preamble."
+)
+_SMART_FEWSHOT_EN = [
+    ("um so i wanted to say that the tool like really works great",
+     "I wanted to say that the tool really works great."),
+    ("i need the following ingredients as a list flour sugar butter and eggs",
+     "- Flour\n- Sugar\n- Butter\n- Eggs"),
+]
+
+_PROMPT_SYSTEM_EN = (
+    "Turn spoken text into a precise, well-structured prompt for an AI "
+    "assistant: clear task, concrete requirements, optional context. Keep the "
+    "language of the input - never translate. Output ONLY the prompt - no "
+    "explanation, no preamble."
+)
+_PROMPT_FEWSHOT_EN = [
+    ("write an email to my boss that i cant come in tomorrow because i have a doctors appointment",
+     "Write a polite, formal email to my manager. Content: I can't work tomorrow "
+     "because I have a doctor's appointment. Ask for understanding and offer to "
+     "take care of urgent tasks beforehand. Tone: professional and brief."),
+]
+
+# Prompt-Sprache -> Modus -> (System-Prompt, Few-Shot, Temperatur)
 PROMPTS = {
-    "smart": (_SMART_SYSTEM, _SMART_FEWSHOT, 0.2),
-    "prompt": (_PROMPT_SYSTEM, _PROMPT_FEWSHOT, 0.4),
+    "de": {
+        "smart": (_SMART_SYSTEM, _SMART_FEWSHOT, 0.2),
+        "prompt": (_PROMPT_SYSTEM, _PROMPT_FEWSHOT, 0.4),
+    },
+    "en": {
+        "smart": (_SMART_SYSTEM_EN, _SMART_FEWSHOT_EN, 0.2),
+        "prompt": (_PROMPT_SYSTEM_EN, _PROMPT_FEWSHOT_EN, 0.4),
+    },
 }
 
+
+def prompt_language(dictation_lang: str, ui_lang: str) -> str:
+    """Prompt-Satz waehlen: Diktat-Sprache, bei 'auto' die UI-Sprache.
+    Deutsch hat eigene Prompts, alles andere nimmt die englischen."""
+    lang = ui_lang if dictation_lang in (None, "", "auto") else dictation_lang
+    return "de" if lang == "de" else "en"
+
+
+# Nur Vorworte mit Doppelpunkt fuer Englisch — "Sure, ..." kann echter
+# Diktat-Inhalt sein
 _PREAMBLE_RE = re.compile(
-    r"^(hier ist[^\n:]*:|klar[,!.]?\s+|gerne[,!.]?\s+|sicher[,!.]?\s+|natuerlich[,!.]?\s+)",
+    r"^(hier ist[^\n:]*:|klar[,!.]?\s+|gerne[,!.]?\s+|sicher[,!.]?\s+|natuerlich[,!.]?\s+"
+    r"|here is[^\n:]*:|here's[^\n:]*:)",
     re.IGNORECASE,
 )
 
@@ -111,15 +164,16 @@ def _clean_response(text: str) -> str:
 
 
 class TextProcessor:
-    def __init__(self, mode: str = "off", model: str = DEFAULT_MODEL):
+    def __init__(self, mode: str = "off", model: str = DEFAULT_MODEL, prompt_lang: str = "de"):
         self.mode = mode
         self.model = model
+        self.prompt_lang = prompt_lang if prompt_lang in PROMPTS else "en"
 
     def process(self, text: str) -> str:
         """Verarbeitet den Text gemaess Mode. Fallback auf Raw bei Fehler."""
         if self.mode == "off" or not text:
             return text
-        spec = PROMPTS.get(self.mode)
+        spec = PROMPTS[self.prompt_lang].get(self.mode)
         if not spec:
             return text
         system, fewshot, temperature = spec

@@ -67,6 +67,10 @@ MODEL_DESC_KEYS = {
 AITIER_LABEL_KEYS = {"fast": "aimodel.fast", "balanced": "aimodel.balanced", "best": "aimodel.best"}
 
 # Gemeinsamer Stil fuer alle SegmentedButtons (Sprache/Transkription/Modus)
+# Update-Check nur einmal pro Prozess — nicht bei jedem Sprachwechsel-Rebuild
+# und jeder Rueckkehr aus dem Tray. Ein gefundenes Update wird gemerkt.
+_update_check = {"started": False, "latest": None}
+
 _SEG_STYLE = dict(
     font=(FONT_BODY, 13), selected_color=BRAND["cyan"],
     selected_hover_color=BRAND["cyan_dim"], unselected_color=BRAND["card"],
@@ -208,7 +212,16 @@ class SettingsWindow:
                 except Exception:
                     pass
 
-            check_async(__version__, _show_update)
+            if _update_check["latest"]:
+                _show_update(_update_check["latest"])
+            elif not _update_check["started"]:
+                _update_check["started"] = True
+
+                def _remember(latest, show=_show_update):
+                    _update_check["latest"] = latest
+                    show(latest)
+
+                check_async(__version__, _remember)
 
         # Backend-Info als Pill-Badge (hazii.org-Stil)
         badge = ctk.CTkFrame(self.root, fg_color=BRAND["card"], corner_radius=12,

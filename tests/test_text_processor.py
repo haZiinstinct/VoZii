@@ -152,3 +152,30 @@ def test_stop_ollama_nutzt_absoluten_taskkill_pfad(monkeypatch):
     calls = _fake_signature(monkeypatch, "")
     tp.stop_ollama()
     assert calls and all(c[0].lower().endswith(r"\system32\taskkill.exe") for c in calls)
+
+
+def test_prompt_sprache_nach_diktat_und_ui_sprache():
+    assert tp.prompt_language("de", "en") == "de"
+    assert tp.prompt_language("fr", "de") == "en"
+    assert tp.prompt_language("auto", "de") == "de"
+    assert tp.prompt_language("auto", "ja") == "en"
+
+
+def test_englische_prompts_fuer_andere_sprachen(monkeypatch):
+    captured = {}
+
+    def fake_chat(self, system, fewshot, text, temperature, timeout=60):
+        captured.update(system=system, fewshot=fewshot)
+        return "ok"
+
+    monkeypatch.setattr(TextProcessor, "_chat", fake_chat)
+    TextProcessor(mode="smart", prompt_lang="en").process("um hello")
+    assert "Keep the language of the input" in captured["system"]
+    assert captured["fewshot"][0][1].startswith("I wanted")
+    TextProcessor(mode="smart").process("aehm hallo")
+    assert captured["system"].startswith("Du bist")
+
+
+def test_clean_response_strips_english_preamble():
+    assert tp._clean_response("Here is the cleaned text: Hello world.") == "Hello world."
+    assert tp._clean_response("Sure, we meet at five.") == "Sure, we meet at five."

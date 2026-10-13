@@ -10,14 +10,10 @@ Alle bleiben unter ihrer jeweiligen Lizenz.
 ### whisper.cpp
 - **Autor:** Georgi Gerganov
 - **Lizenz:** MIT License
-- **URL:** https://github.com/ggerganov/whisper.cpp
-- **Nutzung:** Lokale Whisper-Inference (als Subprocess aufgerufen)
-
-### whisper.cpp Vulkan Build (AMD GPUs)
-- **Autor:** Jerry Shell
-- **Lizenz:** MIT License
-- **URL:** https://github.com/jerryshell/whisper.cpp-windows-vulkan-bin
-- **Nutzung:** Pre-built Binary für AMD RDNA Vulkan-Beschleunigung
+- **URL:** https://github.com/ggml-org/whisper.cpp
+- **Nutzung:** Lokale Whisper-Inference (als Subprocess aufgerufen); der
+  Vulkan-Build für AMD-GPUs wird seit v1.8 selbst aus dem Upstream-Source gebaut
+  (`.github/workflows/build-backend.yml`)
 
 ### GGML Whisper Models
 - **Autor:** OpenAI (trained) / ggerganov (converted)
@@ -74,7 +70,7 @@ Alle bleiben unter ihrer jeweiligen Lizenz.
 
 ## Runtime
 
-### Python 3.14
+### Python 3.12 (Release-Build)
 - **Lizenz:** PSF License
 - **URL:** https://www.python.org
 

@@ -25,6 +25,36 @@ offene Punkte: [docs/AUDIT-2026-10-MASSNAHMEN.md](docs/AUDIT-2026-10-MASSNAHMEN.
 - **Hotkey-Aufnahme:** nicht abbildbare Tasten (Win, Numpad, Medientasten) werden
   verworfen statt als toter Hotkey gespeichert.
 - `config.default.yaml` um `auto_stop_silence_s`, `initial_prompt`, `update_check` ergänzt.
+- **Lange Diktate im Timeout** starteten den Server neu und liefen danach noch
+  per CLI — bis zu dreimal Wartezeit. Jetzt wird sofort abgebrochen, das Overlay
+  zeigt `ZU LANG`.
+- **Einstellungen** werden atomar gespeichert (kein Totalverlust bei Absturz
+  mitten im Schreiben), GPU-Cache und Settings überschreiben sich nicht mehr.
+- **Modell-Download** brach ab, wenn neben einer zu kleinen `.bin` schon eine
+  `.part` lag.
+- **GPU-Erkennung:** Treiberleichen ausgebauter NVIDIA-Karten (ohne `nvcuda.dll`)
+  führen nicht mehr zum CUDA-Backend.
+- Fehlerdialoge aus dem Worker-Thread laufen über `MessageBoxW` statt einer
+  zweiten Tk-Instanz.
+- Nicht unterstützte Hotkey-Taste wird jetzt kurz erklärt statt still verworfen.
+
+### Hinzugefügt
+- **Einstellungen → Optionen → Beschleunigung:** Backend manuell wählen
+  (Automatisch / NVIDIA / AMD / CPU).
+- KI-Nachbearbeitung nutzt für nicht-deutsche Diktate englische Anweisungen und
+  Beispiele (vorher zogen die deutschen Few-Shots kleine Modelle ins Deutsche).
+
+### Sicherheit / Build
+- GitHub Actions auf Commit-SHAs gepinnt, Dependabot für pip und Actions,
+  Build-Werkzeuge in `requirements-dev.txt` gepinnt.
+- Backend-Workflow: Vulkan-SDK-Checksumme, whisper.cpp per Commit-SHA.
+- `wmic`, `powershell`, `taskkill` werden mit absolutem System32-Pfad gestartet;
+  die Signaturprüfung des Ollama-Installers vergleicht den CN exakt.
+- CI läuft bei eigenen PRs nur noch einmal.
+
+### Intern
+- Zykluslogik aus `app._run_cycle` als `RunSession` (`src/session.py`) testbar
+  gemacht; Testsuite auch außerhalb von Windows sammelbar.
 
 ---
 

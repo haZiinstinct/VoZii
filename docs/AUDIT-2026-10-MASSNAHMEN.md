@@ -15,7 +15,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
 
 ## A — Supply Chain / CI (Priorität hoch, Aufwand klein)
 
-- [ ] **A1 · GitHub Actions auf Commit-SHA pinnen** · S
+- [x] **A1 · GitHub Actions auf Commit-SHA pinnen** · S
   Fundstelle: `.github/workflows/ci.yml:13-14, 34-35, 52` und `build-backend.yml:23`
   Warum: Ein Tag wie `@v7` ist beweglich. Wer das Action-Repo übernimmt, baut
   das nächste VoZii-Release. Das Projekt bewirbt „verified downloads“ — das
@@ -24,7 +24,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   Actions. SHAs auf der Release-Seite der jeweiligen Action ablesen.
   Nachweis: CI läuft grün; Dependabot (A2) hält die SHAs künftig aktuell.
 
-- [ ] **A2 · Dependabot einrichten** · S
+- [x] **A2 · Dependabot einrichten** · S
   Fundstelle: neu `.github/dependabot.yml`
   Vorschlag:
   ```yaml
@@ -40,7 +40,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   Nachweis: innerhalb einer Woche erscheinen erste Dependabot-PRs (oder keine,
   weil alles aktuell ist — beides ok).
 
-- [ ] **A3 · Build-Werkzeuge pinnen** · S
+- [x] **A3 · Build-Werkzeuge pinnen** · S
   Fundstelle: `.github/workflows/ci.yml:21` (`ruff pytest`) und `:42` (`pyinstaller`)
   Warum: Ein neues PyInstaller-Release ändert still das Release-Artefakt
   (Bootloader, Hidden-Import-Verhalten, AV-Signaturen). Ein neues ruff kann
@@ -51,7 +51,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   Release: `pip install --require-hashes` mit `pip-compile --generate-hashes`.
   Nachweis: `pip freeze` im CI-Log zeigt die gepinnten Versionen.
 
-- [ ] **A4 · build-backend.yml härten** · S
+- [x] **A4 · build-backend.yml härten** · S
   Fundstelle: `.github/workflows/build-backend.yml:26` (Tag statt SHA),
   `:30` (Vulkan-SDK ohne Checksumme), `:55` (`--clobber`)
   Vorschlag:
@@ -65,7 +65,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
      pinnen, sonst schlagen alle AMD-Downloads fehl.“*
   Nachweis: Workflow manuell gegen eine Test-Ref laufen lassen.
 
-- [ ] **A5 · Doppelte CI-Läufe bei eigenen PRs vermeiden** · S
+- [x] **A5 · Doppelte CI-Läufe bei eigenen PRs vermeiden** · S
   Fundstelle: `.github/workflows/ci.yml:5` (`branches: ["**"]` + `pull_request`)
   Vorschlag: entweder `push` auf `master` und Tags beschränken und PRs über
   `pull_request` laufen lassen, oder `pull_request` streichen (Forks bekommen
@@ -76,7 +76,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
 
 ## B — Robustheit (Priorität mittel)
 
-- [ ] **B1 · `save_config()` atomar + gegen Threads absichern** · M
+- [x] **B1 · `save_config()` atomar + gegen Threads absichern** · M
   Fundstelle: `src/config.py:143-145`; zweiter Schreiber `src/hardware.py:196-207`
   (`_store_gpu_cache` aus dem Thread `gpu-cache-refresh`)
   Warum: Zwei Threads schreiben dieselbe Datei ohne Lock (Lost Update), und
@@ -91,7 +91,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   (Exception im Dump) und prüft, dass die alte Datei unversehrt bleibt;
   `test_config.py` bleibt grün.
 
-- [ ] **B2 · Server-Timeout nicht als Server-Crash behandeln** · M
+- [x] **B2 · Server-Timeout nicht als Server-Crash behandeln** · M
   Fundstelle: `src/transcriber.py:236-245` (`ServerBackend.transcribe`) und
   `:350-362` (CLI-Fallback in `Transcriber.transcribe`)
   Warum: Läuft ein langes Diktat im Qualitätsmodus auf CPU in den Timeout,
@@ -107,7 +107,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   Nachweis: Test mit `fake_server`, dessen Handler länger als der (gemockte)
   Timeout schläft; Assertion: genau ein Request, kein `shutdown()`.
 
-- [ ] **B3 · Hotkey-Aufnahme: Hinweis statt stilles Verwerfen** · S (Code) + M (9 Übersetzungen)
+- [x] **B3 · Hotkey-Aufnahme: Hinweis statt stilles Verwerfen** · S (Code) + M (9 Übersetzungen)
   Fundstelle: `src/settings_gui.py:1191-1206` (`_finalize`),
   i18n-Nachbar `src/i18n.py:170` (`hotkey.press`)
   Warum: Seit dem Audit-Fix wird eine nicht abbildbare Taste (Win, Numpad,
@@ -120,7 +120,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   Nachweis: `test_i18n.py` (Key-Vollständigkeit) grün; manueller Test mit
   Win-Taste.
 
-- [ ] **B4 · `download_model`: Rename kollidiert mit vorhandener `.part`** · S
+- [x] **B4 · `download_model`: Rename kollidiert mit vorhandener `.part`** · S
   Fundstelle: `src/downloader.py:366-369`
   Warum: Existieren `ggml-x.bin` (zu klein, Altlast) **und** `ggml-x.bin.part`,
   wirft `os.rename` auf Windows `FileExistsError` — Download bricht mit
@@ -129,7 +129,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   Resume-Basis), oder `os.replace()` verwenden.
   Nachweis: Test in `test_downloader.py`, der beide Dateien anlegt.
 
-- [ ] **B5 · Zwischenablage mit Bild/Dateien wird nicht wiederhergestellt** · S (Doku) / L (Code)
+- [x] **B5 · Zwischenablage mit Bild/Dateien wird nicht wiederhergestellt** · S (Doku) / L (Code)
   Fundstelle: `src/text_inserter.py:89` und `:107`
   Warum: `winclip.get_text()` liefert `None` für Nicht-Text (Screenshot,
   kopierte Dateien). Nach dem Einfügen bleibt dann der Diktat-Text in der
@@ -140,7 +140,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   aufwendig, nur wenn Nutzer es vermissen.
   Nachweis: Doku-Zeile vorhanden.
 
-- [ ] **B6 · Backend-Override in die GUI + inaktive Adapter ignorieren** · M
+- [x] **B6 · Backend-Override in die GUI + inaktive Adapter ignorieren** · M
   Fundstelle: `src/hardware.py:60-87` (`_try_registry`), Override nur in
   `src/app.py:167` per `config.yaml`
   Warum: Die Registry-Enumeration listet auch ausgebaute oder deaktivierte
@@ -155,7 +155,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   `nvcuda.dll` nicht in System32 liegt, auf den nächsten Treffer zurückfallen.
   Nachweis: Test für die `nvcuda.dll`-Prüfung mit gemocktem `os.path.isfile`.
 
-- [ ] **B7 · `show_error()` aus Worker-Threads** · M
+- [x] **B7 · `show_error()` aus Worker-Threads** · M
   Fundstelle: `src/app.py:39-49`, Aufruf aus `transcription_worker` (`:~380`)
   Warum: Erzeugt eine zweite `tk.Tk()`-Instanz in einem Nicht-UI-Thread,
   während das Overlay in seinem eigenen Thread eine hält. Funktioniert mit
@@ -170,7 +170,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
 
 ## C — Sicherheit, Defense in depth (Priorität mittel-niedrig)
 
-- [ ] **C1 · Systemwerkzeuge mit absolutem Pfad starten** · S
+- [x] **C1 · Systemwerkzeuge mit absolutem Pfad starten** · S
   Fundstelle: `src/hardware.py:94` (`wmic`), `:109` (`powershell`);
   `src/text_processor.py:223` (`taskkill`), `:276` (`powershell`)
   Warum: Alle vier werden über `PATH` aufgelöst. Ein beschreibbares
@@ -188,7 +188,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   Nachweis: `test_win11.py`-Test, der `subprocess.run` mockt und den
   absoluten Pfad als `cmd[0]` prüft.
 
-- [ ] **C2 · Authenticode-Subject exakt vergleichen** · S
+- [x] **C2 · Authenticode-Subject exakt vergleichen** · S
   Fundstelle: `src/text_processor.py:286`
   Warum: `"ollama" in subject.lower()` akzeptiert jedes Zertifikat, dessen
   Subject den Teilstring enthält.
@@ -198,7 +198,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   loggen.
   Nachweis: Unit-Test mit gemockter PowerShell-Ausgabe (gültig / falscher CN).
 
-- [ ] **C3 · whisper-server ohne Auth auf localhost — dokumentieren** · S
+- [x] **C3 · whisper-server ohne Auth auf localhost — dokumentieren** · S
   Fundstelle: `src/transcriber.py:192-199` (`--host 127.0.0.1`)
   Warum: Jeder lokale Prozess kann Audio einreichen und die Antwort lesen.
   Für eine Desktop-App akzeptabel, aber im README-Privacy-Abschnitt fehlt der
@@ -213,7 +213,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
 
 ## D — Tests (Priorität mittel, Aufwand größer)
 
-- [ ] **D1 · Zykluslogik in `app.py` testbar machen** · L
+- [x] **D1 · Zykluslogik in `app.py` testbar machen** · L
   Fundstelle: `src/app.py:154-450` (`_run_cycle`, 0 % Coverage)
   Warum: Alle vier Bugs des Audits lagen in oder an dieser Nahtstelle
   (Hotkey ↔ Recorder ↔ Worker). Nichts davon hätte ein Test gefangen.
@@ -225,7 +225,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   totem Stream → `err_mic`“, Test „Worker löscht WAV auch bei Exception“.
   Nachweis: Coverage `app.py` > 60 %.
 
-- [ ] **D2 · Suite plattformunabhängig sammelbar machen** · S
+- [x] **D2 · Suite plattformunabhängig sammelbar machen** · S
   Fundstelle: `tests/conftest.py:12`
   Warum: Auf Linux/macOS scheitert schon das Sammeln (pynput braucht X,
   pystray ein Display, sounddevice PortAudio). Mit zwei Umgebungsvariablen
@@ -241,7 +241,7 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
   unter „Build from source“ einen Satz dazu.
   Nachweis: `pytest` auf Linux: 0 failed.
 
-- [ ] **D3 · Überdeckungslücken mit gezielten Tests schließen** · M
+- [x] **D3 · Überdeckungslücken mit gezielten Tests schließen** · M
   Fundstellen und Vorschläge:
   - `src/hardware.py:121-154` `detect_gpu`: Parsing der Registry-Ausgabe
     (NVIDIA vor AMD vor Intel, leere Ausgabe → cpu).
@@ -255,28 +255,61 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
 
 ## E — Kleinkram (Priorität niedrig, je unter 15 min)
 
-- [ ] **E1** `src/app.py:217` — Fallback `"llama3.2:3b"` durch
+- [x] **E1** `src/app.py:217` — Fallback `"llama3.2:3b"` durch
   `text_processor.DEFAULT_MODEL` ersetzen (ist seit 1.6 `qwen2.5:3b`).
-- [ ] **E2** `THIRDPARTY-LICENSES.md:16-20` — Abschnitt „whisper.cpp Vulkan
+- [x] **E2** `THIRDPARTY-LICENSES.md:16-20` — Abschnitt „whisper.cpp Vulkan
   Build (Jerry Shell)“ entfernen, seit 1.8 Eigenbau aus Upstream-Source;
   `:77` „Python 3.14“ → „Python 3.12“ (CI-Build) oder „3.12+“.
-- [ ] **E3** `src/settings_gui.py:209` — `check_async` nur beim ersten
+- [x] **E3** `src/settings_gui.py:209` — `check_async` nur beim ersten
   `run()` je Prozess ausführen (Flag auf Modulebene), nicht bei jedem
   Sprachwechsel-Rebuild und jeder Rückkehr aus dem Tray.
-- [ ] **E4** `src/config.py:56` + `scripts/build.py:63` — entweder
+- [x] **E4** `src/config.py:56` + `scripts/build.py:63` — entweder
   `DEFAULT_CONFIG_PATH` auf `sys._MEIPASS` zeigen lassen (dann wirkt die
   gebündelte YAML auch in der Exe) oder die `--add-data`-Zeile streichen
   (totes Gewicht). Empfehlung: streichen, `DEFAULT_CONFIG` ist die eine
   Wahrheit; die YAML bleibt als Doku im Repo.
-- [ ] **E5** `src/text_processor.py:49-84` — System-Prompts und Few-Shots sind
+- [x] **E5** `src/text_processor.py:49-84` — System-Prompts und Few-Shots sind
   deutsch. Für nicht-deutsche UI-Sprachen: Anweisungen auf Englisch
   formulieren („Keep the language of the input“), Few-Shot-Paare je
   Diktat-Sprache aus einer kleinen Tabelle wählen (de/en reichen als Start).
-- [ ] **E6** `src/filters.py:27-31` — Umlaute direkt im Code
+- [x] **E6** `src/filters.py:27-31` — Umlaute direkt im Code
   (`dankeschön`, `tschüss`); Rest des Projekts schreibt `ae/oe/ue`. Stilfrage,
   die Normalisierung in `_normalize` ist davon unberührt.
 
 ---
+
+## Stand der Umsetzung (Branch `fix/audit-2026-10`)
+
+Alle Punkte A–E umgesetzt, je Block ein Commit. Abweichungen vom Vorschlag:
+
+- **A1:** `softprops/action-gh-release` auf v2.6.2 gepinnt (letzte v2), nicht auf
+  das inzwischen erschienene v3 — Major-Update gern über Dependabot.
+- **A4:** Vulkan-SHA-256 aus LunarGs Hash-API
+  (`sdk.lunarg.com/sdk/sha/<version>/windows/...exe.json`); neuer Input
+  `release_tag`, da ein SHA als `whisper_ref` sonst `backend-<sha>` ergäbe.
+- **B1:** zusätzlich `update_config(**keys)` — der GPU-Cache-Thread schreibt nur
+  noch seine drei Keys unter dem Lock.
+- **B2:** eigene Exception `TranscriptionTimeout`; Overlay zeigt `ZU LANG`
+  (neuer Key `overlay.too_long`) statt eines Dialogs.
+- **B3:** nur der Hinweis; `SPECIAL_KEYS` nicht erweitert.
+- **B5:** nur Doku (README-Troubleshooting).
+- **B6:** `nvcuda.dll`-Variante; die Settings-Option schaltet Badge und
+  Update-Button sofort um.
+- **C1:** Helfer `winutil.system32()`.
+- **C2:** CN `Ollama Inc.` am installierten `ollama.exe` abgelesen.
+- **D1:** Klasse liegt in eigenem Modul `src/session.py` (ohne Tk/pystray-Importe).
+  `session.py` 82 % abgedeckt; `app.py` selbst bleibt Bootstrap ohne Tests.
+- **D2:** nicht auf Linux verifiziert (kein Docker/WSL verfügbar). `test_audio`
+  fängt auch `OSError` (sounddevice ohne PortAudio).
+- **D3:** Gesamtabdeckung 42 % statt > 45 % — der Rest steckt in GUI-Modulen
+  (`settings_gui`, `overlay`, `tray`).
+- **E5:** Deutsch behält die deutschen Prompts; alle anderen Sprachen bekommen
+  englische Anweisungen + Few-Shots (`prompt_language()`).
+- **E6:** Umlaute bleiben — Whisper liefert echte Umlaute, beide Varianten sind
+  nötig; Kommentar ergänzt.
+
+Manuell noch zu prüfen: Win-Taste in der Hotkey-Aufnahme (B3), Beschleunigungs-
+Menü in den Settings (B6), Backend-Workflow gegen eine Test-Ref (A4).
 
 ## Erledigt im Audit-Branch (zur Erinnerung, nicht mehr offen)
 

@@ -7,7 +7,13 @@ schreiben. Audio/Netzwerk wird in den jeweiligen Tests gemockt.
 import os
 import sys
 
-import pytest
+# Vor jedem Import von pynput/pystray: auf Linux/macOS ohne Display scheitert
+# sonst schon das Sammeln der Tests. Unter Windows wirkungslos (win32-Backend).
+if sys.platform != "win32":
+    os.environ.setdefault("PYNPUT_BACKEND", "dummy")
+    os.environ.setdefault("PYSTRAY_BACKEND", "dummy")
+
+import pytest  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

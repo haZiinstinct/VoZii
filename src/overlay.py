@@ -31,6 +31,7 @@ _FLASH = {
     "clip": ("overlay.clip", "cyan"),        # Text in der Zwischenablage (Einfuegen ging nicht)
     "short": ("overlay.short", "amber"),     # Aufnahme zu kurz
     "empty": ("overlay.empty", "amber"),     # nichts erkannt
+    "too_long": ("overlay.too_long", "amber"),  # Transkription im Timeout
     "ready": ("overlay.ready", "green"),     # First-Run-Hinweis
     "err_mic": ("overlay.err_mic", "red"),
     "err_whisper": ("overlay.err_whisper", "red"),

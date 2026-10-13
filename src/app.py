@@ -5,7 +5,6 @@ faengt der Launcher das ab (Notfall-Log + nativer Dialog)."""
 
 import logging
 import os
-import queue
 import sys
 import threading
 import time
@@ -13,20 +12,19 @@ import time
 from src import __version__
 from src.paths import TMP_DIR
 from src.logger import setup_logging, acquire_single_instance, get_log_path
-from src.state import AppState, StateManager
+from src.state import StateManager
 from src.config import load_config, save_config
 from src.audio import AudioRecorder
 from src.errors import VCREDIST_URL, check_vcredist
 from src.transcriber import Transcriber, is_setup_complete
-from src.text_inserter import insert_text
 from src.hotkey import HotkeyManager
 from src.tray import TrayApp
 from src.settings_gui import SettingsWindow
-from src.hardware import detect_gpu_cached, get_backend_name
+from src.hardware import detect_gpu_cached, effective_gpu_type, get_backend_name
 from src.overlay import RecordingOverlay
-from src.text_processor import TextProcessor
-from src.filters import is_hallucination
+from src.text_processor import DEFAULT_MODEL, TextProcessor, prompt_language
 from src.history import TranscriptionHistory
+from src.session import RunSession
 from src.i18n import set_language, t
 
 log = logging.getLogger(__name__)
@@ -37,15 +35,17 @@ HEALTH_CHECK_INTERVAL_S = 15
 
 
 def show_error(title: str, msg: str):
-    """Zeigt Error-Dialog UND loggt ihn."""
+    """Zeigt Error-Dialog UND loggt ihn.
+
+    MessageBoxW statt tk.Tk(): wird auch aus Worker-Threads aufgerufen, und
+    eine zweite Tk-Instanz neben dem Overlay-Thread ist nicht thread-sicher."""
     log.error("%s: %s", title, msg)
     try:
-        import tkinter as tk
-        from tkinter import messagebox
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showerror(title, msg)
-        root.destroy()
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(
+            None, msg, title,
+            0x10 | 0x10000,  # MB_ICONERROR | MB_SETFOREGROUND
+        )
     except Exception:
         pass
 
@@ -163,9 +163,8 @@ def _run_cycle(skip_settings: bool = False) -> str:
     config = load_config()
     set_language(config.get("ui_language", "de"))
 
-    gpu_type, gpu_name, from_cache = detect_gpu_cached(config)
-    if config.get("gpu_type", "auto") != "auto":
-        gpu_type = config["gpu_type"]
+    detected_gpu, gpu_name, from_cache = detect_gpu_cached(config)
+    gpu_type = effective_gpu_type(config.get("gpu_type"), detected_gpu)
     backend_name = get_backend_name(gpu_type)
 
     log.info("GPU: %s (%s)%s", gpu_name or "CPU", backend_name,
@@ -178,8 +177,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
     else:
         settings = SettingsWindow(
             config=config,
-            gpu_info=(gpu_type, gpu_name),
-            backend_name=backend_name,
+            gpu_info=(detected_gpu, gpu_name),
             available_devices=available_devices,
         )
         result = settings.run()
@@ -189,6 +187,8 @@ def _run_cycle(skip_settings: bool = False) -> str:
 
         config = result
         save_config(config)
+        gpu_type = effective_gpu_type(config.get("gpu_type"), detected_gpu)
+        backend_name = get_backend_name(gpu_type)
         _set_auto_start(config.get("auto_start", False))
 
     # Audio device aufloesen — verschwundene Geraete (USB ab) -> Standard
@@ -214,7 +214,8 @@ def _run_cycle(skip_settings: bool = False) -> str:
     )
     text_processor = TextProcessor(
         mode=config.get("post_processing_mode", "off"),
-        model=config.get("ollama_model", "llama3.2:3b"),
+        model=config.get("ollama_model", DEFAULT_MODEL),
+        prompt_lang=prompt_language(config["language"], config.get("ui_language", "de")),
     )
     log.info("Post-processing: %s", text_processor.mode)
     history = TranscriptionHistory() if config.get("history_enabled", True) else None
@@ -228,7 +229,6 @@ def _run_cycle(skip_settings: bool = False) -> str:
     log.info("Transcriber: %s", transcriber.get_status())
     log.info("Hotkey: %s", config["hotkey"])
 
-    audio_queue = queue.Queue()
     shutdown_event = threading.Event()
     return_to_settings = threading.Event()
     overlay = None
@@ -257,130 +257,12 @@ def _run_cycle(skip_settings: bool = False) -> str:
             log.exception("Audio-Stream konnte nicht geoeffnet werden — "
                           "erneuter Versuch beim Aufnahmestart")
 
-        use_sound = config.get("audio_feedback", True)
-
-        def beep_start():
-            if use_sound:
-                threading.Thread(target=play_tone, args=(600, 80), daemon=True).start()
-
-        def beep_done():
-            if use_sound:
-                threading.Thread(target=play_tone, args=(880, 60), daemon=True).start()
-
-        def notify(code: str, duration_ms: int = 5000):
-            """Kurzes visuelles Feedback (Status-Code im Overlay).
-
-            Ohne Overlay waeren Fehler unsichtbar — dann wenigstens ein tiefer Ton."""
-            if overlay:
-                overlay.flash(code, duration_ms)
-            elif code.startswith("err") and use_sound:
-                threading.Thread(target=play_tone, args=(300, 250), daemon=True).start()
-
-        def on_activate():
-            try:
-                if state.state == AppState.TRANSCRIBING:
-                    return
-                state.set_state(AppState.RECORDING)
-                beep_start()
-                recorder.start_recording()
-                log.info("Aufnahme gestartet")
-            except Exception:
-                log.exception("on_activate fehlgeschlagen")
-                state.set_state(AppState.IDLE)
-                notify("err_mic")
-
-        def on_deactivate():
-            try:
-                if state.state != AppState.RECORDING:
-                    log.debug("on_deactivate ignoriert (State: %s)", state.state.value)
-                    return
-                wav_path, duration, rms = recorder.stop_recording()
-                if wav_path:
-                    state.set_state(AppState.TRANSCRIBING)
-                    audio_queue.put((wav_path, duration, rms))
-                elif duration == 0 and not recorder.is_stream_healthy():
-                    # Kein einziges Sample vom Mikrofon. Frueher passierte
-                    # hier gar nichts — der Nutzer druckte den Hotkey und
-                    # bekam kein Zeichen, dass etwas kaputt ist.
-                    state.set_state(AppState.IDLE)
-                    log.error("Aufnahme ohne Audiodaten — Mikrofon-Stream tot")
-                    notify("err_mic")
-                    recorder.ensure_stream()
-                else:
-                    state.set_state(AppState.IDLE)
-                    notify("short", 2000)
-            except Exception:
-                log.exception("on_deactivate fehlgeschlagen")
-                state.set_state(AppState.IDLE)
-                notify("err_mic")
-
-        # Auto-Stop bei Stille (nur Toggle-Modus): wirkt wie der zweite
-        # Hotkey-Druck — ueber den HotkeyManager, damit dessen Zustand
-        # mitgeht und der Stopp im Dispatcher-Thread laeuft statt im
-        # PortAudio-Callback (hotkey_mgr wird weiter unten gesetzt; der
-        # Callback kann erst nach dem Start einer Aufnahme feuern)
-        auto_stop_s = config.get("auto_stop_silence_s", 0)
-        if config.get("mode") == "toggle" and auto_stop_s:
-            def auto_stop():
-                if hotkey_mgr is not None:
-                    hotkey_mgr.deactivate()
-                else:
-                    on_deactivate()
-
-            recorder.set_auto_stop(auto_stop_s, auto_stop)
-            log.info("Auto-Stop bei Stille: %.1fs", auto_stop_s)
-
-        error_count = [0]
-        hint_shown = [False]
-
-        def transcription_worker():
-            while not shutdown_event.is_set():
-                try:
-                    wav_path, duration, rms = audio_queue.get(timeout=0.5)
-                except queue.Empty:
-                    continue
-                try:
-                    text = transcriber.transcribe(wav_path)
-                    if text and is_hallucination(text, duration, rms):
-                        log.info("Halluzination verworfen (%.1fs, rms %.4f): %r",
-                                 duration, rms, text)
-                        text = ""
-                    if text:
-                        text = text_processor.process(text)
-                    if text:
-                        log.info("Transkribiert: %d Zeichen", len(text))
-                        if history:
-                            history.add(text)
-                        inserted = insert_text(
-                            text, restore_clipboard=config.get("restore_clipboard", True))
-                        if inserted:
-                            beep_done()
-                        else:
-                            # Text liegt in der Zwischenablage — Nutzer informieren
-                            notify("clip")
-                        error_count[0] = 0
-                    else:
-                        log.warning("Transkription leer")
-                        # Erklaerbarer Backend-Fehler (SAC-Block, fehlende
-                        # VC++-Runtime)? Einmal pro Zyklus als Dialog zeigen —
-                        # sonst raetselt der Nutzer ueber leere Diktate.
-                        hint = transcriber.last_error_hint
-                        if hint and not hint_shown[0]:
-                            hint_shown[0] = True
-                            show_error(t("dialog.backend_blocked.title"), hint)
-                        notify("empty", 2000)
-                except Exception:
-                    log.exception("Transkription fehlgeschlagen")
-                    error_count[0] += 1
-                    if error_count[0] >= 2:
-                        notify("err_whisper")
-                        error_count[0] = 0
-                finally:
-                    try:
-                        os.remove(wav_path)
-                    except OSError:
-                        pass
-                state.set_state(AppState.IDLE)
+        session = RunSession(
+            config=config, state=state, recorder=recorder, transcriber=transcriber,
+            text_processor=text_processor, history=history, overlay=overlay,
+            play_tone=play_tone, show_error=show_error, shutdown_event=shutdown_event,
+        )
+        session.install_auto_stop()
 
         def on_quit():
             # Nur das Shutdown-Signal setzen; das eigentliche Aufraeumen
@@ -398,42 +280,19 @@ def _run_cycle(skip_settings: bool = False) -> str:
             except Exception:
                 log.exception("Konnte Log nicht oeffnen")
 
-        threading.Thread(target=transcription_worker, daemon=True).start()
+        threading.Thread(target=session.transcription_worker, daemon=True).start()
 
         hotkey_mgr = HotkeyManager(
             hotkey_str=config["hotkey"],
-            on_activate=on_activate,
-            on_deactivate=on_deactivate,
+            on_activate=session.on_activate,
+            on_deactivate=session.on_deactivate,
             mode=config.get("mode", "push_to_talk"),
         )
+        session.hotkey_mgr = hotkey_mgr
         hotkey_mgr.start()
 
-        def health_watchdog():
-            """Haelt die zwei Dinge am Leben, die ueber Stunden still sterben:
-
-            - Low-Level-Hooks: Windows entfernt sie bei Hook-Timeout, danach
-              waere der Hotkey bis zum App-Neustart tot.
-            - Audio-Stream: USB-Mikro kurz weg oder Windows-Audio-Engine neu
-              gestartet — PortAudio meldet das nicht, `active` bleibt True,
-              es kommen nur keine Samples mehr.
-            """
-            while not shutdown_event.wait(HEALTH_CHECK_INTERVAL_S):
-                try:
-                    if not hotkey_mgr.is_healthy():
-                        log.warning("Hotkey-Listener tot — starte neu")
-                        hotkey_mgr.restart()
-                    else:
-                        hotkey_mgr.release_if_stuck()
-                except Exception:
-                    log.exception("Hotkey-Watchdog fehlgeschlagen")
-                try:
-                    if state.state == AppState.IDLE:
-                        recorder.ensure_stream()
-                except Exception:
-                    log.exception("Audio-Watchdog fehlgeschlagen")
-
-        threading.Thread(target=health_watchdog, daemon=True,
-                         name="health-watchdog").start()
+        threading.Thread(target=session.health_watchdog, args=(HEALTH_CHECK_INTERVAL_S,),
+                         daemon=True, name="health-watchdog").start()
 
         tray = TrayApp(
             state, on_quit,

@@ -42,6 +42,19 @@ _REQUEST_TIMEOUT_S = 60
 _WAV_BYTES_PER_S = 16000 * 2
 
 
+class TranscriptionTimeout(Exception):
+    """Transkription lief in den Timeout — Aufnahme zu lang fuer Modus/Hardware.
+
+    Kein Server-Neustart und kein CLI-Fallback: beides wuerde denselben
+    Timeout noch zweimal abwarten, waehrend der Worker steht."""
+
+
+def _is_timeout(e: BaseException) -> bool:
+    # Beim Lesen kommt TimeoutError direkt, beim Verbinden in URLError verpackt
+    return isinstance(e, TimeoutError) or (
+        isinstance(e, urllib.error.URLError) and isinstance(e.reason, TimeoutError))
+
+
 def _threads() -> int:
     """Heuristik fuer physische Kerne (os.cpu_count() zaehlt logische).
 
@@ -238,6 +251,9 @@ class ServerBackend:
         try:
             return self._request(wav_path)
         except Exception as e:
+            # Timeout bei laufendem Server = Aufnahme zu lang, kein Crash
+            if _is_timeout(e) and self._proc is not None and self._proc.poll() is None:
+                raise TranscriptionTimeout(str(e)) from e
             # Ein Neustartversuch — deckt Server-Crash und Standby-Resume ab
             log.warning("whisper-server Request fehlgeschlagen (%s) — Neustart", e)
             self.shutdown()
@@ -356,6 +372,8 @@ class Transcriber:
         if self._server is not None:
             try:
                 return _clean_output(self._server.transcribe(wav_path))
+            except TranscriptionTimeout:
+                raise
             except Exception:
                 log.exception("Server-Backend fehlgeschlagen — Fallback auf CLI")
         return _clean_output(self._cli.transcribe(wav_path))

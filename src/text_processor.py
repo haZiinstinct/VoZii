@@ -11,12 +11,17 @@ import time
 import urllib.request
 
 from src.i18n import t
+from src.winutil import system32
 
 log = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
 DEFAULT_MODEL = "qwen2.5:3b"
+# CN des Code-Signing-Zertifikats von Ollama (abgelesen per
+# Get-AuthenticodeSignature an ollama.exe, Oktober 2026). Exakter Vergleich —
+# ein Teilstring "ollama" wuerde auch fremde Zertifikate durchlassen.
+OLLAMA_SIGNER_CN = "Ollama Inc."
 
 # 3-Stufen-Auswahl fuers Post-Processing: stabile ID -> (Ollama-Tag, Groesse).
 # Die Anzeige-Namen kommen aus der i18n (aimodel.fast/balanced/best).
@@ -82,14 +87,67 @@ _PROMPT_FEWSHOT = [
      "professionell und knapp."),
 ]
 
-# Modus -> (System-Prompt, Few-Shot, Temperatur)
+# Fuer alle anderen Diktat-Sprachen: englische Anweisungen + englische
+# Beispiele. Deutsche Few-Shots zogen kleine Modelle sonst ins Deutsche.
+_SMART_SYSTEM_EN = (
+    "You clean up dictated text for a voice-to-text app. Improve the spoken "
+    "text:\n"
+    "1. Remove filler words (um, uh, like, you know, basically).\n"
+    "2. Fix grammar, punctuation and obvious slips of the tongue.\n"
+    "3. Keep the language of the input - never translate.\n"
+    "4. Follow voice commands and remove them from the text: 'as a list' -> "
+    "Markdown list with '-'; 'as an email' -> formal email style; 'as code' -> "
+    "code block with ```; 'heading'/'as a title' -> '# '; 'new paragraph' -> "
+    "paragraph break.\n"
+    "5. Without a command, format sensibly: enumeration -> list, several "
+    "thoughts -> paragraphs, otherwise one clean sentence.\n"
+    "Output ONLY the finished text - no explanation, no quotes, no preamble."
+)
+_SMART_FEWSHOT_EN = [
+    ("um so i wanted to say that the tool like really works great",
+     "I wanted to say that the tool really works great."),
+    ("i need the following ingredients as a list flour sugar butter and eggs",
+     "- Flour\n- Sugar\n- Butter\n- Eggs"),
+]
+
+_PROMPT_SYSTEM_EN = (
+    "Turn spoken text into a precise, well-structured prompt for an AI "
+    "assistant: clear task, concrete requirements, optional context. Keep the "
+    "language of the input - never translate. Output ONLY the prompt - no "
+    "explanation, no preamble."
+)
+_PROMPT_FEWSHOT_EN = [
+    ("write an email to my boss that i cant come in tomorrow because i have a doctors appointment",
+     "Write a polite, formal email to my manager. Content: I can't work tomorrow "
+     "because I have a doctor's appointment. Ask for understanding and offer to "
+     "take care of urgent tasks beforehand. Tone: professional and brief."),
+]
+
+# Prompt-Sprache -> Modus -> (System-Prompt, Few-Shot, Temperatur)
 PROMPTS = {
-    "smart": (_SMART_SYSTEM, _SMART_FEWSHOT, 0.2),
-    "prompt": (_PROMPT_SYSTEM, _PROMPT_FEWSHOT, 0.4),
+    "de": {
+        "smart": (_SMART_SYSTEM, _SMART_FEWSHOT, 0.2),
+        "prompt": (_PROMPT_SYSTEM, _PROMPT_FEWSHOT, 0.4),
+    },
+    "en": {
+        "smart": (_SMART_SYSTEM_EN, _SMART_FEWSHOT_EN, 0.2),
+        "prompt": (_PROMPT_SYSTEM_EN, _PROMPT_FEWSHOT_EN, 0.4),
+    },
 }
 
+
+def prompt_language(dictation_lang: str, ui_lang: str) -> str:
+    """Prompt-Satz waehlen: Diktat-Sprache, bei 'auto' die UI-Sprache.
+    Deutsch hat eigene Prompts, alles andere nimmt die englischen."""
+    lang = ui_lang if dictation_lang in (None, "", "auto") else dictation_lang
+    return "de" if lang == "de" else "en"
+
+
+# Nur Vorworte mit Doppelpunkt fuer Englisch — "Sure, ..." kann echter
+# Diktat-Inhalt sein
 _PREAMBLE_RE = re.compile(
-    r"^(hier ist[^\n:]*:|klar[,!.]?\s+|gerne[,!.]?\s+|sicher[,!.]?\s+|natuerlich[,!.]?\s+)",
+    r"^(hier ist[^\n:]*:|klar[,!.]?\s+|gerne[,!.]?\s+|sicher[,!.]?\s+|natuerlich[,!.]?\s+"
+    r"|here is[^\n:]*:|here's[^\n:]*:)",
     re.IGNORECASE,
 )
 
@@ -106,15 +164,16 @@ def _clean_response(text: str) -> str:
 
 
 class TextProcessor:
-    def __init__(self, mode: str = "off", model: str = DEFAULT_MODEL):
+    def __init__(self, mode: str = "off", model: str = DEFAULT_MODEL, prompt_lang: str = "de"):
         self.mode = mode
         self.model = model
+        self.prompt_lang = prompt_lang if prompt_lang in PROMPTS else "en"
 
     def process(self, text: str) -> str:
         """Verarbeitet den Text gemaess Mode. Fallback auf Raw bei Fehler."""
         if self.mode == "off" or not text:
             return text
-        spec = PROMPTS.get(self.mode)
+        spec = PROMPTS[self.prompt_lang].get(self.mode)
         if not spec:
             return text
         system, fewshot, temperature = spec
@@ -220,7 +279,7 @@ def stop_ollama() -> bool:
     for proc_name in ("ollama app.exe", "ollama.exe"):
         try:
             result = subprocess.run(
-                ["taskkill", "/f", "/im", proc_name],
+                [system32("taskkill.exe"), "/f", "/im", proc_name],
                 capture_output=True, text=True, timeout=5,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
@@ -263,6 +322,15 @@ def start_ollama(ollama_path: str, timeout: int = 30) -> bool:
 
 # --- Ollama Installer mit Cancel + Speed ---
 
+def _subject_field(subject: str, name: str) -> str | None:
+    """Liest ein RDN-Feld (z. B. CN) aus einem X.500-Subject; Werte mit Komma
+    stehen dort in Anfuehrungszeichen."""
+    m = re.search(rf'(?:^|,)\s*{name}=("([^"]*)"|[^,]*)', subject)
+    if not m:
+        return None
+    return (m.group(2) if m.group(2) is not None else m.group(1)).strip()
+
+
 def _verify_authenticode(path: str) -> bool:
     """Prueft Code-Signatur des Installers: Status Valid + Aussteller Ollama.
 
@@ -273,7 +341,7 @@ def _verify_authenticode(path: str) -> bool:
     safe_path = path.replace("'", "''")
     try:
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
+            [system32("WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-Command",
              f"$s = Get-AuthenticodeSignature -LiteralPath '{safe_path}'; "
              "Write-Output $s.Status; Write-Output $s.SignerCertificate.Subject"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -283,7 +351,7 @@ def _verify_authenticode(path: str) -> bool:
         if len(lines) < 2 or lines[0] != "Valid":
             log.error("Installer-Signatur ungueltig: %s", lines[:1] or "keine Ausgabe")
             return False
-        if "ollama" not in lines[1].lower():
+        if _subject_field(lines[1], "CN") != OLLAMA_SIGNER_CN:
             log.error("Installer-Signatur von unerwartetem Aussteller: %s", lines[1])
             return False
         return True

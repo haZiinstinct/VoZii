@@ -2,7 +2,9 @@
 
 import http.server
 import json
+import sys
 import threading
+import time
 
 import pytest
 
@@ -112,6 +114,7 @@ def test_server_request_sendet_initial_prompt(fake_server, tmp_path):
     assert b'name="prompt"' not in _Handler.last_body
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="subprocess.CREATE_NO_WINDOW")
 def test_cli_cmd_enthaelt_prompt_nur_wenn_gesetzt(monkeypatch, tmp_path):
     from src.transcriber import CliBackend
 
@@ -238,3 +241,68 @@ def test_timeout_falls_back_for_missing_file(tmp_path):
     from src.transcriber import _REQUEST_TIMEOUT_S, _timeout_for
 
     assert _timeout_for(str(tmp_path / "gibtsnicht.wav")) == _REQUEST_TIMEOUT_S
+
+
+class _SlowHandler(http.server.BaseHTTPRequestHandler):
+    requests = 0
+
+    def do_POST(self):
+        _SlowHandler.requests += 1
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        time.sleep(1.0)  # laenger als der gemockte Timeout
+        try:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"text": "zu spaet"}')
+        except OSError:
+            pass  # Client hat schon aufgegeben
+
+    def log_message(self, *args):
+        pass
+
+
+def test_server_timeout_ohne_neustart_und_ohne_wiederholung(monkeypatch, tmp_path):
+    """Timeout = Aufnahme zu lang: genau ein Request, kein shutdown()."""
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SlowHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        _SlowHandler.requests = 0
+        monkeypatch.setattr(transcriber_mod, "_timeout_for", lambda path: 0.2)
+        wav = tmp_path / "a.wav"
+        wav.write_bytes(b"RIFF")
+
+        backend = _backend_on(srv.server_address[1])
+        backend._lock = threading.RLock()
+
+        class AliveProc:
+            def poll(self):
+                return None
+        backend._proc = AliveProc()
+        shutdowns = []
+        monkeypatch.setattr(backend, "shutdown", lambda: shutdowns.append(1))
+
+        with pytest.raises(transcriber_mod.TranscriptionTimeout):
+            backend.transcribe(str(wav))
+        assert _SlowHandler.requests == 1
+        assert shutdowns == []
+    finally:
+        srv.shutdown()
+
+
+def test_facade_kein_cli_fallback_bei_timeout(monkeypatch):
+    class TimeoutServer:
+        def transcribe(self, path):
+            raise transcriber_mod.TranscriptionTimeout("timed out")
+
+    class FailCli:
+        def transcribe(self, path):
+            raise AssertionError("CLI darf nach Timeout nicht laufen")
+
+    t = Transcriber.__new__(Transcriber)
+    t.model_size = "small"
+    t._server = TimeoutServer()
+    t._cli = FailCli()
+    monkeypatch.setattr(Transcriber, "is_ready", lambda self: True)
+
+    with pytest.raises(transcriber_mod.TranscriptionTimeout):
+        t.transcribe("x.wav")

@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # Push nur auf master/Tags, Feature-Branches laufen ueber den PR —
+  # sonst zwei identische Laeufe pro eigenem PR
   push:
-    branches: ["**"]
+    branches: [master]
     tags: ["v*"]
   pull_request:
 
@@ -10,15 +12,19 @@ jobs:
   test:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt ruff pytest
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip freeze
       - name: Lint
         run: ruff check src tests
       - name: Tests
@@ -31,15 +37,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip freeze
       - name: Build exe
         run: python scripts/build.py
       - name: SHA256SUMS
@@ -49,7 +59,7 @@ jobs:
             Out-File dist/SHA256SUMS.txt -Encoding ascii
           Get-Content dist/SHA256SUMS.txt
       - name: Upload release asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: |
             dist/VoZii.exe

@@ -1,18 +1,28 @@
 # Baut whisper.cpp mit Vulkan-Backend aus dem Upstream-Source und haengt das Zip
 # ans backend-<version>-Release (Mirror-Release, von VoZii zur Laufzeit geladen).
 # Manuell ausloesen; bei neuen whisper.cpp-Versionen whisper_ref anpassen.
+# whisper_ref: am besten den Commit-SHA des Upstream-Tags angeben
+# (`git rev-parse v1.9.4^{commit}`), ein Tag ist beweglich. Bei SHA zusaetzlich
+# release_tag passend setzen, sonst landet das Zip unter backend-<sha>.
 name: Build Backend (Vulkan)
 
 on:
   workflow_dispatch:
     inputs:
       whisper_ref:
-        description: "whisper.cpp Tag/Ref"
+        description: "whisper.cpp Commit-SHA (empfohlen) oder Tag"
         required: true
-        default: "v1.9.4"
+        default: "927cfce34f31707e17f2bff35c349632fb9e2c3a" # v1.9.4
+      release_tag:
+        description: "Ziel-Release (leer = backend-<whisper_ref>)"
+        required: false
+        default: "backend-v1.9.4"
 
 env:
   VULKAN_VERSION: 1.4.357.0
+  # SHA-256 des Installers, von LunarG veroeffentlicht:
+  # https://sdk.lunarg.com/sdk/sha/<version>/windows/vulkansdk-windows-X64-<version>.exe.json
+  VULKAN_SHA256: 81f474711e9042f4cd22b31b2f7a8870db2e428b21586fb43dd80150be97310d
 
 jobs:
   vulkan:
@@ -20,7 +30,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ggml-org/whisper.cpp
           ref: ${{ inputs.whisper_ref }}
@@ -28,6 +38,8 @@ jobs:
       - name: Install Vulkan SDK
         run: |
           curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
+          $hash = (Get-FileHash $env:RUNNER_TEMP/VulkanSDK-Installer.exe -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:VULKAN_SHA256) { throw "Vulkan-SDK-Checksumme falsch: $hash" }
           & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
           Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
           Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
@@ -51,5 +63,10 @@ jobs:
       - name: Upload to backend release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || format('backend-{0}', inputs.whisper_ref) }}
+        # --clobber ueberschreibt das Asset, dessen SHA in src/hardware.py
+        # BINARY_SHA256['amd'] gepinnt ist — nach jedem Lauf neu pinnen,
+        # sonst schlagen alle AMD-Downloads fehl.
         run: |
-          gh release upload "backend-${{ inputs.whisper_ref }}" whisper-vulkan-bin-x64.zip --repo ${{ github.repository }} --clobber
+          (Get-FileHash whisper-vulkan-bin-x64.zip -Algorithm SHA256).Hash.ToLower()
+          gh release upload "$env:RELEASE_TAG" whisper-vulkan-bin-x64.zip --repo ${{ github.repository }} --clobber

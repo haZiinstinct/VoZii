@@ -5,6 +5,14 @@ import time
 import wave
 
 import numpy as np
+import pytest
+
+# sounddevice braucht PortAudio — fehlt die Bibliothek (CI-Linux), wirft der
+# Import OSError statt ImportError, daher kein importorskip
+try:
+    import sounddevice  # noqa: F401
+except (ImportError, OSError) as e:
+    pytest.skip(f"sounddevice nicht ladbar: {e}", allow_module_level=True)
 
 from src.audio import SAMPLE_RATE, STREAM_STALE_S, AudioRecorder, _resample
 from src.filters import is_hallucination

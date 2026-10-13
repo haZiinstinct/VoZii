@@ -60,7 +60,6 @@ def build():
         "--version-file", _write_version_file(),
         "--name", "VoZii",
         "--icon", os.path.join(BASE_DIR, "src", "vozii.ico"),
-        "--add-data", f"{os.path.join(BASE_DIR, 'config.default.yaml')};.",
         "--add-data", f"{os.path.join(BASE_DIR, 'assets', 'fonts')};assets/fonts",
         "--add-data", f"{os.path.join(BASE_DIR, 'src', 'vozii.ico')};src",
         # tkinter — wird von customtkinter UND settings_gui.py gebraucht

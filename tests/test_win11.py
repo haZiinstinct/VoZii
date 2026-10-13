@@ -151,6 +151,45 @@ def test_gpu_cache_invalid_value_triggers_detection(monkeypatch):
     assert from_cache is False
 
 
+
+# --- detect_gpu (Parsing der Adapterliste, D3) ---
+
+def _gpu_output(monkeypatch, output, cuda=True):
+    monkeypatch.setattr(hardware, "_try_registry", lambda: output)
+    monkeypatch.setattr(hardware, "_try_wmic", lambda: None)
+    monkeypatch.setattr(hardware, "_try_powershell", lambda: None)
+    monkeypatch.setattr(hardware.os.path, "isfile",
+                        lambda p: cuda and p.lower().endswith("nvcuda.dll"))
+
+
+def test_detect_gpu_prioritaet_nvidia_vor_amd_vor_intel(monkeypatch):
+    _gpu_output(monkeypatch, "Intel(R) UHD 770\nAMD Radeon RX 6750 XT\nNVIDIA GeForce RTX 4070")
+    assert hardware.detect_gpu() == ("nvidia", "NVIDIA GeForce RTX 4070")
+    _gpu_output(monkeypatch, "Intel(R) UHD 770\nAMD Radeon RX 6750 XT")
+    assert hardware.detect_gpu() == ("amd", "AMD Radeon RX 6750 XT")
+    _gpu_output(monkeypatch, "Intel(R) Arc A770")
+    assert hardware.detect_gpu() == ("cpu", "Intel(R) Arc A770")
+
+
+def test_detect_gpu_leere_ausgabe_ist_cpu(monkeypatch):
+    _gpu_output(monkeypatch, None)
+    assert hardware.detect_gpu() == ("cpu", "")
+
+
+def test_detect_gpu_nvidia_treiberleiche_ohne_nvcuda(monkeypatch):
+    """Ausgebaute NVIDIA-Karte steht noch in der Registry, nvcuda.dll fehlt
+    -> nicht CUDA waehlen, sondern den naechsten Treffer."""
+    _gpu_output(monkeypatch, "NVIDIA GeForce GTX 1060\nAMD Radeon RX 7800 XT", cuda=False)
+    assert hardware.detect_gpu() == ("amd", "AMD Radeon RX 7800 XT")
+
+
+def test_effective_gpu_type_override():
+    assert hardware.effective_gpu_type("auto", "nvidia") == "nvidia"
+    assert hardware.effective_gpu_type(None, "amd") == "amd"
+    assert hardware.effective_gpu_type("cpu", "nvidia") == "cpu"
+    assert hardware.effective_gpu_type("quantum", "amd") == "amd"
+
+
 # --- insert_text ---
 
 class _FakeClipboard:
@@ -366,3 +405,47 @@ def test_deactivate_laeuft_ueber_den_dispatcher():
         assert caller["thread"] == "hotkey-dispatch"
     finally:
         m._dispatcher_stop.set()
+
+
+def test_gpu_fallbacks_nutzen_absolute_pfade(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd[0].lower())
+        raise OSError("nicht ausfuehren")
+
+    monkeypatch.setattr(hardware.subprocess, "run", fake_run)
+    hardware._try_wmic()
+    hardware._try_powershell()
+    assert calls[0].endswith(r"\system32\wbem\wmic.exe")
+    assert calls[1].endswith(r"\system32\windowspowershell\v1.0\powershell.exe")
+
+
+# --- _wait_for_modifier_release (D3) ---
+
+class _FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, s):
+        self.now += s
+
+
+def test_modifier_release_wartet_bis_losgelassen(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(text_inserter, "time", clock)
+    # 0,1 s lang gehalten, dann losgelassen
+    monkeypatch.setattr(text_inserter.winclip, "modifiers_held", lambda: clock.now < 0.1)
+    assert text_inserter._wait_for_modifier_release(timeout_s=1.0) is True
+    assert 0.1 <= clock.now < 0.2
+
+
+def test_modifier_release_timeout(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(text_inserter, "time", clock)
+    monkeypatch.setattr(text_inserter.winclip, "modifiers_held", lambda: True)
+    assert text_inserter._wait_for_modifier_release(timeout_s=0.5) is False
+    assert clock.now >= 0.5

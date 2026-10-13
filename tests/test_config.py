@@ -109,3 +109,48 @@ def test_initial_prompt_default_und_kappung(config_paths):
     cfg["initial_prompt"] = 42  # kein String -> Default
     save_config(cfg)
     assert load_config()["initial_prompt"] == ""
+
+
+def test_save_config_atomar_bei_abbruch(config_paths, monkeypatch):
+    """Exception mitten im Dump: alte Datei bleibt, keine .tmp-Leiche."""
+    import pytest
+
+    from src import config as config_mod
+
+    config_path, _ = config_paths
+    cfg = load_config()
+    cfg["hotkey"] = "f8"
+    config_mod.save_config(cfg)
+    before = config_path.read_text(encoding="utf-8")
+
+    def boom(*a, **kw):
+        raise RuntimeError("Absturz im Dump")
+    monkeypatch.setattr(config_mod.yaml, "dump", boom)
+    with pytest.raises(RuntimeError):
+        config_mod.save_config({"hotkey": "f9"})
+
+    assert config_path.read_text(encoding="utf-8") == before
+    assert not (config_path.parent / "config.yaml.tmp").exists()
+
+
+def test_update_config_aendert_nur_genannte_keys(config_paths):
+    from src.config import save_config, update_config
+
+    cfg = load_config()
+    cfg["hotkey"] = "f8"
+    save_config(cfg)
+    update_config(gpu_cache_type="amd", gpu_cache_name="RX 6750 XT")
+
+    cfg = load_config()
+    assert cfg["hotkey"] == "f8"
+    assert (cfg["gpu_cache_type"], cfg["gpu_cache_name"]) == ("amd", "RX 6750 XT")
+
+
+def test_auto_stop_clamping(config_paths):
+    from src.config import save_config
+
+    for given, expected in ((0, 0), (0.5, 1.5), (3, 3.0), (99, 10.0), (True, 0), ("5", 0)):
+        cfg = load_config()
+        cfg["auto_stop_silence_s"] = given
+        save_config(cfg)
+        assert load_config()["auto_stop_silence_s"] == expected, given

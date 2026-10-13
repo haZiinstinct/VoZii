@@ -366,7 +366,13 @@ def download_model(model_size, progress_callback=None):
     if os.path.exists(model_path):
         min_size = MODEL_MIN_SIZES.get(model_size, 0)
         if os.path.getsize(model_path) < min_size:
-            os.rename(model_path, model_path + ".part")
+            # Liegt schon eine .part daneben, die laengere als Resume-Basis
+            # behalten — os.rename wirft auf Windows FileExistsError
+            part = model_path + ".part"
+            if os.path.exists(part) and os.path.getsize(part) >= os.path.getsize(model_path):
+                os.remove(model_path)
+            else:
+                os.replace(model_path, part)
 
     download_file(MODEL_URLS[model_size], model_path, progress_callback,
                   expected_sha256=MODEL_SHA256.get(model_size))

@@ -1,5 +1,5 @@
 customtkinter==5.2.2
-numpy==2.5.3
+numpy==2.5.4
 Pillow==12.3.0
 pynput==1.8.2
 pyperclip==1.11.0

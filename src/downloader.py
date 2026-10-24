@@ -69,6 +69,31 @@ MODEL_SHA256 = {
     "large-v3-turbo": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
 }
 
+# Parakeet TDT 0.6B v3 (NVIDIA, ONNX-Export von istupakov, int8): schnelle
+# CPU-Engine fuer 25 EU-Sprachen, laeuft in-process ueber onnx-asr. Mehrere
+# Dateien statt einer .bin — liegt deshalb in einem eigenen Unterordner.
+PARAKEET_MODEL = "parakeet-v3-int8"
+PARAKEET_DIR = os.path.join(MODELS_DIR, PARAKEET_MODEL)
+_HF_PARAKEET = ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/"
+                "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce")
+# Dateiname -> (SHA256, exakte Groesse); Stand 2026-10-24 (LFS-Hashes bzw.
+# fuer config.json/vocab.txt selbst gehasht)
+PARAKEET_FILES = {
+    "encoder-model.int8.onnx": (
+        "6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09", 652_183_999),
+    "decoder_joint-model.int8.onnx": (
+        "eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70", 18_202_004),
+    "vocab.txt": (
+        "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d", 93_939),
+    "config.json": (
+        "666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466", 97),
+}
+
+
+def is_parakeet(model_size: str) -> bool:
+    return model_size == PARAKEET_MODEL
+
+
 # 500 MB Puffer, damit Windows/andere Apps nicht auf 0 laufen
 _DISK_SPACE_BUFFER = 500 * 1024 * 1024
 
@@ -352,7 +377,37 @@ def ensure_server_binary(gpu_type, progress_callback=None) -> bool:
     return False
 
 
+def _download_parakeet(progress_callback=None) -> bool:
+    """Laedt die Parakeet-Dateien einzeln (Resume + SHA256 je Datei).
+
+    Der Fortschritt wird ueber alle Dateien summiert, damit der Balken nicht
+    pro Datei wieder bei 0 anfaengt."""
+    os.makedirs(PARAKEET_DIR, exist_ok=True)
+    total = sum(size for _, size in PARAKEET_FILES.values())
+    missing = [name for name in PARAKEET_FILES if not _parakeet_file_ok(name)]
+    _ensure_disk_space(PARAKEET_DIR, sum(PARAKEET_FILES[n][1] for n in missing))
+    done = total - sum(PARAKEET_FILES[n][1] for n in missing)
+    for name in missing:
+        sha, size = PARAKEET_FILES[name]
+
+        def _cb(downloaded, _file_total, speed, _base=done):
+            if progress_callback:
+                progress_callback(_base + downloaded, total, speed)
+
+        download_file(f"{_HF_PARAKEET}/{name}", os.path.join(PARAKEET_DIR, name),
+                      _cb, expected_sha256=sha)
+        done += size
+    return is_model_installed(PARAKEET_MODEL)
+
+
+def _parakeet_file_ok(name: str) -> bool:
+    path = os.path.join(PARAKEET_DIR, name)
+    return os.path.isfile(path) and os.path.getsize(path) == PARAKEET_FILES[name][1]
+
+
 def download_model(model_size, progress_callback=None):
+    if is_parakeet(model_size):
+        return _download_parakeet(progress_callback)
     os.makedirs(MODELS_DIR, exist_ok=True)
     filename = MODEL_FILES.get(model_size)
     if not filename:
@@ -388,6 +443,8 @@ def is_server_available():
 
 
 def is_model_installed(model_size):
+    if is_parakeet(model_size):
+        return all(_parakeet_file_ok(name) for name in PARAKEET_FILES)
     filename = MODEL_FILES.get(model_size, "")
     path = os.path.join(MODELS_DIR, filename)
     if not os.path.isfile(path):

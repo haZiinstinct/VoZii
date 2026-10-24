@@ -7,7 +7,7 @@
 <p><b>Local AI voice-to-text for Windows.</b><br />
 Hold a hotkey, speak, and your words are typed at the cursor — powered by
 whisper.cpp, GPU-accelerated, and <b>100&nbsp;% offline</b>. No cloud, no API keys,
-no account. One 32&nbsp;MB file.</p>
+no account. One 49&nbsp;MB file.</p>
 
 <p>
   <a href="https://github.com/haZiinstinct/VoZii/releases/latest"><img alt="Download VoZii.exe" src="https://img.shields.io/badge/%E2%AC%87%20download-VoZii.exe-00d4ff?style=for-the-badge&labelColor=0a0a0f" /></a>
@@ -15,11 +15,11 @@ no account. One 32&nbsp;MB file.</p>
 
 <p>
   <a href="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-1.9.1-00d4ff?labelColor=0a0a0f" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.10.0-00d4ff?labelColor=0a0a0f" />
   <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-00d4ff?labelColor=0a0a0f" />
   <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-00d4ff?labelColor=0a0a0f&logo=python&logoColor=white" />
   <img alt="Windows 11" src="https://img.shields.io/badge/Windows-11-00d4ff?labelColor=0a0a0f&logo=windows&logoColor=white" />
-  <img alt="whisper.cpp v1.9.4" src="https://img.shields.io/badge/whisper.cpp-v1.9.4-12121a?labelColor=0a0a0f" />
+  <img alt="whisper.cpp v1.9.5" src="https://img.shields.io/badge/whisper.cpp-v1.9.5-12121a?labelColor=0a0a0f" />
 </p>
 
 <sub><a href="#-highlights">Highlights</a> · <a href="#-how-it-works">How it works</a> · <a href="#-get-vozii">Get it</a> · <a href="#-ai-post-processing-optional">AI post-processing</a> · <a href="#-build-from-source">Build</a></sub>
@@ -33,7 +33,7 @@ IDE, a form field. Press and hold your hotkey, talk, let go: the transcription l
 right at the cursor. The Whisper model runs **on your own machine**, so nothing you
 say ever leaves it — no upload, no subscription, no waiting on a server.
 
-It ships as a **single 32&nbsp;MB `.exe`**. No Python to install, no runtime to set up.
+It ships as a **single 49&nbsp;MB `.exe`**. No Python to install, no runtime to set up.
 The Whisper model stays loaded in RAM between dictations, so there's no per-use lag,
 and an optional local LLM (via [Ollama](https://ollama.com)) can clean up filler words
 and formatting — still 100&nbsp;% offline.
@@ -43,7 +43,9 @@ and formatting — still 100&nbsp;% offline.
 - 🎙️ **Push-to-talk, your key** — any keyboard or mouse button (default `Ctrl+Shift+Space`); press-and-hold or toggle
 - 🔒 **100&nbsp;% local & private** — no cloud, no API keys, no telemetry; works with the network cable pulled
 - ⚡ **No per-dictation lag** — the model stays resident in a persistent `whisper-server`, saving ~2–10&nbsp;s every time
-- 🚀 **GPU-accelerated** — NVIDIA (CUDA) & AMD (Vulkan), automatic detection, CPU fallback; 5–10× faster with a GPU
+- 🚀 **GPU-accelerated** — NVIDIA (CUDA) & AMD (Vulkan), automatic detection; 5–10× faster with a GPU
+- 💻 **Fast on any laptop** — the **Parakeet** engine (NVIDIA Parakeet TDT 0.6B v3) runs ~20× faster than real time on a plain CPU: a 10-second dictation is typed in about half a second, punctuation included. Picked automatically on PCs without a graphics card, switchable any time
+- 🛟 **Real CPU fallback** — if the GPU backend crashes, VoZii keeps dictating on the CPU instead of failing
 - 🌍 **9-language UI + 18 dictation languages + auto-detect** — the interface follows your Windows language; dictation covers all ~99 Whisper languages
 - 🎯 **Speed / Accuracy toggle** — greedy decoding for snappy dictation, beam search when you want it exact
 - 🧹 **Hallucination filter** — silence and phantom phrases (*"thanks for watching"*, …) are dropped, not typed
@@ -52,7 +54,7 @@ and formatting — still 100&nbsp;% offline.
 - 🧠 **Optional AI cleanup** — a local Ollama model removes filler, fixes grammar, or turns speech into a polished prompt
 - 🛡️ **Verified downloads** — models and binaries are checked against pinned SHA-256 hashes before they run
 - 🩺 **Self-healing** — a watchdog re-arms the global hotkey and reopens the microphone stream if Windows drops either, so long sessions don't need a restart
-- 📦 **Single 32&nbsp;MB file** — no installer, no dependencies, dark UI in the haZii design language
+- 📦 **Single 49&nbsp;MB file** — no installer, no dependencies, dark UI in the haZii design language
 
 ## 🖼️ Screenshots
 
@@ -83,12 +85,13 @@ clipboard, no field was focused), `SHORT` / `EMPTY` / `TOO LONG`, or `ERR:MIC` /
 | | |
 | --- | --- |
 | 🗣️ **Whisper models** | Fast (Tiny, 75&nbsp;MB) · **Recommended** (large-v3-turbo Q5, ~550&nbsp;MB) · Best (large-v3-turbo, ~1.5&nbsp;GB) |
+| 🦜 **Parakeet (CPU)** | NVIDIA Parakeet TDT 0.6B v3, int8 (~650&nbsp;MB, ~1&nbsp;GB RAM) — 25 European languages, automatic punctuation, no GPU needed |
 | 🌐 **UI languages** | Deutsch · English · Español · Français · Português · Русский · 中文 · 日本語 · العربية |
 | 🎧 **Dictation** | 18 hand-picked languages + **Auto-detect** covering all ~99 Whisper languages |
-| 🖥️ **Compute** | NVIDIA CUDA · AMD Vulkan · CPU fallback — auto-detected and cached |
+| 🖥️ **Compute** | NVIDIA CUDA · AMD Vulkan · CPU (Parakeet or whisper.cpp) — auto-detected and cached |
 | 🎚️ **Decoding** | **Fast** (greedy) for everyday use · **Accurate** (beam search) when it matters |
 | 🔧 **Extras** | Persistent audio stream (no clipped first syllable) · microphone level test · autostart with Windows |
-| 🆕 **v1.8** | Toggle mode with **auto-stop on silence** · **custom vocabulary** (names & jargon) · update notifications · whisper.cpp 1.9.2 |
+| 🆕 **v1.10** | **Parakeet engine** — fast dictation on any laptop CPU · switch Whisper ↔ Parakeet any time · **GPU→CPU fallback** when the graphics driver crashes |
 
 ## 🚀 Get VoZii
 
@@ -105,7 +108,7 @@ clipboard, no field was focused), `SHORT` / `EMPTY` / `TOO LONG`, or `ERR:MIC` /
 
 - **OS:** Windows 11 (64-bit)
 - **RAM:** 2&nbsp;GB free (4&nbsp;GB recommended for larger models)
-- **GPU:** optional but recommended — NVIDIA GeForce (CUDA), AMD Radeon (Vulkan), or integrated; CPU works too
+- **GPU:** optional — NVIDIA GeForce (CUDA) or AMD Radeon (Vulkan) speed up Whisper; without one, the Parakeet engine is fast on any modern CPU
 - **Data:** models, config and log live under `%LOCALAPPDATA%\VoZii` (or next to the
   `.exe` if a `config.yaml`/`whisper-cpp` folder already sits there — portable installs)
 

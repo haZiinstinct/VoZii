@@ -20,8 +20,10 @@ from src.update_checker import RELEASES_PAGE, check_async
 from src.downloader import (
     is_binary_installed, is_model_installed, is_server_available,
     is_backend_current, download_and_extract_binary, download_model,
-    ensure_server_binary,
+    ensure_server_binary, is_parakeet, PARAKEET_MODEL,
 )
+from src.parakeet import supports_language
+from src.transcriber import is_setup_complete
 from src.text_processor import (
     get_ollama_state, install_ollama, pull_model,
     is_ollama_installed, start_ollama, stop_ollama, DEFAULT_MODEL,
@@ -62,6 +64,7 @@ MODEL_DESC_KEYS = {
     "large-v3-turbo": "model.desc.turbo",
     "small": "model.desc.small",
     "medium": "model.desc.medium",
+    PARAKEET_MODEL: "model.desc.parakeet",
 }
 # AI-Tier-ID -> i18n-Key
 AITIER_LABEL_KEYS = {"fast": "aimodel.fast", "balanced": "aimodel.balanced", "best": "aimodel.best"}
@@ -133,6 +136,7 @@ class SettingsWindow:
         # gpu_info = Erkennung; die manuelle Wahl (Optionen) kann sie ueberstimmen
         self._detected_gpu, self.gpu_name = gpu_info
         self.gpu_type = effective_gpu_type(self.config.get("gpu_type"), self._detected_gpu)
+        self._preselect_parakeet()
         self.available_devices = available_devices
         self._recording_hotkey = False
         self._pressed_keys = set()
@@ -146,6 +150,20 @@ class SettingsWindow:
         self._ollama_busy = False
         self._ollama_cancel = None  # threading.Event during install/pull
         self._refresh_ollama_state()
+
+    def _preselect_parakeet(self):
+        """Erststart ohne GPU: Parakeet vorauswaehlen (nur Vorauswahl — der
+        Engine-Umschalter bleibt frei, eine spaetere Wahl wird nie ueberschrieben)."""
+        cfg = self.config
+        if (cfg.get("first_run_done") or cfg.get("parakeet_hint_shown")
+                or self.gpu_type != "cpu" or is_model_installed(cfg["model_size"])
+                or not supports_language(cfg.get("language", "auto"))):
+            return
+        log.info("Erststart ohne GPU — Parakeet vorausgewaehlt")
+        if not is_parakeet(cfg["model_size"]):
+            cfg["whisper_model"] = cfg["model_size"]
+        cfg["model_size"] = PARAKEET_MODEL
+        cfg["parakeet_hint_shown"] = True
 
     def _refresh_ollama_state(self):
         """Refresh Ollama status: ready / no_model / installed_not_running / not_installed."""
@@ -471,17 +489,35 @@ class SettingsWindow:
 
     def _build_model_section(self, c):
         self._heading(c, t("section.model"))
+        # Engine-Umschalter: Whisper (GPU, alle Sprachen) | Parakeet (schnell auf CPU)
+        self._engine_label_to_code = {t("engine.whisper"): "whisper",
+                                      t("engine.parakeet"): "parakeet"}
+        cur_model = self.config["model_size"]
+        parakeet_on = is_parakeet(cur_model)
+        self.engine_var = ctk.StringVar(
+            value=t("engine.parakeet") if parakeet_on else t("engine.whisper"))
+        ctk.CTkSegmentedButton(c, values=list(self._engine_label_to_code),
+                               variable=self.engine_var, command=self._on_engine_change,
+                               **_SEG_STYLE).pack(fill="x", pady=(0, 6))
+
         mr = ctk.CTkFrame(c, fg_color="transparent")
         mr.pack(fill="x", pady=(0, 4))
         # Aktuelle Stufen + (falls aktiv) das Legacy-Modell des Bestandsnutzers
         labels = {k: t(v) for k, v in MODEL_LABEL_KEYS.items()}
-        cur_model = self.config["model_size"]
-        if cur_model in LEGACY_MODEL_LABEL_KEYS:
-            labels[cur_model] = t(LEGACY_MODEL_LABEL_KEYS[cur_model])
+        whisper_model = (self.config.get("whisper_model", "large-v3-turbo-q5_0")
+                         if parakeet_on else cur_model)
+        if whisper_model in LEGACY_MODEL_LABEL_KEYS:
+            labels[whisper_model] = t(LEGACY_MODEL_LABEL_KEYS[whisper_model])
+        self._whisper_labels = list(labels.values())
+        self._whisper_label = labels.get(whisper_model, labels["large-v3-turbo-q5_0"])
+        self._parakeet_label = t("model.parakeet")
+        labels[PARAKEET_MODEL] = self._parakeet_label
         self._model_label_to_key = {v: k for k, v in labels.items()}
         self.model_var = ctk.StringVar(
-            value=labels.get(cur_model, labels["large-v3-turbo-q5_0"]))
-        model_menu = ctk.CTkOptionMenu(mr, values=list(labels.values()), variable=self.model_var,
+            value=self._parakeet_label if parakeet_on else self._whisper_label)
+        self.model_menu = model_menu = ctk.CTkOptionMenu(
+                          mr, values=[self._parakeet_label] if parakeet_on else self._whisper_labels,
+                          variable=self.model_var,
                           font=(FONT_BODY, 13),
                           width=260, fg_color=BRAND["card"], button_color=BRAND["card_hover"],
                           button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
@@ -496,7 +532,8 @@ class SettingsWindow:
         self.dl_btn.pack(side="right")
 
         self.model_desc = ctk.CTkLabel(c, text="", font=(FONT_BODY, 11),
-                                       text_color=BRAND["text_dim"], anchor="w")
+                                       text_color=BRAND["text_dim"], anchor="w",
+                                       justify="left", wraplength=400)
         self.model_desc.pack(fill="x", pady=(0, 2))
         self._update_model_desc()
 
@@ -523,7 +560,9 @@ class SettingsWindow:
                           fg_color=BRAND["card"], button_color=BRAND["card_hover"],
                           button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
                           dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
-                          text_color=BRAND["text"], corner_radius=8).pack(fill="x", pady=(0, 14))
+                          text_color=BRAND["text"], corner_radius=8,
+                          command=lambda _: self._update_model_desc()).pack(fill="x", pady=(0, 14))
+        self._update_model_desc()
 
     def _build_mic_section(self, c):
         self._heading(c, t("section.microphone"))
@@ -580,8 +619,10 @@ class SettingsWindow:
         perf_code_to_label = {v: k for k, v in self._perf_label_to_code.items()}
         self.perf_var = ctk.StringVar(
             value=perf_code_to_label.get(self.config.get("performance_mode", "speed"), t("perf.fast")))
-        ctk.CTkSegmentedButton(c, values=list(self._perf_label_to_code), variable=self.perf_var,
-                               **_SEG_STYLE).pack(fill="x", pady=(0, 2))
+        self.perf_seg = ctk.CTkSegmentedButton(c, values=list(self._perf_label_to_code),
+                                               variable=self.perf_var, **_SEG_STYLE)
+        self.perf_seg.pack(fill="x", pady=(0, 2))
+        self._update_perf_state()
         ctk.CTkLabel(c, text=t("perf.desc"),
                      font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w"
                      ).pack(fill="x", pady=(0, 4))
@@ -690,6 +731,10 @@ class SettingsWindow:
         self._render_ollama_section()
 
     def _badge_text(self) -> str:
+        size = (self._get_model_size() if hasattr(self, "model_var")
+                else self.config["model_size"])
+        if is_parakeet(size):
+            return "Parakeet  ·  CPU"
         return f"{get_backend_name(self.gpu_type)}  ·  {self.gpu_name or 'CPU'}"
 
     def _build_accel_row(self, c):
@@ -849,6 +894,8 @@ class SettingsWindow:
         self.config.update({
             "language": self._diclang_label_to_code.get(self.lang_var.get(), "auto"),
             "model_size": self._get_model_size(),
+            "whisper_model": self._model_label_to_key.get(self._whisper_label,
+                                                          "large-v3-turbo-q5_0"),
             "show_overlay": self.overlay_var.get(),
             "auto_start": self.autostart_var.get(),
             "audio_device": None if self.mic_var.get() == t("mic.default") else self.mic_var.get(),
@@ -865,6 +912,8 @@ class SettingsWindow:
                 self._autostop_label_to_s.get(self.autostop_secs_var.get(), 3.0)
                 if self.autostop_var.get() else 0),
         })
+        if getattr(self, "_hint_displayed", False):
+            self.config["parakeet_hint_shown"] = True
 
     def _on_ollama_tier_change(self, label):
         """Picker -> Modell-Tag setzen, Status (ready/no_model) neu berechnen."""
@@ -905,13 +954,52 @@ class SettingsWindow:
     def _get_model_size(self):
         return self._model_label_to_key.get(self.model_var.get(), "large-v3-turbo-q5_0")
 
-    def _on_model_change(self, _):
+    def _on_model_change(self, label):
+        if label != self._parakeet_label:
+            self._whisper_label = label
         self._update_model_desc()
         self._update_dl_button()
 
+    def _on_engine_change(self, label):
+        """Whisper <-> Parakeet. Das Whisper-Modell bleibt gemerkt, damit der
+        Rueckwechsel ohne Neuauswahl (und ohne Download) geht."""
+        if self._engine_label_to_code.get(label) == "parakeet":
+            self.model_menu.configure(values=[self._parakeet_label])
+            self.model_var.set(self._parakeet_label)
+        else:
+            self.model_menu.configure(values=self._whisper_labels)
+            self.model_var.set(self._whisper_label)
+        self.config["parakeet_hint_shown"] = True
+        self._badge_label.configure(text=self._badge_text())
+        self._update_model_desc()
+        self._update_dl_button()
+        self._update_perf_state()
+
+    def _current_language(self) -> str:
+        if hasattr(self, "lang_var"):
+            return self._diclang_label_to_code.get(self.lang_var.get(), "auto")
+        return self.config.get("language", "auto")
+
     def _update_model_desc(self):
-        key = MODEL_DESC_KEYS.get(self._get_model_size())
-        self.model_desc.configure(text=t(key) if key else "")
+        size = self._get_model_size()
+        key = MODEL_DESC_KEYS.get(size)
+        text, color = (t(key) if key else ""), BRAND["text_dim"]
+        if is_parakeet(size) and not supports_language(self._current_language()):
+            text, color = t("parakeet.lang_warn"), BRAND["amber"]
+        elif (not is_parakeet(size) and self.gpu_type == "cpu"
+              and not self.config.get("parakeet_hint_shown")):
+            # Bestandsnutzer auf reiner CPU: einmal auf die schnellere Engine
+            # hinweisen — nach dem Speichern nicht wieder
+            text, color = t("parakeet.hint"), BRAND["cyan"]
+            self._hint_displayed = True
+        self.model_desc.configure(text=text, text_color=color)
+
+    def _update_perf_state(self):
+        """Schnell/Genau (Beam-Search) gibt es nur bei Whisper — Parakeet
+        dekodiert immer greedy."""
+        if hasattr(self, "perf_seg"):
+            self.perf_seg.configure(
+                state="disabled" if is_parakeet(self._get_model_size()) else "normal")
 
     def _on_hkmode_change(self, _=None):
         """Auto-Stop-Controls nur im Umschalt-Modus bedienbar."""
@@ -921,8 +1009,14 @@ class SettingsWindow:
         self.autostop_menu.configure(state=state)
 
     def _update_dl_button(self):
-        ok = is_binary_installed() and is_model_installed(self._get_model_size())
-        if ok and (not is_server_available() or not is_backend_current(self.gpu_type)):
+        size = self._get_model_size()
+        if is_parakeet(size):
+            # Parakeet laeuft in-process — kein whisper-Binary noetig
+            ok = is_model_installed(size)
+        else:
+            ok = is_binary_installed() and is_model_installed(size)
+        if ok and not is_parakeet(size) and (
+                not is_server_available() or not is_backend_current(self.gpu_type)):
             # Bestandsnutzer: whisper-server.exe fehlt ODER das Binary-Set passt
             # nicht mehr zu Backend/gepinnter whisper.cpp-Version — als Update
             # anbieten (kein stiller Auto-Download beim Start)
@@ -950,7 +1044,9 @@ class SettingsWindow:
 
         def run():
             try:
-                if not is_binary_installed() or not is_backend_current(self.gpu_type):
+                if is_parakeet(size):
+                    pass  # nur das Modell, kein whisper-Binary
+                elif not is_binary_installed() or not is_backend_current(self.gpu_type):
                     self._msg(t("download.whisper"))
                     download_and_extract_binary(self.gpu_type, self._checked_progress)
                 elif not is_server_available():
@@ -958,7 +1054,8 @@ class SettingsWindow:
                     ensure_server_binary(self.gpu_type, self._checked_progress)
                 if self._cancel_download.is_set(): raise InterruptedError
                 if not is_model_installed(size):
-                    self._msg(t("download.model", model=size))
+                    self._msg(t("download.model",
+                                model="Parakeet v3" if is_parakeet(size) else size))
                     download_model(size, self._checked_progress)
                 if self._cancel_download.is_set(): raise InterruptedError
                 self.root.after(0, self._dl_done)
@@ -1273,10 +1370,16 @@ class SettingsWindow:
     def _save(self):
         # Validierung: ohne Binary + Modell laeuft nichts — nicht erst beim
         # Start crashen, sondern hier klar sagen was fehlt
-        if not (is_binary_installed() and is_model_installed(self._get_model_size())):
+        size = self._get_model_size()
+        if not is_model_installed(size) or (not is_parakeet(size) and not is_binary_installed()):
             self._dl_fail(t("validate.model_missing"))
             return
         self._collect_into_config()
+        if (is_parakeet(size) and not supports_language(self.config["language"])
+                and not is_setup_complete(self.config["whisper_model"])):
+            # Parakeet kann die Sprache nicht und kein Whisper als Ersatz da
+            self._dl_fail(t("parakeet.lang_block"))
+            return
         self._result = self.config
         self._stop_listeners()
         self.root.destroy()

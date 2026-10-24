@@ -11,6 +11,39 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.10.0] — 2026-10-24
+
+### Neu
+- **Parakeet-Engine für normale Laptops:** NVIDIA Parakeet TDT 0.6B v3 (int8,
+  ~650 MB) läuft in-process über onnx-asr/onnxruntime auf der CPU, gemessen
+  auf einem i7-10710U ohne GPU: 10 s Diktat in 0,5 s (RTF ≈ 0,05), 60 s in
+  3,2 s. Whisper small auf derselben CPU: 5,5 s bzw. 10,9 s. Setzt Satzzeichen
+  selbst, 25 europäische Sprachen.
+- **Engine-Umschalter** in den Einstellungen (Whisper | Parakeet). Das zuletzt
+  gewählte Whisper-Modell bleibt gemerkt (`whisper_model`), der Wechsel kostet
+  keinen erneuten Download. Beim Erststart ohne GPU ist Parakeet vorausgewählt,
+  CPU-Bestandsnutzer bekommen einen Hinweis.
+- **Sprach-Routing:** Diktat-Sprachen außerhalb der 25 Parakeet-Sprachen
+  (z. B. ja, zh, ar) laufen automatisch über Whisper, sofern installiert.
+- **Echter GPU→CPU-Fallback:** Stürzt das CUDA/Vulkan-Backend ab, wechselt
+  VoZii für den Rest der Sitzung auf die CPU (Parakeet, sonst whisper.cpp mit
+  `--no-gpu`) und zeigt einmal `GPU-FEHLER → CPU`. Nicht bei Smart App
+  Control / fehlender VC++-Runtime, die treffen die CPU genauso.
+- `scripts/bench_stt.py`: Latenz/RTF-Vergleich Parakeet vs. whisper.cpp.
+
+### Geändert
+- Die Exe wächst durch onnxruntime von ~34 auf ~49 MB.
+- Das Badge in den Einstellungen zeigt bei Parakeet `Parakeet · CPU` statt
+  des Whisper-Backends; der Parakeet-Hinweis für CPU-Nutzer erscheint nach dem
+  Speichern nicht erneut.
+- Abhängigkeiten: Pillow 13.0.0, ruff 0.17.2, actions/setup-python v7.1.0.
+- **whisper.cpp 1.9.4 → 1.9.5** (ggml 0.26.0, CUDA- und Vulkan-Fixes). Neues
+  Mirror-Release `backend-v1.9.5`, upstream-Digests verifiziert, Vulkan-Build
+  aus Commit d1be6fd. Bestandsnutzer bekommen in den Einstellungen das
+  *Update* angeboten.
+
+---
+
 ## [1.9.1] — 2026-10-13
 
 Audit-Runde (Bericht: [docs/AUDIT-2026-10.md](docs/AUDIT-2026-10.md),

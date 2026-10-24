@@ -108,6 +108,16 @@ seconds and repairs both on its own, and a dead microphone shows up as
 
 - VoZii keeps a `whisper-server` in RAM (the model stays loaded). If that
   fails, it silently falls back to a slower per-call CLI mode — the log tells
-  you which backend is active (`Transcriber-Backend: server` vs `cli`).
-- On weak CPUs prefer the **Recommended** (turbo q5) model over *Best*, and
-  the **Fast** decoding mode.
+  you which engine is active (`Transcriber-Engine: whisper (server)`,
+  `whisper (cli)` or `parakeet (cpu)`).
+- **No graphics card?** Switch the engine to **Parakeet (CPU)** in the model
+  section. It runs ~20x faster than real time on ordinary laptop CPUs (a
+  10-second dictation takes about half a second) and covers 25 European
+  languages. Measure it on your own machine with
+  `python scripts/bench_stt.py your.wav --whisper large-v3-turbo-q5_0`.
+- With Whisper on weak CPUs prefer the **Recommended** (turbo q5) model over
+  *Best*, and the **Fast** decoding mode.
+- Overlay shows **`GPU ERROR → CPU`**: the CUDA/Vulkan backend crashed (driver,
+  VRAM). VoZii switches to the CPU for the rest of the session — Parakeet if
+  installed, otherwise whisper.cpp with `--no-gpu`. Updating the graphics
+  driver usually fixes the root cause.

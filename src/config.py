@@ -17,6 +17,10 @@ DEFAULT_CONFIG = {
     "language": "auto",
     "ui_language": "",  # leer -> beim First-Run aus System-Sprache erkannt
     "model_size": "large-v3-turbo-q5_0",
+    # Zuletzt gewaehltes Whisper-Modell — bleibt beim Wechsel auf Parakeet
+    # erhalten (Engine-Umschalter) und dient Parakeet als Fallback fuer
+    # Nicht-EU-Sprachen
+    "whisper_model": "large-v3-turbo-q5_0",
     "audio_feedback": True,
     "gpu_type": "auto",
     "audio_device": None,
@@ -34,6 +38,7 @@ DEFAULT_CONFIG = {
     "gpu_cache_name": None,
     "gpu_cache_at": None,  # Unix-Zeit der letzten GPU-Erkennung
     "first_run_done": False,
+    "parakeet_hint_shown": False,  # einmaliger Hinweis fuer CPU-Bestandsnutzer
 }
 
 # Erlaubte Werte je Key. None-Eintrag = Key darf None sein.
@@ -42,7 +47,9 @@ _ALLOWED_VALUES = {
     # Diktat-Sprache: gaengige Whisper-Codes + auto (deckt alle ~99 ab)
     "language": set(DICTATION_LANGS) | {"auto"},
     # tiny/small/medium = Legacy (Bestandsnutzer), turbo = aktuelle Stufen
-    "model_size": {"tiny", "small", "medium", "large-v3-turbo-q5_0", "large-v3-turbo"},
+    "model_size": {"tiny", "small", "medium", "large-v3-turbo-q5_0", "large-v3-turbo",
+                   "parakeet-v3-int8"},
+    "whisper_model": {"tiny", "small", "medium", "large-v3-turbo-q5_0", "large-v3-turbo"},
     "gpu_type": {"auto", "nvidia", "amd", "cpu"},
     "post_processing_mode": {"off", "smart", "prompt"},
     "performance_mode": {"speed", "quality"},
@@ -51,6 +58,7 @@ _ALLOWED_VALUES = {
 _BOOL_KEYS = {
     "audio_feedback", "show_overlay", "auto_start", "use_server",
     "restore_clipboard", "history_enabled", "first_run_done", "update_check",
+    "parakeet_hint_shown",
 }
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")

@@ -22,6 +22,29 @@ Alle bleiben unter ihrer jeweiligen Lizenz.
 
 ---
 
+## Parakeet Engine (CPU)
+
+### NVIDIA Parakeet TDT 0.6B v3
+- **Autor:** NVIDIA
+- **Lizenz:** CC BY 4.0
+- **URL:** https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+- **Nutzung:** Spracherkennungsmodell der Parakeet-Engine; wird bei Bedarf als
+  ONNX-Export (int8) von https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx
+  (CC BY 4.0) heruntergeladen, unverändert
+
+### onnx-asr
+- **Autor:** Ilya Stupakov
+- **Lizenz:** MIT License
+- **URL:** https://github.com/istupakov/onnx-asr
+
+### ONNX Runtime
+- **Autor:** Microsoft
+- **Lizenz:** MIT License
+- **URL:** https://github.com/microsoft/onnxruntime
+- **Abhängigkeiten:** flatbuffers (Apache 2.0), protobuf (BSD 3-Clause)
+
+---
+
 ## Python Libraries
 
 ### customtkinter

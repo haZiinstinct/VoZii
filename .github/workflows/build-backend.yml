@@ -2,7 +2,7 @@
 # ans backend-<version>-Release (Mirror-Release, von VoZii zur Laufzeit geladen).
 # Manuell ausloesen; bei neuen whisper.cpp-Versionen whisper_ref anpassen.
 # whisper_ref: am besten den Commit-SHA des Upstream-Tags angeben
-# (`git rev-parse v1.9.4^{commit}`), ein Tag ist beweglich. Bei SHA zusaetzlich
+# (`git rev-parse v1.9.5^{commit}`), ein Tag ist beweglich. Bei SHA zusaetzlich
 # release_tag passend setzen, sonst landet das Zip unter backend-<sha>.
 name: Build Backend (Vulkan)
 
@@ -12,11 +12,11 @@ on:
       whisper_ref:
         description: "whisper.cpp Commit-SHA (empfohlen) oder Tag"
         required: true
-        default: "927cfce34f31707e17f2bff35c349632fb9e2c3a" # v1.9.4
+        default: "d1be6fde11ac6e0407606b4e42fe72d34add8037" # v1.9.5
       release_tag:
         description: "Ziel-Release (leer = backend-<whisper_ref>)"
         required: false
-        default: "backend-v1.9.4"
+        default: "backend-v1.9.5"
 
 env:
   VULKAN_VERSION: 1.4.357.0

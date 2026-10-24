@@ -37,6 +37,10 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
   des Whisper-Backends; der Parakeet-Hinweis für CPU-Nutzer erscheint nach dem
   Speichern nicht erneut.
 - Abhängigkeiten: Pillow 13.0.0, ruff 0.17.2, actions/setup-python v7.1.0.
+- **whisper.cpp 1.9.4 → 1.9.5** (ggml 0.26.0, CUDA- und Vulkan-Fixes). Neues
+  Mirror-Release `backend-v1.9.5`, upstream-Digests verifiziert, Vulkan-Build
+  aus Commit d1be6fd. Bestandsnutzer bekommen in den Einstellungen das
+  *Update* angeboten.
 
 ---
 

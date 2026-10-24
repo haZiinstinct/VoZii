@@ -731,6 +731,10 @@ class SettingsWindow:
         self._render_ollama_section()
 
     def _badge_text(self) -> str:
+        size = (self._get_model_size() if hasattr(self, "model_var")
+                else self.config["model_size"])
+        if is_parakeet(size):
+            return "Parakeet  ·  CPU"
         return f"{get_backend_name(self.gpu_type)}  ·  {self.gpu_name or 'CPU'}"
 
     def _build_accel_row(self, c):
@@ -908,6 +912,8 @@ class SettingsWindow:
                 self._autostop_label_to_s.get(self.autostop_secs_var.get(), 3.0)
                 if self.autostop_var.get() else 0),
         })
+        if getattr(self, "_hint_displayed", False):
+            self.config["parakeet_hint_shown"] = True
 
     def _on_ollama_tier_change(self, label):
         """Picker -> Modell-Tag setzen, Status (ready/no_model) neu berechnen."""
@@ -964,6 +970,7 @@ class SettingsWindow:
             self.model_menu.configure(values=self._whisper_labels)
             self.model_var.set(self._whisper_label)
         self.config["parakeet_hint_shown"] = True
+        self._badge_label.configure(text=self._badge_text())
         self._update_model_desc()
         self._update_dl_button()
         self._update_perf_state()
@@ -981,8 +988,10 @@ class SettingsWindow:
             text, color = t("parakeet.lang_warn"), BRAND["amber"]
         elif (not is_parakeet(size) and self.gpu_type == "cpu"
               and not self.config.get("parakeet_hint_shown")):
-            # Bestandsnutzer auf reiner CPU: einmal auf die schnellere Engine hinweisen
+            # Bestandsnutzer auf reiner CPU: einmal auf die schnellere Engine
+            # hinweisen — nach dem Speichern nicht wieder
             text, color = t("parakeet.hint"), BRAND["cyan"]
+            self._hint_displayed = True
         self.model_desc.configure(text=text, text_color=color)
 
     def _update_perf_state(self):

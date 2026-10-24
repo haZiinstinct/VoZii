@@ -9,6 +9,10 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ## [Unreleased]
 
+---
+
+## [1.10.0] — 2026-10-24
+
 ### Neu
 - **Parakeet-Engine für normale Laptops:** NVIDIA Parakeet TDT 0.6B v3 (int8,
   ~650 MB) läuft in-process über onnx-asr/onnxruntime auf der CPU, gemessen
@@ -29,6 +33,10 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ### Geändert
 - Die Exe wächst durch onnxruntime von ~34 auf ~49 MB.
+- Das Badge in den Einstellungen zeigt bei Parakeet `Parakeet · CPU` statt
+  des Whisper-Backends; der Parakeet-Hinweis für CPU-Nutzer erscheint nach dem
+  Speichern nicht erneut.
+- Abhängigkeiten: Pillow 13.0.0, ruff 0.17.2, actions/setup-python v7.1.0.
 
 ---
 

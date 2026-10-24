@@ -15,7 +15,7 @@ no account. One 49&nbsp;MB file.</p>
 
 <p>
   <a href="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-1.9.1-00d4ff?labelColor=0a0a0f" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.10.0-00d4ff?labelColor=0a0a0f" />
   <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-00d4ff?labelColor=0a0a0f" />
   <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-00d4ff?labelColor=0a0a0f&logo=python&logoColor=white" />
   <img alt="Windows 11" src="https://img.shields.io/badge/Windows-11-00d4ff?labelColor=0a0a0f&logo=windows&logoColor=white" />
@@ -91,7 +91,7 @@ clipboard, no field was focused), `SHORT` / `EMPTY` / `TOO LONG`, or `ERR:MIC` /
 | 🖥️ **Compute** | NVIDIA CUDA · AMD Vulkan · CPU (Parakeet or whisper.cpp) — auto-detected and cached |
 | 🎚️ **Decoding** | **Fast** (greedy) for everyday use · **Accurate** (beam search) when it matters |
 | 🔧 **Extras** | Persistent audio stream (no clipped first syllable) · microphone level test · autostart with Windows |
-| 🆕 **v1.8** | Toggle mode with **auto-stop on silence** · **custom vocabulary** (names & jargon) · update notifications · whisper.cpp 1.9.2 |
+| 🆕 **v1.10** | **Parakeet engine** — fast dictation on any laptop CPU · switch Whisper ↔ Parakeet any time · **GPU→CPU fallback** when the graphics driver crashes |
 
 ## 🚀 Get VoZii
 

@@ -3,4 +3,4 @@
 # Dependabot haelt die Versionen aktuell.
 pyinstaller==6.22.3
 pytest==9.1.1
-ruff==0.17.0
+ruff==0.17.2

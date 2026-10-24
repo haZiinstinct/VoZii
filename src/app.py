@@ -211,6 +211,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
         performance_mode=config.get("performance_mode", "speed"),
         use_server=config.get("use_server", True),
         initial_prompt=config.get("initial_prompt", ""),
+        whisper_model=config.get("whisper_model", "large-v3-turbo-q5_0"),
     )
     text_processor = TextProcessor(
         mode=config.get("post_processing_mode", "off"),
@@ -297,7 +298,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
         tray = TrayApp(
             state, on_quit,
             hotkey_str=config["hotkey"],
-            backend_name=backend_name,
+            backend_name="Parakeet · CPU" if transcriber.engine == "parakeet" else backend_name,
             mic_name=recorder.device_name,
             on_open_settings=on_open_settings,
             on_open_log=on_open_log,

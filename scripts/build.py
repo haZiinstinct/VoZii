@@ -76,6 +76,14 @@ def build(dist_dir: str | None = None):
         "--collect-submodules", "pynput",
         "--collect-all", "customtkinter",
         "--collect-all", "tkinter",
+        # Parakeet-Engine: onnxruntime-DLLs + die Praeprozessor-ONNX-Dateien
+        # von onnx_asr (nemo128.onnx u. a.) liegen als Paketdaten bei
+        "--collect-binaries", "onnxruntime",
+        "--collect-data", "onnx_asr",
+        "--collect-submodules", "onnx_asr",
+        # onnx_asr liest beim Import die eigene Version aus den Paket-Metadaten
+        "--copy-metadata", "onnx-asr",
+        "--copy-metadata", "onnxruntime",
         os.path.join(BASE_DIR, "src", "main.py"),
     ]
 

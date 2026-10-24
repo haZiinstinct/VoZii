@@ -1,8 +1,11 @@
-"""Transkription via whisper.cpp — persistenter Server-Modus mit CLI-Fallback.
+"""Transkription — whisper.cpp (Server + CLI-Fallback) oder Parakeet (CPU).
 
 ServerBackend haelt das Modell im RAM (whisper-server.exe, nur 127.0.0.1):
 spart das Neu-Laden des Modells (75 MB - 1,5 GB) bei jeder Transkription.
 CliBackend ist der robuste Fallback (whisper-cli.exe pro Aufruf).
+ParakeetBackend (src/parakeet.py) ist die schnelle CPU-Engine fuer
+EU-Sprachen. Stuerzt ein GPU-Backend ab, faellt der Transcriber einmalig
+auf CPU zurueck — bevorzugt auf Parakeet, sonst whisper.cpp mit --no-gpu.
 """
 
 import atexit
@@ -19,9 +22,19 @@ import urllib.error
 import urllib.request
 import uuid
 
-from src.downloader import MODEL_FILES, MODEL_MIN_SIZES, is_server_available
+from src.downloader import (
+    MODEL_FILES,
+    MODEL_MIN_SIZES,
+    PARAKEET_DIR,
+    PARAKEET_MODEL,
+    installed_backend_type,
+    is_model_installed,
+    is_parakeet,
+    is_server_available,
+)
 from src.errors import VCREDIST_URL, classify_win_exit_code
 from src.i18n import t
+from src.parakeet import ParakeetBackend, supports_language
 from src.paths import BASE_DIR
 from src.winutil import assign_process_to_job, create_kill_on_close_job
 
@@ -105,7 +118,9 @@ def _exit_code_hint(code: int) -> str:
 
 def is_setup_complete(model_size: str) -> bool:
     """Binary + Modell vorhanden — reine Dateipruefung, ohne Backend-Aufbau
-    (kein Job-Object, kein atexit-Handler)."""
+    (kein Job-Object, kein atexit-Handler). Parakeet braucht kein whisper-Binary."""
+    if is_parakeet(model_size):
+        return is_model_installed(model_size)
     if not os.path.isfile(WHISPER_CLI):
         return False
     model_path = os.path.join(MODELS_DIR, MODEL_FILES.get(model_size, "ggml-small.bin"))
@@ -123,9 +138,12 @@ class CliBackend:
         self.language = language
         self.performance_mode = performance_mode
         self.initial_prompt = initial_prompt
+        self.no_gpu = False
         self.last_error_hint = ""
+        self.last_returncode = None
 
     def transcribe(self, wav_path: str) -> str:
+        self.last_returncode = None
         timeout_s = _timeout_for(wav_path)
         q = _quality_args(self.performance_mode)
         cmd = [
@@ -141,6 +159,8 @@ class CliBackend:
         if self.initial_prompt:
             # Eigene Begriffe (Namen, Fachwoerter) als Erkennungs-Kontext
             cmd += ["--prompt", self.initial_prompt]
+        if self.no_gpu:
+            cmd.append("-ng")
 
         try:
             result = subprocess.run(
@@ -160,6 +180,7 @@ class CliBackend:
             log.error("whisper-cli nicht gefunden: %s", e)
             return ""
 
+        self.last_returncode = result.returncode
         if result.returncode != 0:
             self.last_error_hint = _exit_code_hint(result.returncode)
             log.error("whisper-cli Fehler (code %d): %s %s",
@@ -187,6 +208,7 @@ class ServerBackend:
         self._proc = None
         self._port = None
         self._lock = threading.RLock()
+        self.no_gpu = False
         self.last_error_hint = ""
         # Job-Object haelt den Server an unseren Prozess gekettet: stirbt VoZii
         # (auch per Force-Kill/Crash), killt Windows den Server automatisch.
@@ -210,8 +232,11 @@ class ServerBackend:
             "--port", str(self._port),
             "-t", str(_threads()),
         ]
-        log.info("Starte whisper-server (Port %d, Modell %s)",
-                 self._port, os.path.basename(self.model_path))
+        if self.no_gpu:
+            cmd.append("-ng")
+        log.info("Starte whisper-server (Port %d, Modell %s%s)",
+                 self._port, os.path.basename(self.model_path),
+                 ", CPU" if self.no_gpu else "")
         # stdout/stderr nach DEVNULL: der Server loggt jeden Request — eine
         # PIPE wuerde ueber lange Sessions volllaufen und den Prozess blocken.
         self._proc = subprocess.Popen(
@@ -327,41 +352,78 @@ def _build_multipart(fields: dict, file_field: str, filename: str,
 
 
 class Transcriber:
-    """Facade: Server-Backend wenn verfuegbar, sonst (und bei Fehlern) CLI."""
+    """Facade ueber die Engines.
+
+    Whisper: Server-Backend wenn verfuegbar, sonst (und bei Fehlern) CLI;
+    stuerzt ein GPU-Backend ab, einmalig CPU-Fallback.
+    Parakeet: in-process auf der CPU; fuer Sprachen ausserhalb der 25
+    EU-Sprachen (und falls Parakeet versagt) springt Whisper ein, sofern
+    installiert (whisper_model)."""
+
+    engine = "whisper"
+    notice = ""  # einmaliger Hinweis fuers Overlay ("cpu_fallback")
+    _parakeet = None
+    _no_gpu = False
 
     def __init__(self, model_size: str = "large-v3-turbo-q5_0", language: str = "de",
                  performance_mode: str = "speed", use_server: bool = True,
-                 initial_prompt: str = ""):
+                 initial_prompt: str = "", whisper_model: str = "large-v3-turbo-q5_0"):
         self.model_size = model_size
         self.language = language
-        self.model_path = os.path.join(MODELS_DIR, MODEL_FILES.get(model_size, "ggml-small.bin"))
+        if not is_parakeet(model_size):
+            whisper_model = model_size
+        self.whisper_model = whisper_model
+        self.model_path = os.path.join(MODELS_DIR, MODEL_FILES.get(whisper_model, "ggml-small.bin"))
+
+        if (is_parakeet(model_size) or self._gpu_backend()) and supports_language(language) \
+                and is_model_installed(PARAKEET_MODEL):
+            # Bei Whisper-auf-GPU nur als CPU-Reserve angelegt (laedt erst bei Bedarf)
+            self._parakeet = ParakeetBackend(_threads())
+        elif is_parakeet(model_size) and not supports_language(language):
+            log.warning("Sprache %r kann Parakeet nicht — nutze Whisper (%s)",
+                        language, whisper_model)
+        self.engine = ("parakeet" if is_parakeet(model_size) and self._parakeet is not None
+                       else "whisper")
+
+        whisper_wanted = self.engine == "whisper" or is_setup_complete(whisper_model)
         self._cli = CliBackend(self.model_path, language, performance_mode, initial_prompt)
         self._server = None
-        if use_server and is_server_available():
+        if whisper_wanted and use_server and is_server_available():
             self._server = ServerBackend(self.model_path, language, performance_mode,
                                          initial_prompt)
-        log.info("Transcriber-Backend: %s", "server" if self._server else "cli")
+        self._whisper_ok = is_setup_complete(whisper_model)
+        log.info("Transcriber-Engine: %s", "parakeet (cpu)" if self.engine == "parakeet"
+                 else ("whisper (server)" if self._server else "whisper (cli)"))
+
+    @staticmethod
+    def _gpu_backend() -> bool:
+        return installed_backend_type() in ("nvidia", "amd")
 
     @property
     def last_error_hint(self) -> str:
         """Verstaendliche Erklaerung des letzten Backend-Fehlers ("" wenn keiner) —
         z. B. Smart-App-Control-Block oder fehlende VC++-Runtime."""
+        if self.engine == "parakeet" and self._parakeet.last_error_hint:
+            return self._parakeet.last_error_hint
         if self._server is not None and self._server.last_error_hint:
             return self._server.last_error_hint
         return self._cli.last_error_hint
 
     def is_ready(self) -> bool:
-        return is_setup_complete(self.model_size)
+        if self.engine == "parakeet":
+            return True
+        return self._whisper_ok
 
     def warmup(self):
-        """Startet den Server im Hintergrund, damit die erste Transkription
-        nicht auf das Modell-Laden warten muss. Best-effort."""
-        if self._server is None:
-            return
+        """Laedt das Modell im Hintergrund (Parakeet in-process, sonst den
+        whisper-server), damit die erste Transkription nicht wartet. Best-effort."""
         try:
-            self._server.ensure_started()
+            if self.engine == "parakeet":
+                self._parakeet.warmup()
+            elif self._server is not None:
+                self._server.ensure_started()
         except Exception:
-            log.exception("Server-Warmup fehlgeschlagen (CLI-Fallback bleibt)")
+            log.exception("Warmup fehlgeschlagen (Fallback bleibt)")
 
     def transcribe(self, wav_path: str) -> str:
         if not self.is_ready():
@@ -369,6 +431,29 @@ class Transcriber:
                 f"whisper-cli.exe oder Modell nicht gefunden/corrupt.\n"
                 f"CLI: {WHISPER_CLI}\nModell: {self.model_path}"
             )
+        if self.engine == "parakeet":
+            try:
+                return _clean_output(self._parakeet.transcribe(wav_path))
+            except Exception:
+                if not self._whisper_ok:
+                    raise
+                log.exception("Parakeet fehlgeschlagen — Fallback auf Whisper")
+        return self._transcribe_whisper(wav_path)
+
+    def _transcribe_whisper(self, wav_path: str) -> str:
+        text = self._whisper_once(wav_path)
+        if text or not self._gpu_crashed():
+            return text
+        # GPU-Backend abgestuerzt (Treiber, VRAM, kaputtes CUDA) -> fuer den
+        # Rest des Zyklus auf CPU; Parakeet ist dort deutlich schneller
+        log.warning("GPU-Backend abgestuerzt (Code %s) — wechsle auf CPU",
+                    self._cli.last_returncode)
+        self._switch_to_cpu()
+        if self.engine == "parakeet":
+            return _clean_output(self._parakeet.transcribe(wav_path))
+        return self._whisper_once(wav_path)
+
+    def _whisper_once(self, wav_path: str) -> str:
         if self._server is not None:
             try:
                 return _clean_output(self._server.transcribe(wav_path))
@@ -378,20 +463,53 @@ class Transcriber:
                 log.exception("Server-Backend fehlgeschlagen — Fallback auf CLI")
         return _clean_output(self._cli.transcribe(wav_path))
 
+    def _gpu_crashed(self) -> bool:
+        """CLI mit Crash-Code beendet, waehrend ein GPU-Backend installiert ist.
+
+        SAC-Block und fehlende VC++-Runtime treffen die CPU genauso — dort
+        bringt der Wechsel nichts."""
+        code = getattr(self._cli, "last_returncode", None)
+        if self._no_gpu or not code or not self._gpu_backend():
+            return False
+        return classify_win_exit_code(code) not in ("err.hint.sac", "err.hint.vcredist")
+
+    def _switch_to_cpu(self):
+        self._no_gpu = True
+        self.notice = "cpu_fallback"
+        self._cli.no_gpu = True
+        if self._server is not None:
+            self._server.shutdown()
+            self._server.no_gpu = True
+        if self._parakeet is not None:
+            self.engine = "parakeet"
+
+    def pop_notice(self) -> str:
+        notice, self.notice = self.notice, ""
+        return notice
+
     def shutdown(self):
         if self._server is not None:
             self._server.shutdown()
+        if self._parakeet is not None:
+            self._parakeet.shutdown()
 
     def get_status(self) -> str:
+        if self.engine == "parakeet":
+            return t("transcriber.ready", model="Parakeet v3", lang=self.language,
+                     backend="CPU")
+        if is_parakeet(self.model_size) and not self._whisper_ok:
+            if not supports_language(self.language):
+                return t("transcriber.parakeet_lang", lang=self.language)
+            return t("transcriber.model_missing", path=PARAKEET_DIR)
         if not os.path.isfile(WHISPER_CLI):
             return t("transcriber.cli_missing", path=WHISPER_CLI)
         if not os.path.isfile(self.model_path):
             return t("transcriber.model_missing", path=self.model_path)
-        min_size = MODEL_MIN_SIZES.get(self.model_size, 0)
+        min_size = MODEL_MIN_SIZES.get(self.whisper_model, 0)
         actual = os.path.getsize(self.model_path)
         if actual < min_size:
             return t("transcriber.model_incomplete",
                      actual=actual // 1048576, min=min_size // 1048576)
         backend = "Server" if self._server is not None else "CLI"
-        return t("transcriber.ready", model=self.model_size,
+        return t("transcriber.ready", model=self.whisper_model,
                  lang=self.language, backend=backend)

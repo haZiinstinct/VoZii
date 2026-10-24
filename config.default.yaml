@@ -4,7 +4,8 @@ mode: "push_to_talk"            # push_to_talk oder toggle
 auto_stop_silence_s: 0          # toggle: Sekunden Stille bis Auto-Stop (0 = aus, 1.5-10)
 language: "auto"                # Diktat-Sprache: auto (alle ~99) oder z.B. de, en, es, fr, zh, ja, ar
 ui_language: ""                 # Oberflaeche: "" = System-Sprache; de/en/es/fr/pt/ru/zh/ja/ar
-model_size: "large-v3-turbo-q5_0"  # tiny, large-v3-turbo-q5_0 (empfohlen), large-v3-turbo
+model_size: "large-v3-turbo-q5_0"  # tiny, large-v3-turbo-q5_0 (empfohlen), large-v3-turbo, parakeet-v3-int8 (schnell auf CPU)
+whisper_model: "large-v3-turbo-q5_0"  # gemerktes Whisper-Modell (Engine-Umschalter, Fallback fuer Nicht-EU-Sprachen)
 audio_feedback: true            # Beep bei Start/Stop
 gpu_type: "auto"                # auto, nvidia, amd, cpu
 audio_device: null              # null = Systemstandard
@@ -22,3 +23,4 @@ gpu_cache_type: null            # wird automatisch gefuellt (GPU-Erkennungs-Cach
 gpu_cache_name: null
 gpu_cache_at: null
 first_run_done: false           # einmaliger Hotkey-Hinweis beim ersten Start
+parakeet_hint_shown: false      # einmaliger Hinweis auf die Parakeet-CPU-Engine

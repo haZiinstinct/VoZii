@@ -127,6 +127,10 @@ class RunSession:
         """Eine Aufnahme transkribieren, einfuegen, WAV loeschen, zurueck auf IDLE."""
         try:
             text = self.transcriber.transcribe(wav_path)
+            pop_notice = getattr(self.transcriber, "pop_notice", None)
+            if pop_notice and pop_notice() == "cpu_fallback":
+                # GPU-Backend abgestuerzt, laeuft ab jetzt auf der CPU
+                self.notify("cpu_fallback", 4000)
             if text and is_hallucination(text, duration, rms):
                 log.info("Halluzination verworfen (%.1fs, rms %.4f): %r",
                          duration, rms, text)

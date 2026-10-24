@@ -32,6 +32,7 @@ _FLASH = {
     "short": ("overlay.short", "amber"),     # Aufnahme zu kurz
     "empty": ("overlay.empty", "amber"),     # nichts erkannt
     "too_long": ("overlay.too_long", "amber"),  # Transkription im Timeout
+    "cpu_fallback": ("overlay.cpu_fallback", "amber"),  # GPU abgestuerzt -> CPU
     "ready": ("overlay.ready", "green"),     # First-Run-Hinweis
     "err_mic": ("overlay.err_mic", "red"),
     "err_whisper": ("overlay.err_whisper", "red"),

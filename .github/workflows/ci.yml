@@ -1,12 +1,10 @@
 name: CI
 
 on:
-  # Push nur auf master/Tags, Feature-Branches laufen ueber den PR —
-  # sonst zwei identische Laeufe pro eigenem PR
+  # Laeuft nur beim Release-Tag (v*): erst Tests, dann exe bauen und anhaengen.
+  # Kein Lauf bei jedem Push/PR mehr (27.10.2026) - geprueft wird lokal.
   push:
-    branches: [master]
     tags: ["v*"]
-  pull_request:
 
 jobs:
   test:

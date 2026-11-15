@@ -252,3 +252,65 @@ def test_ohne_overlay_fehlerton():
     s.notify("err_mic")
     s.notify("short")
     assert tones == [300]
+
+
+# --- Leerlauf-Entladen ---
+
+class LazyTranscriber(FakeTranscriber):
+    def __init__(self):
+        super().__init__()
+        self.loaded = True
+        self.released = 0
+        self.prepared = 0
+
+    def release(self):
+        self.released += 1
+        self.loaded = False
+        return True
+
+    def prepare_async(self):
+        self.prepared += 1
+
+
+def test_entlaedt_erst_nach_leerlaufzeit():
+    tr = LazyTranscriber()
+    s, _ = _session(config={"idle_unload_min": 10}, transcriber=tr)
+    t0 = s._last_used
+    assert s.release_if_idle(now=t0 + 599) is False
+    assert s.release_if_idle(now=t0 + 600) is True
+    assert tr.released == 1
+    # Schon entladen -> kein zweites release()
+    assert s.release_if_idle(now=t0 + 1200) is False
+    assert tr.released == 1
+
+
+def test_entlaedt_nicht_waehrend_aufnahme_oder_wenn_aus():
+    tr = LazyTranscriber()
+    s, _ = _session(config={"idle_unload_min": 10}, transcriber=tr)
+    s.state.set_state(AppState.RECORDING)
+    assert s.release_if_idle(now=s._last_used + 10_000) is False
+
+    tr2 = LazyTranscriber()
+    s2, _ = _session(config={"idle_unload_min": 0}, transcriber=tr2)
+    assert s2.release_if_idle(now=s2._last_used + 10_000) is False
+    assert tr2.released == 0
+
+
+def test_hotkey_laedt_modell_im_sparmodus_vor():
+    tr = LazyTranscriber()
+    s, _ = _session(config={"idle_unload_min": 10}, transcriber=tr)
+    s.on_activate()
+    assert tr.prepared == 1
+
+    tr2 = LazyTranscriber()
+    s2, _ = _session(config={"idle_unload_min": 0}, transcriber=tr2)
+    s2.on_activate()
+    assert tr2.prepared == 0  # Modell ist dauerhaft geladen, nichts zu tun
+
+
+def test_transkription_setzt_leerlauf_zurueck(tmp_path):
+    tr = LazyTranscriber()
+    s, _ = _session(config={"idle_unload_min": 10}, transcriber=tr)
+    s._last_used = 0.0
+    s.process(str(_wav(tmp_path)), 2.0, 0.1)
+    assert s._last_used > 0.0

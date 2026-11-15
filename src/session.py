@@ -9,6 +9,7 @@ import logging
 import os
 import queue
 import threading
+import time
 
 from src.filters import is_hallucination
 from src.i18n import t
@@ -41,6 +42,9 @@ class RunSession:
         self.hotkey_mgr = None
         self._error_count = 0
         self._hint_shown = False
+        # Leerlauf-Entladen: 0 = Modell bleibt dauerhaft im RAM
+        self.idle_unload_s = max(0, config.get("idle_unload_min", 0)) * 60
+        self._last_used = time.monotonic()
 
     # --- Feedback ---
 
@@ -76,6 +80,13 @@ class RunSession:
             self.beep_start()
             self.recorder.start_recording()
             log.info("Aufnahme gestartet")
+            self._last_used = time.monotonic()
+            # Entladenes Modell jetzt nachladen — parallel zur Aufnahme, so
+            # ist es meist fertig, bevor der Nutzer ausgesprochen hat
+            if self.idle_unload_s:
+                prepare = getattr(self.transcriber, "prepare_async", None)
+                if prepare:
+                    prepare()
         except Exception:
             log.exception("on_activate fehlgeschlagen")
             self.state.set_state(AppState.IDLE)
@@ -173,6 +184,7 @@ class RunSession:
                 os.remove(wav_path)
             except OSError:
                 pass
+            self._last_used = time.monotonic()
         self.state.set_state(AppState.IDLE)
 
     def transcription_worker(self):
@@ -182,6 +194,30 @@ class RunSession:
             except queue.Empty:
                 continue
             self.process(wav_path, duration, rms)
+
+    # --- Leerlauf ---
+
+    def release_if_idle(self, now: float | None = None) -> bool:
+        """Modell entladen, wenn seit idle_unload_s kein Diktat mehr lief."""
+        if not self.idle_unload_s or self.state.state != AppState.IDLE:
+            return False
+        now = time.monotonic() if now is None else now
+        if now - self._last_used < self.idle_unload_s:
+            return False
+        if not getattr(self.transcriber, "loaded", False):
+            return False
+        try:
+            freed = bool(self.transcriber.release())
+        except Exception:
+            log.exception("Modell-Entladen fehlgeschlagen")
+            return False
+        if freed and self.state.state != AppState.IDLE:
+            # Hotkey kam waehrend des Entladens: on_activate sah das Modell
+            # noch als geladen und hat kein prepare_async() ausgeloest
+            prepare = getattr(self.transcriber, "prepare_async", None)
+            if prepare:
+                prepare()
+        return freed
 
     # --- Watchdog ---
 
@@ -207,6 +243,7 @@ class RunSession:
                 self.recorder.ensure_stream()
         except Exception:
             log.exception("Audio-Watchdog fehlgeschlagen")
+        self.release_if_idle()
 
     def health_watchdog(self, interval_s: float):
         while not self.shutdown_event.wait(interval_s):

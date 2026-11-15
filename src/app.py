@@ -22,7 +22,7 @@ from src.tray import TrayApp
 from src.settings_gui import SettingsWindow
 from src.hardware import detect_gpu_cached, effective_gpu_type, get_backend_name
 from src.overlay import RecordingOverlay
-from src.text_processor import DEFAULT_MODEL, TextProcessor, prompt_language
+from src.text_processor import TextProcessor, prompt_language, start_ollama_if_needed
 from src.history import TranscriptionHistory
 from src.session import RunSession
 from src.i18n import set_language, t
@@ -215,10 +215,14 @@ def _run_cycle(skip_settings: bool = False) -> str:
     )
     text_processor = TextProcessor(
         mode=config.get("post_processing_mode", "off"),
-        model=config.get("ollama_model", DEFAULT_MODEL),
         prompt_lang=prompt_language(config["language"], config.get("ui_language", "de")),
     )
     log.info("Post-processing: %s", text_processor.mode)
+    if text_processor.mode != "off":
+        # Ollama laeuft nach einem Neustart evtl. nicht — selbst starten,
+        # sonst faellt jede Korrektur still auf den Rohtext zurueck
+        threading.Thread(target=start_ollama_if_needed, daemon=True,
+                         name="ollama-start").start()
     history = TranscriptionHistory() if config.get("history_enabled", True) else None
 
     if not transcriber.is_ready():
@@ -239,9 +243,14 @@ def _run_cycle(skip_settings: bool = False) -> str:
     # das finally raeumt auch bei einem Crash auf, sonst leakt pro
     # Schleifendurchlauf ein Server (1,5 GB RAM beim Medium-Modell).
     try:
-        # Server-Backend im Hintergrund vorwaermen (Modell laden), damit die
-        # erste Transkription nicht darauf warten muss
-        threading.Thread(target=transcriber.warmup, daemon=True).start()
+        # Modell beim Start nur vorladen, wenn es ohnehin dauerhaft im RAM
+        # bleibt. Im Sparmodus laedt es erst der erste Hotkey-Druck, parallel
+        # zur Aufnahme; bis dahin belegt VoZii nur ~75 MB.
+        if not config.get("idle_unload_min", 0):
+            threading.Thread(target=transcriber.warmup, daemon=True).start()
+        else:
+            log.info("Sparmodus: Modell laedt beim ersten Diktat, entlaedt nach %d min Leerlauf",
+                     config["idle_unload_min"])
 
         if config.get("show_overlay", True):
             overlay = RecordingOverlay()

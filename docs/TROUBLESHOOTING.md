@@ -106,10 +106,21 @@ seconds and repairs both on its own, and a dead microphone shows up as
 
 ## Slow or delayed transcription
 
+- **First dictation after a break takes a few seconds longer?** That's the
+  memory saver: after 30 minutes without dictation VoZii unloads the model and
+  reloads it on the next hotkey press, in parallel to your recording. Turn off
+  **Save memory** in the options to keep it loaded permanently (~750&nbsp;MB RAM).
 - VoZii keeps a `whisper-server` in RAM (the model stays loaded). If that
   fails, it silently falls back to a slower per-call CLI mode — the log tells
   you which engine is active (`Transcriber-Engine: whisper (server)`,
   `whisper (cli)` or `parakeet (cpu)`).
+- **Whisper on the CPU takes 15–30 s per dictation?** That's the large
+  Whisper model on a laptop CPU. Two things help a lot:
+  - Set a fixed **dictation language** instead of *Auto*. With *Auto*,
+    Whisper runs its encoder twice (once to detect the language), which
+    doubles the time.
+  - Intel Iris Xe / Arc: choose **Vulkan (AMD / Intel)** under acceleration.
+    Measured on an i5-1135G7: ~6 s instead of ~15 s per encoder run.
 - **No graphics card?** Switch the engine to **Parakeet (CPU)** in the model
   section. It runs ~20x faster than real time on ordinary laptop CPUs (a
   10-second dictation takes about half a second) and covers 25 European

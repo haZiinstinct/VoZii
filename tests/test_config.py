@@ -74,13 +74,29 @@ def test_bool_keys_validated(config_paths):
     assert config["history_enabled"] is True
 
 
-def test_migration_clean_format_to_smart(config_paths):
+def test_migration_alte_ki_modi_werden_korrektur(config_paths):
     config_path, _ = config_paths
-    _write(config_path, yaml.dump({"post_processing_mode": "clean"}))
-    assert load_config()["post_processing_mode"] == "smart"
-    # Migration wurde persistiert
-    persisted = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    assert persisted["post_processing_mode"] == "smart"
+    for old in ("clean", "format", "smart", "prompt"):
+        _write(config_path, yaml.dump({"post_processing_mode": old,
+                                       "ollama_model": "gemma3:4b"}))
+        cfg = load_config()
+        assert cfg["post_processing_mode"] == "correct", old
+        assert "ollama_model" not in cfg
+        # Migration wurde persistiert
+        persisted = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        assert persisted["post_processing_mode"] == "correct"
+        assert "ollama_model" not in persisted
+
+
+def test_idle_unload_validiert(config_paths):
+    config_path, _ = config_paths
+    assert load_config()["idle_unload_min"] == 30
+    for good in (0, 1, 30, 240):
+        _write(config_path, yaml.dump({"idle_unload_min": good}))
+        assert load_config()["idle_unload_min"] == good
+    for bad in (-1, 241, "10", True, 2.5, None):
+        _write(config_path, yaml.dump({"idle_unload_min": bad}))
+        assert load_config()["idle_unload_min"] == 30, bad
 
 
 def test_missing_keys_get_defaults(config_paths):

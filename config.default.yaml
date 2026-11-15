@@ -11,11 +11,11 @@ gpu_type: "auto"                # auto, nvidia, amd, cpu
 audio_device: null              # null = Systemstandard
 show_overlay: true              # Status-Anzeige unten rechts
 auto_start: false               # Mit Windows starten (direkt in den Tray)
-post_processing_mode: "off"     # off, smart, prompt (braucht Ollama)
-ollama_model: "qwen2.5:3b"      # Ollama-Modell: llama3.2:1b / qwen2.5:3b / gemma3:4b
+post_processing_mode: "off"     # off oder correct (Korrektur via Ollama, Modell llama3.2:1b)
 performance_mode: "speed"       # speed (greedy, schnell) oder quality (Beam 5)
 initial_prompt: ""              # Eigene Begriffe (Namen, Fachwoerter) als Whisper-Kontext
 use_server: true                # whisper-server: Modell bleibt im RAM (schneller)
+idle_unload_min: 30             # Modell nach X min ohne Diktat aus dem RAM nehmen (0 = immer geladen)
 restore_clipboard: true         # Zwischenablage nach dem Einfuegen wiederherstellen
 history_enabled: true           # letzte 50 Transkriptionen lokal speichern
 update_check: true              # stiller Versions-Check gegen GitHub beim Start

@@ -104,6 +104,18 @@ def _timeout_for(wav_path: str) -> int:
     return max(_REQUEST_TIMEOUT_S, int(duration * 4) + 30)
 
 
+def _child_env() -> dict:
+    """Umgebung fuer whisper-cli/-server ohne VoZiis OPENBLAS_NUM_THREADS=1.
+
+    Die Begrenzung gilt nur fuer numpy im VoZii-Prozess; whisper.cpp soll
+    seine BLAS-Threads selbst nach -t setzen."""
+    env = dict(os.environ)
+    if os.environ.get("VOZII_OPENBLAS_SET") == "1":
+        env.pop("OPENBLAS_NUM_THREADS", None)
+    env.pop("VOZII_OPENBLAS_SET", None)
+    return env
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -172,6 +184,7 @@ class CliBackend:
                 timeout=timeout_s,
                 creationflags=subprocess.CREATE_NO_WINDOW,
                 cwd=WHISPER_DIR,
+                env=_child_env(),
             )
         except subprocess.TimeoutExpired:
             log.warning("whisper-cli Timeout nach %ds", timeout_s)
@@ -217,6 +230,11 @@ class ServerBackend:
         # Settings-Roundtrips.
         self._job = create_kill_on_close_job()
 
+    @property
+    def running(self) -> bool:
+        proc = self._proc
+        return proc is not None and proc.poll() is None
+
     def ensure_started(self):
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
@@ -245,6 +263,7 @@ class ServerBackend:
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW,
             cwd=WHISPER_DIR,
+            env=_child_env(),
         )
         if self._job:
             assign_process_to_job(self._job, self._proc.pid)
@@ -364,12 +383,14 @@ class Transcriber:
     notice = ""  # einmaliger Hinweis fuers Overlay ("cpu_fallback")
     _parakeet = None
     _no_gpu = False
+    _preparing = False
 
     def __init__(self, model_size: str = "large-v3-turbo-q5_0", language: str = "de",
                  performance_mode: str = "speed", use_server: bool = True,
                  initial_prompt: str = "", whisper_model: str = "large-v3-turbo-q5_0"):
         self.model_size = model_size
         self.language = language
+        self._prepare_lock = threading.Lock()
         if not is_parakeet(model_size):
             whisper_model = model_size
         self.whisper_model = whisper_model
@@ -415,8 +436,9 @@ class Transcriber:
         return self._whisper_ok
 
     def warmup(self):
-        """Laedt das Modell im Hintergrund (Parakeet in-process, sonst den
-        whisper-server), damit die erste Transkription nicht wartet. Best-effort."""
+        """Laedt das Modell (Parakeet in-process, sonst den whisper-server),
+        damit die Transkription nicht darauf wartet. Best-effort und
+        wiederholbar: ist das Modell schon da, passiert nichts."""
         try:
             if self.engine == "parakeet":
                 self._parakeet.warmup()
@@ -424,6 +446,46 @@ class Transcriber:
                 self._server.ensure_started()
         except Exception:
             log.exception("Warmup fehlgeschlagen (Fallback bleibt)")
+
+    def prepare_async(self):
+        """warmup() im Hintergrund — z. B. beim Hotkey-Druck, damit das
+        Laden parallel zur Aufnahme laeuft. Kein zweiter Thread, solange
+        einer noch laedt."""
+        if self.loaded:
+            return
+        with self._prepare_lock:
+            if self._preparing:
+                return
+            self._preparing = True
+
+        def run():
+            try:
+                self.warmup()
+            finally:
+                with self._prepare_lock:
+                    self._preparing = False
+
+        threading.Thread(target=run, daemon=True, name="model-prepare").start()
+
+    @property
+    def loaded(self) -> bool:
+        """Liegt das Modell der aktiven Engine im RAM?"""
+        if self.engine == "parakeet":
+            return self._parakeet.loaded
+        if self._server is not None:
+            return self._server.running
+        return True  # CLI laedt pro Aufruf, haelt nichts im RAM
+
+    def release(self) -> bool:
+        """Modell aus dem RAM nehmen (Leerlauf). Die naechste Transkription
+        bzw. prepare_async() laedt es neu. True, wenn etwas entladen wurde."""
+        freed = False
+        if self._parakeet is not None:
+            freed = self._parakeet.release()
+        if self._server is not None and self._server.running:
+            self._server.shutdown()
+            freed = True
+        return freed
 
     def transcribe(self, wav_path: str) -> str:
         if not self.is_ready():

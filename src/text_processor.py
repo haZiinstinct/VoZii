@@ -1,4 +1,9 @@
-"""Text Post-Processing via Ollama (lokal) + Ollama Install/Pull/Start Management."""
+"""Optionale Korrektur des Diktats via Ollama (lokal).
+
+Bewusst minimal: ein Modus (Korrektur), ein Modell (das kleinste). Fehlt
+Ollama, installiert VoZii es selbst (signaturgeprueft), startet es und laedt
+das Modell.
+"""
 
 import json
 import logging
@@ -17,122 +22,49 @@ log = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
-DEFAULT_MODEL = "qwen2.5:3b"
 # CN des Code-Signing-Zertifikats von Ollama (abgelesen per
 # Get-AuthenticodeSignature an ollama.exe, Oktober 2026). Exakter Vergleich —
 # ein Teilstring "ollama" wuerde auch fremde Zertifikate durchlassen.
 OLLAMA_SIGNER_CN = "Ollama Inc."
+# Kleinstes brauchbares Modell ohne Thinking-Mode: schnell, ~1,3 GB
+MODEL = "llama3.2:1b"
+MODES = ("off", "correct")
 
-# 3-Stufen-Auswahl fuers Post-Processing: stabile ID -> (Ollama-Tag, Groesse).
-# Die Anzeige-Namen kommen aus der i18n (aimodel.fast/balanced/best).
-# Bewusst Modelle OHNE Thinking-Mode (sauberer, schneller Output).
-OLLAMA_TIERS = {
-    "fast": ("llama3.2:1b", "~1,3 GB"),
-    "balanced": ("qwen2.5:3b", "~2 GB"),
-    "best": ("gemma3:4b", "~3 GB"),
-}
-
-
-def tier_for_model(tag: str) -> str:
-    """Stufen-ID fuer einen Modell-Tag (Default: balanced)."""
-    for tier_id, (tier_tag, _) in OLLAMA_TIERS.items():
-        if tier_tag == tag:
-            return tier_id
-    return "balanced"
-
-
-def size_label(tag: str) -> str:
-    """Ungefaehre Download-Groesse fuer einen Modell-Tag."""
-    for _, (tier_tag, size) in OLLAMA_TIERS.items():
-        if tier_tag == tag:
-            return size
-    return "~2 GB"
-
-
-# System-Prompt + Few-Shot-Beispiele je Modus. Few-Shot macht kleine Modelle
-# deutlich zuverlaessiger und haelt sie vom Vorreden ab.
-_SMART_SYSTEM = (
-    "Du bist ein Textbereiniger fuer eine Voice-to-Text-App. Verbessere den "
-    "gesprochenen Text:\n"
-    "1. Entferne Fuellwoerter (aehm, also, halt, ja, ne, sozusagen).\n"
-    "2. Korrigiere Grammatik, Interpunktion und offensichtliche Versprecher.\n"
-    "3. Behalte die Sprache des Originals bei.\n"
-    "4. Voice-Commands befolgen und aus dem Text entfernen: 'als Liste' -> "
-    "Markdown-Liste mit '-'; 'als Email' -> formeller Email-Stil; 'als Code' -> "
-    "Codeblock mit ```; 'Ueberschrift'/'als Titel' -> '# '; 'neuer Absatz' -> "
-    "Absatzumbruch.\n"
-    "5. Ohne Command passend formatieren: Aufzaehlung -> Liste, mehrere Gedanken "
-    "-> Absaetze, sonst ein sauberer Satz.\n"
-    "Gib AUSSCHLIESSLICH den fertigen Text aus - keine Erklaerung, keine "
+# Nur korrigieren: keine Voice-Commands, kein Umformatieren. Ein Few-Shot-
+# Beispiel haelt kleine Modelle vom Vorreden ab.
+_CORRECT_SYSTEM = (
+    "Du korrigierst diktierten Text aus einer Voice-to-Text-App:\n"
+    "1. Korrigiere Rechtschreibung, Grammatik, Interpunktion und offensichtliche "
+    "Versprecher.\n"
+    "2. Entferne Fuellwoerter (aehm, aeh, also, halt, sozusagen).\n"
+    "3. Aendere sonst nichts: kein Umformulieren, kein Umformatieren, keine "
+    "Uebersetzung.\n"
+    "Gib AUSSCHLIESSLICH den korrigierten Text aus - keine Erklaerung, keine "
     "Anfuehrungszeichen, kein Vorwort."
 )
-_SMART_FEWSHOT = [
-    ("aehm ich wollte halt sagen dass das tool wirklich super funktioniert",
+_CORRECT_FEWSHOT = [
+    ("aehm ich wollte halt sagen das das tool wirklich super funktioniert",
      "Ich wollte sagen, dass das Tool wirklich super funktioniert."),
-    ("ich brauche folgende zutaten als liste mehl zucker butter und eier",
-     "- Mehl\n- Zucker\n- Butter\n- Eier"),
 ]
 
-_PROMPT_SYSTEM = (
-    "Wandle gesprochenen Text in einen praezisen, gut strukturierten Prompt "
-    "fuer einen KI-Assistenten um: klare Aufgabe, konkrete Anforderungen, "
-    "optional Kontext. Behalte die Sprache des Originals bei. Gib "
-    "AUSSCHLIESSLICH den Prompt aus - keine Erklaerung, kein Vorwort."
+# Fuer alle anderen Diktat-Sprachen: englische Anweisungen + Beispiel.
+# Deutsche Few-Shots zogen kleine Modelle sonst ins Deutsche.
+_CORRECT_SYSTEM_EN = (
+    "You correct dictated text from a voice-to-text app:\n"
+    "1. Fix spelling, grammar, punctuation and obvious slips of the tongue.\n"
+    "2. Remove filler words (um, uh, like, you know, basically).\n"
+    "3. Change nothing else: no rewording, no reformatting, never translate.\n"
+    "Output ONLY the corrected text - no explanation, no quotes, no preamble."
 )
-_PROMPT_FEWSHOT = [
-    ("schreib ne email an meinen chef dass ich morgen nicht kann weil ich zum arzt muss",
-     "Schreibe eine hoefliche, formelle E-Mail an meinen Vorgesetzten. Inhalt: "
-     "Ich kann morgen nicht arbeiten, da ich einen Arzttermin habe. Bitte um "
-     "Verstaendnis und biete an, dringende Aufgaben vorab zu erledigen. Ton: "
-     "professionell und knapp."),
-]
-
-# Fuer alle anderen Diktat-Sprachen: englische Anweisungen + englische
-# Beispiele. Deutsche Few-Shots zogen kleine Modelle sonst ins Deutsche.
-_SMART_SYSTEM_EN = (
-    "You clean up dictated text for a voice-to-text app. Improve the spoken "
-    "text:\n"
-    "1. Remove filler words (um, uh, like, you know, basically).\n"
-    "2. Fix grammar, punctuation and obvious slips of the tongue.\n"
-    "3. Keep the language of the input - never translate.\n"
-    "4. Follow voice commands and remove them from the text: 'as a list' -> "
-    "Markdown list with '-'; 'as an email' -> formal email style; 'as code' -> "
-    "code block with ```; 'heading'/'as a title' -> '# '; 'new paragraph' -> "
-    "paragraph break.\n"
-    "5. Without a command, format sensibly: enumeration -> list, several "
-    "thoughts -> paragraphs, otherwise one clean sentence.\n"
-    "Output ONLY the finished text - no explanation, no quotes, no preamble."
-)
-_SMART_FEWSHOT_EN = [
+_CORRECT_FEWSHOT_EN = [
     ("um so i wanted to say that the tool like really works great",
      "I wanted to say that the tool really works great."),
-    ("i need the following ingredients as a list flour sugar butter and eggs",
-     "- Flour\n- Sugar\n- Butter\n- Eggs"),
 ]
 
-_PROMPT_SYSTEM_EN = (
-    "Turn spoken text into a precise, well-structured prompt for an AI "
-    "assistant: clear task, concrete requirements, optional context. Keep the "
-    "language of the input - never translate. Output ONLY the prompt - no "
-    "explanation, no preamble."
-)
-_PROMPT_FEWSHOT_EN = [
-    ("write an email to my boss that i cant come in tomorrow because i have a doctors appointment",
-     "Write a polite, formal email to my manager. Content: I can't work tomorrow "
-     "because I have a doctor's appointment. Ask for understanding and offer to "
-     "take care of urgent tasks beforehand. Tone: professional and brief."),
-]
-
-# Prompt-Sprache -> Modus -> (System-Prompt, Few-Shot, Temperatur)
+# Prompt-Sprache -> (System-Prompt, Few-Shot)
 PROMPTS = {
-    "de": {
-        "smart": (_SMART_SYSTEM, _SMART_FEWSHOT, 0.2),
-        "prompt": (_PROMPT_SYSTEM, _PROMPT_FEWSHOT, 0.4),
-    },
-    "en": {
-        "smart": (_SMART_SYSTEM_EN, _SMART_FEWSHOT_EN, 0.2),
-        "prompt": (_PROMPT_SYSTEM_EN, _PROMPT_FEWSHOT_EN, 0.4),
-    },
+    "de": (_CORRECT_SYSTEM, _CORRECT_FEWSHOT),
+    "en": (_CORRECT_SYSTEM_EN, _CORRECT_FEWSHOT_EN),
 }
 
 
@@ -163,34 +95,31 @@ def _clean_response(text: str) -> str:
     return text
 
 
+
+
 class TextProcessor:
-    def __init__(self, mode: str = "off", model: str = DEFAULT_MODEL, prompt_lang: str = "de"):
-        self.mode = mode
+    def __init__(self, mode: str = "off", prompt_lang: str = "de", model: str = MODEL):
+        self.mode = mode if mode in MODES else "off"
         self.model = model
         self.prompt_lang = prompt_lang if prompt_lang in PROMPTS else "en"
 
     def process(self, text: str) -> str:
-        """Verarbeitet den Text gemaess Mode. Fallback auf Raw bei Fehler."""
+        """Korrigiert den Text. Fallback auf den Rohtext bei jedem Fehler."""
         if self.mode == "off" or not text:
             return text
-        spec = PROMPTS[self.prompt_lang].get(self.mode)
-        if not spec:
-            return text
-        system, fewshot, temperature = spec
+        system, fewshot = PROMPTS[self.prompt_lang]
         try:
-            result = _clean_response(self._chat(system, fewshot, text, temperature))
+            result = _clean_response(self._chat(system, fewshot, text))
             if result:
-                log.info("Post-processing '%s': %d -> %d Zeichen",
-                         self.mode, len(text), len(result))
+                log.info("Korrektur: %d -> %d Zeichen", len(text), len(result))
                 return result
             log.warning("Ollama lieferte leeren Text, fallback auf raw")
             return text
         except Exception as e:
-            log.error("Ollama Post-processing fehlgeschlagen: %s", e)
+            log.error("Ollama-Korrektur fehlgeschlagen: %s", e)
             return text
 
-    def _chat(self, system: str, fewshot, text: str, temperature: float,
-              timeout: int = 60) -> str:
+    def _chat(self, system: str, fewshot, text: str, timeout: int = 60) -> str:
         messages = [{"role": "system", "content": system}]
         for user_msg, assistant_msg in fewshot:
             messages.append({"role": "user", "content": user_msg})
@@ -201,8 +130,8 @@ class TextProcessor:
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "think": False,  # Reasoning-Modelle sollen nicht ihre Gedanken ausgeben
-            "options": {"temperature": temperature, "num_predict": 1024},
+            "think": False,
+            "options": {"temperature": 0.1, "num_predict": 1024},
         }).encode("utf-8")
 
         req = urllib.request.Request(
@@ -253,7 +182,7 @@ def is_ollama_installed() -> str | None:
     return None
 
 
-def get_ollama_state(required_model: str = DEFAULT_MODEL) -> str:
+def get_ollama_state(required_model: str = MODEL) -> str:
     """Returns state:
     - 'ready': Ollama laeuft, Modell da
     - 'no_model': Ollama laeuft, Modell fehlt
@@ -268,27 +197,6 @@ def get_ollama_state(required_model: str = DEFAULT_MODEL) -> str:
     if is_ollama_installed():
         return "installed_not_running"
     return "not_installed"
-
-
-def stop_ollama() -> bool:
-    """Beendet Ollama via taskkill (GUI-App + CLI serve).
-
-    Returns True wenn mindestens ein Prozess beendet wurde.
-    """
-    success = False
-    for proc_name in ("ollama app.exe", "ollama.exe"):
-        try:
-            result = subprocess.run(
-                [system32("taskkill.exe"), "/f", "/im", proc_name],
-                capture_output=True, text=True, timeout=5,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-            if result.returncode == 0:
-                success = True
-                log.info("Beendet: %s", proc_name)
-        except Exception as e:
-            log.debug("Konnte %s nicht beenden: %s", proc_name, e)
-    return success
 
 
 def start_ollama(ollama_path: str, timeout: int = 30) -> bool:
@@ -318,6 +226,27 @@ def start_ollama(ollama_path: str, timeout: int = 30) -> bool:
         time.sleep(1)
     log.warning("Ollama-Start Timeout nach %ds", timeout)
     return False
+
+
+def start_ollama_if_needed() -> bool:
+    """Startet ein installiertes, aber nicht laufendes Ollama (best-effort,
+    fuer den Tray-Betrieb). Installiert nie ungefragt."""
+    running, models = check_ollama()
+    if not running:
+        path = is_ollama_installed()
+        if not path:
+            log.warning("Korrektur aktiv, aber Ollama nicht installiert")
+            return False
+        if not start_ollama(path):
+            return False
+        running, models = check_ollama()
+    if MODEL not in models:
+        # z. B. nach der Migration von qwen2.5:3b: jede Korrektur faellt
+        # sonst kommentarlos auf den Rohtext zurueck
+        log.warning("Korrektur aktiv, aber Modell %s fehlt — in den "
+                    "Einstellungen 'Korrektur' anklicken", MODEL)
+        return False
+    return True
 
 
 # --- Ollama Installer mit Cancel + Speed ---
@@ -458,6 +387,32 @@ def _download_ollama_installer(url, dest, progress_callback, cancel_event):
         # Final update
         if progress_callback:
             progress_callback(downloaded, total, "Installer geladen", 0)
+
+
+def ensure_ready(progress_callback=None, cancel_event=None, model: str = MODEL) -> bool:
+    """Bringt die Korrektur in einem Rutsch zum Laufen: Ollama installieren
+    (falls fehlt), starten (falls aus), Modell laden (falls fehlt).
+
+    progress_callback(completed, total, status_text, speed_bps)
+    Raises RuntimeError/InterruptedError wie die Einzelschritte."""
+    state = get_ollama_state(model)
+    if state == "not_installed":
+        install_ollama(progress_callback, cancel_event)  # startet Ollama mit
+        state = get_ollama_state(model)
+    if state == "installed_not_running":
+        if progress_callback:
+            progress_callback(0, 0, t("ollama.status.starting"), 0)
+        path = is_ollama_installed()
+        if not path:
+            raise RuntimeError(t("ollama.not_found"))
+        if not start_ollama(path):
+            raise RuntimeError("Ollama-Start fehlgeschlagen (Timeout)")
+        state = get_ollama_state(model)
+    if cancel_event and cancel_event.is_set():
+        raise InterruptedError("Abgebrochen")
+    if state == "no_model":
+        pull_model(model, progress_callback, cancel_event)
+    return True
 
 
 # --- Ollama Model Pull mit Cancel + Speed ---

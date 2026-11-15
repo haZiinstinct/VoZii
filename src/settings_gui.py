@@ -25,9 +25,7 @@ from src.downloader import (
 from src.parakeet import supports_language
 from src.transcriber import is_setup_complete
 from src.text_processor import (
-    get_ollama_state, install_ollama, pull_model,
-    is_ollama_installed, start_ollama, stop_ollama, DEFAULT_MODEL,
-    OLLAMA_TIERS, tier_for_model, size_label,
+    MODEL as OLLAMA_MODEL, ensure_ready as ollama_ensure_ready, get_ollama_state,
 )
 
 log = logging.getLogger(__name__)
@@ -66,8 +64,6 @@ MODEL_DESC_KEYS = {
     "medium": "model.desc.medium",
     PARAKEET_MODEL: "model.desc.parakeet",
 }
-# AI-Tier-ID -> i18n-Key
-AITIER_LABEL_KEYS = {"fast": "aimodel.fast", "balanced": "aimodel.balanced", "best": "aimodel.best"}
 
 # Gemeinsamer Stil fuer alle SegmentedButtons (Sprache/Transkription/Modus)
 # Update-Check nur einmal pro Prozess — nicht bei jedem Sprachwechsel-Rebuild
@@ -148,7 +144,7 @@ class SettingsWindow:
         self._downloading = False
         self._cancel_download = threading.Event()
         self._ollama_busy = False
-        self._ollama_cancel = None  # threading.Event during install/pull
+        self._ollama_cancel = None  # threading.Event waehrend des Modell-Downloads
         self._refresh_ollama_state()
 
     def _preselect_parakeet(self):
@@ -167,8 +163,7 @@ class SettingsWindow:
 
     def _refresh_ollama_state(self):
         """Refresh Ollama status: ready / no_model / installed_not_running / not_installed."""
-        required_model = self.config.get("ollama_model", DEFAULT_MODEL)
-        self._ollama_state = get_ollama_state(required_model)
+        self._ollama_state = get_ollama_state(OLLAMA_MODEL)
 
     def run(self):
         self.root = ctk.CTk()
@@ -634,63 +629,26 @@ class SettingsWindow:
                               tooltip=t("postproc.tooltip"))
         self.ollama_container = c
 
-        self._mode_label_to_code = {t("mode.off"): "off", t("mode.smart"): "smart",
-                                    t("mode.prompt"): "prompt"}
+        self._mode_label_to_code = {t("mode.off"): "off", t("mode.correct"): "correct"}
         mode_code_to_label = {v: k for k, v in self._mode_label_to_code.items()}
         self.mode_var = ctk.StringVar(
             value=mode_code_to_label.get(self.config.get("post_processing_mode", "off"), t("mode.off")))
         self.mode_btn = ctk.CTkSegmentedButton(
-            c, values=list(self._mode_label_to_code), variable=self.mode_var, **_SEG_STYLE,
+            c, values=list(self._mode_label_to_code), variable=self.mode_var,
+            command=self._on_postproc_mode_change, **_SEG_STYLE,
         )
         self.mode_btn.pack(fill="x", pady=(0, 2))
-        ctk.CTkLabel(c, text=t("mode.desc"),
+        ctk.CTkLabel(c, text=t("mode.desc", model=OLLAMA_MODEL),
                      font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
                      wraplength=400, justify="left").pack(fill="x", pady=(0, 4))
 
-        # KI-Modell-Picker (Stufen lokalisiert, intern stabile IDs)
-        self._tier_label_to_id = {t(v): k for k, v in AITIER_LABEL_KEYS.items()}
-        tier_id_to_label = {k: t(v) for k, v in AITIER_LABEL_KEYS.items()}
-        self.ollama_tier_var = ctk.StringVar(
-            value=tier_id_to_label.get(tier_for_model(self.config.get("ollama_model", DEFAULT_MODEL)),
-                                       t("aimodel.balanced")))
-        tier_btn = ctk.CTkSegmentedButton(
-            c, values=list(self._tier_label_to_id),
-            variable=self.ollama_tier_var, command=self._on_ollama_tier_change, **_SEG_STYLE,
-        )
-        tier_btn.pack(fill="x", pady=(0, 2))
-        ctk.CTkLabel(c, text=t("aimodel.desc"),
-                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
-                     wraplength=400, justify="left").pack(fill="x", pady=(0, 4))
-
-        # Ollama Status-Row: Label + Mini-Button (Start/Stop)
         self.ollama_status_row = ctk.CTkFrame(c, fg_color="transparent")
         self.ollama_status_row.pack(fill="x", pady=(0, 2))
-
         self.ollama_status_label = ctk.CTkLabel(
             self.ollama_status_row, text="", font=(FONT_BODY, 11),
             text_color=BRAND["text_dim"], anchor="w",
         )
         self.ollama_status_label.pack(side="left", fill="x", expand=True)
-
-        self.ollama_mini_btn = ctk.CTkButton(
-            self.ollama_status_row, text="", width=28, height=22,
-            font=(FONT_MONO, 11),
-            fg_color="transparent", text_color=BRAND["text_dim"],
-            border_width=1, border_color=BRAND["border"],
-            hover_color=BRAND["card_hover"], corner_radius=6,
-            command=self._handle_ollama_mini_btn,
-        )
-        # Wird in _render_ollama_section() gepackt je nach state
-
-        Tooltip(self.ollama_mini_btn, t("ollama.mini.tooltip"))
-
-        # Action-Button (Install/Start/Pull) - nur wenn noetig
-        self.ollama_action_btn = ctk.CTkButton(
-            c, text="", height=34, font=(FONT_BODY, 13, "bold"),
-            fg_color=BRAND["cyan"], text_color=BRAND["bg"],
-            hover_color=BRAND["cyan_dim"], corner_radius=8,
-            command=self._handle_ollama_action,
-        )
 
         # Download-Container (erscheint waehrend Install/Pull)
         self.ollama_dl_frame = ctk.CTkFrame(c, fg_color="transparent")
@@ -741,7 +699,7 @@ class SettingsWindow:
         """Backend-Override: Erkennung kann sich irren (Treiberleiche einer
         ausgebauten Karte) — bisher nur per Hand in config.yaml korrigierbar."""
         self._accel_label_to_code = {t("accel.auto"): "auto", "NVIDIA (CUDA)": "nvidia",
-                                     "AMD (Vulkan)": "amd", "CPU": "cpu"}
+                                     "Vulkan (AMD / Intel)": "amd", "CPU": "cpu"}
         code_to_label = {v: k for k, v in self._accel_label_to_code.items()}
         self.accel_var = ctk.StringVar(
             value=code_to_label.get(self.config.get("gpu_type", "auto"), t("accel.auto")))
@@ -767,6 +725,17 @@ class SettingsWindow:
 
     def _build_options_section(self, c):
         self._build_accel_row(c)
+
+        # Sparmodus: Modell nach Leerlauf entladen (~700 MB frei), laedt beim
+        # naechsten Hotkey parallel zur Aufnahme nach
+        self.memsave_var = ctk.BooleanVar(value=bool(self.config.get("idle_unload_min", 30)))
+        mem_switch = ctk.CTkSwitch(c, text=t("opt.memsave"), variable=self.memsave_var,
+                      font=(FONT_BODY, 13), text_color=BRAND["text"],
+                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
+                      button_hover_color=BRAND["text"])
+        mem_switch.pack(anchor="w", pady=(0, 6))
+        Tooltip(mem_switch, t("opt.memsave.tooltip",
+                                minutes=self.config.get("idle_unload_min") or 30))
 
         self.overlay_var = ctk.BooleanVar(value=self.config.get("show_overlay", True))
         ov_switch = ctk.CTkSwitch(c, text=t("opt.overlay"), variable=self.overlay_var,
@@ -905,6 +874,10 @@ class SettingsWindow:
             "audio_feedback": self.sound_var.get(),
             "restore_clipboard": self.clipres_var.get(),
             "update_check": self.updchk_var.get(),
+            # Eigener Minutenwert aus config.yaml bleibt erhalten, Schalter
+            # setzt nur an (Default 30) bzw. aus (0)
+            "idle_unload_min": ((self.config.get("idle_unload_min") or 30)
+                                if self.memsave_var.get() else 0),
             "initial_prompt": self.vocab_box.get("1.0", "end").strip()[:600],
             "mode": self._hkmode_label_to_code.get(self.hkmode_var.get(), "push_to_talk"),
             "gpu_type": self._accel_label_to_code.get(self.accel_var.get(), "auto"),
@@ -914,13 +887,6 @@ class SettingsWindow:
         })
         if getattr(self, "_hint_displayed", False):
             self.config["parakeet_hint_shown"] = True
-
-    def _on_ollama_tier_change(self, label):
-        """Picker -> Modell-Tag setzen, Status (ready/no_model) neu berechnen."""
-        tier_id = self._tier_label_to_id.get(label, "balanced")
-        self.config["ollama_model"] = OLLAMA_TIERS[tier_id][0]
-        self._refresh_ollama_state()
-        self._render_ollama_section()
 
     def _hist_clear_label(self) -> str:
         from src.history import TranscriptionHistory
@@ -1099,124 +1065,56 @@ class SettingsWindow:
 
     def _render_ollama_section(self):
         """Rendert UI je nach State: ready/no_model/installed_not_running/not_installed/busy."""
-        required = self.config.get("ollama_model", DEFAULT_MODEL)
-
         if self._ollama_busy:
-            # Waehrend Install/Pull: zeige Download-Frame
+            # Waehrend der Einrichtung: Fortschritt statt Status zeigen
             self.ollama_status_row.pack_forget()
-            self.ollama_action_btn.pack_forget()
             if not self.ollama_dl_frame.winfo_ismapped():
                 self.ollama_dl_frame.pack(fill="x", pady=(4, 0))
             return
 
-        # Nicht busy: Download-Frame verstecken
         if self.ollama_dl_frame.winfo_ismapped():
             self.ollama_dl_frame.pack_forget()
-
-        # Status-Row wieder zeigen
         if not self.ollama_status_row.winfo_ismapped():
             self.ollama_status_row.pack(fill="x", pady=(0, 2))
 
         state = self._ollama_state
-
-        # Mini-Button State: ▶ fuer Start, ■ fuer Stop, versteckt bei not_installed
-        if state in ("ready", "no_model"):
-            self.ollama_mini_btn.configure(
-                text="■", text_color=BRAND["text_dim"], hover_color=BRAND["red"],
-            )
-            if not self.ollama_mini_btn.winfo_ismapped():
-                self.ollama_mini_btn.pack(side="right", padx=(6, 0))
-        elif state == "installed_not_running":
-            self.ollama_mini_btn.configure(
-                text="▶", text_color=BRAND["text_dim"], hover_color=BRAND["green"],
-            )
-            if not self.ollama_mini_btn.winfo_ismapped():
-                self.ollama_mini_btn.pack(side="right", padx=(6, 0))
-        else:
-            self.ollama_mini_btn.pack_forget()
-
         if state == "ready":
-            self.ollama_status_label.configure(
-                text=t("ollama.status.ready", model=required), text_color=BRAND["green"])
-            self.mode_btn.configure(state="normal")
-            self.ollama_action_btn.pack_forget()
-
-        elif state == "no_model":
-            self.ollama_status_label.configure(
-                text=t("ollama.status.no_model", model=required), text_color=BRAND["text_dim"])
-            self.mode_btn.configure(state="disabled")
-            self.mode_var.set(t("mode.off"))
-            self.ollama_action_btn.configure(text=t("ollama.action.load_model", size=size_label(required)))
-            if not self.ollama_action_btn.winfo_ismapped():
-                self.ollama_action_btn.pack(fill="x", pady=(4, 0))
-
+            text, color = t("ollama.status.ready", model=OLLAMA_MODEL), BRAND["green"]
         elif state == "installed_not_running":
-            self.ollama_status_label.configure(
-                text=t("ollama.status.not_running"), text_color=BRAND["amber"])
-            self.mode_btn.configure(state="disabled")
+            # Kein Problem: VoZii startet Ollama selbst, sobald korrigiert wird
+            text, color = t("ollama.status.not_running"), BRAND["text_dim"]
+        elif state == "no_model":
+            text, color = t("ollama.status.no_model", model=OLLAMA_MODEL), BRAND["text_dim"]
+        else:
+            text, color = t("ollama.status.not_installed"), BRAND["text_dim"]
+        self.ollama_status_label.configure(text=text, text_color=color)
+        # Korrektur ohne Ollama/Modell waere wirkungslos -> beim Oeffnen auf
+        # Aus; ein Klick auf "Korrektur" richtet alles ein
+        if (state in ("not_installed", "no_model")
+                and self._mode_label_to_code.get(self.mode_var.get()) == "correct"):
             self.mode_var.set(t("mode.off"))
-            self.ollama_action_btn.pack_forget()
 
-        else:  # not_installed
-            self.ollama_status_label.configure(
-                text=t("ollama.status.not_installed"), text_color=BRAND["text_dim"])
-            self.mode_btn.configure(state="disabled")
-            self.mode_var.set(t("mode.off"))
-            self.ollama_action_btn.configure(text=t("ollama.action.install"))
-            if not self.ollama_action_btn.winfo_ismapped():
-                self.ollama_action_btn.pack(fill="x", pady=(4, 0))
-
-    def _handle_ollama_mini_btn(self):
-        """Mini-Button: Start (wenn nicht gestartet) oder Stop (wenn laeuft)."""
-        if self._ollama_busy:
+    def _on_postproc_mode_change(self, label):
+        """Korrektur gewaehlt -> Ollama bei Bedarf installieren, starten und
+        das Modell laden. Schlaegt das fehl, springt der Modus auf Aus."""
+        if self._mode_label_to_code.get(label) != "correct" or self._ollama_busy:
             return
-        state = self._ollama_state
-        if state == "installed_not_running":
-            self._handle_ollama_start()
-        elif state in ("ready", "no_model"):
-            stop_ollama()
-            self._refresh_ollama_state()
+        self._refresh_ollama_state()
+        # Nur "ready" ist sicher: bei installed_not_running laesst sich nicht
+        # pruefen, ob das Modell da ist -> ensure_ready startet und laedt nach
+        if self._ollama_state == "ready":
             self._render_ollama_section()
-
-    def _handle_ollama_action(self):
-        """Dispatcht auf Start/Install/Pull je nach State."""
-        if self._ollama_busy:
             return
 
-        state = self._ollama_state
-
-        if state == "installed_not_running":
-            self._handle_ollama_start()
-            return
-
-        # Install oder Pull → busy + cancel_event
         self._ollama_busy = True
         self._ollama_cancel = threading.Event()
+        self.mode_btn.configure(state="disabled")
         self._render_ollama_section()
         self._update_ollama_progress(0, 0, t("progress.starting"), 0)
 
-        required = self.config.get("ollama_model", DEFAULT_MODEL)
-
         def run():
             try:
-                if state == "not_installed":
-                    install_ollama(
-                        progress_callback=self._on_ollama_progress,
-                        cancel_event=self._ollama_cancel,
-                    )
-                    if self._ollama_cancel.is_set():
-                        raise InterruptedError
-                    pull_model(
-                        required,
-                        progress_callback=self._on_ollama_progress,
-                        cancel_event=self._ollama_cancel,
-                    )
-                elif state == "no_model":
-                    pull_model(
-                        required,
-                        progress_callback=self._on_ollama_progress,
-                        cancel_event=self._ollama_cancel,
-                    )
+                ollama_ensure_ready(self._on_ollama_progress, self._ollama_cancel)
                 self.root.after(0, self._ollama_action_done)
             except InterruptedError:
                 self.root.after(0, lambda: self._ollama_action_fail(t("download.cancelled")))
@@ -1225,30 +1123,6 @@ class SettingsWindow:
                 self.root.after(0, lambda m=msg: self._ollama_action_fail(m))
 
         threading.Thread(target=run, daemon=True).start()
-
-    def _handle_ollama_start(self):
-        """Ollama starten — kein Download-UI, nur Status-Text."""
-        # KEIN _ollama_busy=True → kein Layout-Shift
-        self.ollama_mini_btn.configure(state="disabled")
-        self.ollama_status_label.configure(text=t("ollama.status.starting"), text_color=BRAND["amber"])
-
-        def run():
-            ollama_path = is_ollama_installed()
-            if not ollama_path:
-                self.root.after(0, lambda: self._on_start_done(False, t("ollama.not_found")))
-                return
-            ok = start_ollama(ollama_path)
-            self.root.after(0, lambda: self._on_start_done(ok, None))
-
-        threading.Thread(target=run, daemon=True).start()
-
-    def _on_start_done(self, ok: bool, err: str | None):
-        """Callback nach Ollama-Start."""
-        self.ollama_mini_btn.configure(state="normal")
-        self._refresh_ollama_state()
-        self._render_ollama_section()
-        if not ok and err:
-            self.ollama_status_label.configure(text=t("error.generic", error=err), text_color=BRAND["red"])
 
     def _cancel_ollama_action(self):
         """User klickt Cancel - setzt das Event."""
@@ -1284,6 +1158,7 @@ class SettingsWindow:
     def _ollama_action_done(self):
         self._ollama_busy = False
         self._ollama_cancel = None
+        self.mode_btn.configure(state="normal")
         self.ollama_cancel_btn.configure(text=t("btn.cancel"), state="normal")
         self._refresh_ollama_state()
         self._render_ollama_section()
@@ -1291,6 +1166,8 @@ class SettingsWindow:
     def _ollama_action_fail(self, msg):
         self._ollama_busy = False
         self._ollama_cancel = None
+        self.mode_btn.configure(state="normal")
+        self.mode_var.set(t("mode.off"))
         self.ollama_cancel_btn.configure(text=t("btn.cancel"), state="normal")
         self._refresh_ollama_state()
         self._render_ollama_section()
@@ -1375,6 +1252,10 @@ class SettingsWindow:
             self._dl_fail(t("validate.model_missing"))
             return
         self._collect_into_config()
+        if self._ollama_busy:
+            # Einrichtung laeuft noch (Modell fehlt) und bricht mit dem
+            # Fenster ab -> Korrektur nicht als aktiv speichern
+            self.config["post_processing_mode"] = "off"
         if (is_parakeet(size) and not supports_language(self.config["language"])
                 and not is_setup_complete(self.config["whisper_model"])):
             # Parakeet kann die Sprache nicht und kein Whisper als Ersatz da

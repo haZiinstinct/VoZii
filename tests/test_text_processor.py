@@ -1,35 +1,17 @@
-"""Text-Post-Processing: Tier-Helfer, Output-Cleaning, Chat-Request-Aufbau."""
+"""Korrektur via Ollama: Output-Cleaning, Chat-Request-Aufbau, Prompt-Sprache."""
 
 import json
 
 from src import text_processor as tp
-from src.text_processor import (
-    OLLAMA_TIERS,
-    TextProcessor,
-    _clean_response,
-    size_label,
-    tier_for_model,
-)
+from src.text_processor import TextProcessor, _clean_response
 
 
-def test_tier_for_model():
-    # Stabile IDs (Anzeige-Namen kommen aus der i18n, nicht aus tier_for_model)
-    assert tier_for_model("llama3.2:1b") == "fast"
-    assert tier_for_model("qwen2.5:3b") == "balanced"
-    assert tier_for_model("gemma3:4b") == "best"
-    assert tier_for_model("unbekannt:9b") == "balanced"  # Fallback
-
-
-def test_size_label():
-    assert size_label("qwen2.5:3b") == "~2 GB"
-    assert size_label("gemma3:4b") == "~3 GB"
-    assert size_label("unbekannt") == "~2 GB"
-
-
-def test_tiers_consistent():
-    # Jede Stufe hat Tag + Groesse; Default-Tag ist in den Tiers
-    assert all(len(v) == 2 for v in OLLAMA_TIERS.values())
-    assert tp.DEFAULT_MODEL in {tag for tag, _ in OLLAMA_TIERS.values()}
+def test_nur_ein_modell_und_ein_modus():
+    assert tp.MODEL == "llama3.2:1b"
+    assert tp.MODES == ("off", "correct")
+    # Unbekannte/alte Modi schalten ab statt zu raten
+    assert TextProcessor(mode="smart").mode == "off"
+    assert TextProcessor(mode="prompt").mode == "off"
 
 
 def test_clean_response_strips_preamble():
@@ -54,7 +36,7 @@ def test_clean_response_keeps_normal_text():
 
 
 def test_chat_request_structure(monkeypatch):
-    """process() im Smart-Modus baut den Chat-Request korrekt (System + Few-Shot + User)."""
+    """process() im Korrektur-Modus baut den Chat-Request korrekt (System + Few-Shot + User)."""
     captured = {}
 
     class FakeResp:
@@ -74,11 +56,11 @@ def test_chat_request_structure(monkeypatch):
 
     monkeypatch.setattr(tp.urllib.request, "urlopen", fake_urlopen)
 
-    out = TextProcessor(mode="smart", model="qwen2.5:3b").process("aehm hallo")
+    out = TextProcessor(mode="correct").process("aehm hallo")
     assert out == "bereinigt"  # getrimmt
     assert captured["url"].endswith("/api/chat")
     body = captured["body"]
-    assert body["model"] == "qwen2.5:3b"
+    assert body["model"] == "llama3.2:1b"
     assert body["think"] is False
     assert body["stream"] is False
     roles = [m["role"] for m in body["messages"]]
@@ -90,14 +72,14 @@ def test_chat_request_structure(monkeypatch):
 
 def test_process_off_and_empty():
     assert TextProcessor(mode="off").process("x") == "x"
-    assert TextProcessor(mode="smart").process("") == ""
+    assert TextProcessor(mode="correct").process("") == ""
 
 
 def test_process_fallback_on_error(monkeypatch):
     def boom(*a, **k):
         raise OSError("Ollama weg")
     monkeypatch.setattr(tp.urllib.request, "urlopen", boom)
-    assert TextProcessor(mode="smart").process("mein text") == "mein text"
+    assert TextProcessor(mode="correct").process("mein text") == "mein text"
 
 
 # --- Authenticode-Pruefung des Ollama-Installers (C2) ---
@@ -148,12 +130,6 @@ def test_subject_field_mit_anfuehrungszeichen():
     assert tp._subject_field("O=X", "CN") is None
 
 
-def test_stop_ollama_nutzt_absoluten_taskkill_pfad(monkeypatch):
-    calls = _fake_signature(monkeypatch, "")
-    tp.stop_ollama()
-    assert calls and all(c[0].lower().endswith(r"\system32\taskkill.exe") for c in calls)
-
-
 def test_prompt_sprache_nach_diktat_und_ui_sprache():
     assert tp.prompt_language("de", "en") == "de"
     assert tp.prompt_language("fr", "de") == "en"
@@ -164,18 +140,66 @@ def test_prompt_sprache_nach_diktat_und_ui_sprache():
 def test_englische_prompts_fuer_andere_sprachen(monkeypatch):
     captured = {}
 
-    def fake_chat(self, system, fewshot, text, temperature, timeout=60):
+    def fake_chat(self, system, fewshot, text, timeout=60):
         captured.update(system=system, fewshot=fewshot)
         return "ok"
 
     monkeypatch.setattr(TextProcessor, "_chat", fake_chat)
-    TextProcessor(mode="smart", prompt_lang="en").process("um hello")
-    assert "Keep the language of the input" in captured["system"]
+    TextProcessor(mode="correct", prompt_lang="en").process("um hello")
+    assert "never translate" in captured["system"]
     assert captured["fewshot"][0][1].startswith("I wanted")
-    TextProcessor(mode="smart").process("aehm hallo")
-    assert captured["system"].startswith("Du bist")
+    TextProcessor(mode="correct").process("aehm hallo")
+    assert captured["system"].startswith("Du korrigierst")
 
 
 def test_clean_response_strips_english_preamble():
     assert tp._clean_response("Here is the cleaned text: Hello world.") == "Hello world."
     assert tp._clean_response("Sure, we meet at five.") == "Sure, we meet at five."
+
+
+# --- Automatische Einrichtung ---
+
+def _fake_setup(monkeypatch, states, installed=r"C:\x\ollama.exe", start_ok=True):
+    """states: Abfolge der get_ollama_state()-Ergebnisse."""
+    calls = []
+    seq = list(states)
+    monkeypatch.setattr(tp, "get_ollama_state", lambda model=tp.MODEL: seq.pop(0))
+    monkeypatch.setattr(tp, "install_ollama", lambda *a: calls.append("install"))
+    monkeypatch.setattr(tp, "is_ollama_installed", lambda: installed)
+    monkeypatch.setattr(tp, "start_ollama", lambda path: calls.append("start") or start_ok)
+    monkeypatch.setattr(tp, "pull_model", lambda m, *a: calls.append(("pull", m)))
+    return calls
+
+
+def test_ensure_ready_installiert_und_laedt_modell(monkeypatch):
+    calls = _fake_setup(monkeypatch, ["not_installed", "no_model"])
+    assert tp.ensure_ready() is True
+    assert calls == ["install", ("pull", "llama3.2:1b")]
+
+
+def test_ensure_ready_startet_ollama(monkeypatch):
+    calls = _fake_setup(monkeypatch, ["installed_not_running", "ready"])
+    tp.ensure_ready()
+    assert calls == ["start"]
+
+
+def test_ensure_ready_tut_nichts_wenn_bereit(monkeypatch):
+    calls = _fake_setup(monkeypatch, ["ready"])
+    tp.ensure_ready()
+    assert calls == []
+
+
+def test_ensure_ready_start_fehlgeschlagen(monkeypatch):
+    _fake_setup(monkeypatch, ["installed_not_running"], start_ok=False)
+    import pytest
+    with pytest.raises(RuntimeError):
+        tp.ensure_ready()
+
+
+def test_laufzeit_start_installiert_nie(monkeypatch):
+    calls = []
+    monkeypatch.setattr(tp, "check_ollama", lambda: (False, []))
+    monkeypatch.setattr(tp, "is_ollama_installed", lambda: None)
+    monkeypatch.setattr(tp, "install_ollama", lambda *a: calls.append("install"))
+    assert tp.start_ollama_if_needed() is False
+    assert calls == []

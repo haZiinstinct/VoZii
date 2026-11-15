@@ -11,6 +11,11 @@ import sys
 import tempfile
 import traceback
 
+# Vor dem ersten numpy-Import: OpenBLAS reserviert sonst pro CPU-Kern einen
+# Puffer (gemessen ~225 MB Commit). VoZii rechnet mit numpy nur Pegel und
+# Resampling — ein Thread reicht dafuer locker.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 if not getattr(sys, "frozen", False):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

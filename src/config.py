@@ -26,11 +26,14 @@ DEFAULT_CONFIG = {
     "audio_device": None,
     "show_overlay": True,
     "auto_start": False,
-    "post_processing_mode": "off",
-    "ollama_model": "qwen2.5:3b",
+    "post_processing_mode": "off",  # off | correct (Ollama, llama3.2:1b)
     "performance_mode": "speed",
     "initial_prompt": "",
     "use_server": True,
+    # Modell nach so vielen Minuten ohne Diktat aus dem RAM nehmen
+    # (0 = immer geladen lassen). Laedt beim naechsten Hotkey parallel zur
+    # Aufnahme nach.
+    "idle_unload_min": 10,
     "restore_clipboard": True,
     "history_enabled": True,
     "update_check": True,
@@ -51,7 +54,7 @@ _ALLOWED_VALUES = {
                    "parakeet-v3-int8"},
     "whisper_model": {"tiny", "small", "medium", "large-v3-turbo-q5_0", "large-v3-turbo"},
     "gpu_type": {"auto", "nvidia", "amd", "cpu"},
-    "post_processing_mode": {"off", "smart", "prompt"},
+    "post_processing_mode": {"off", "correct"},
     "performance_mode": {"speed", "quality"},
 }
 
@@ -98,14 +101,15 @@ def _validate(config: dict) -> dict:
     if config.get("audio_device") is not None and not isinstance(config["audio_device"], str):
         config["audio_device"] = None
 
-    if not isinstance(config.get("ollama_model"), str) or not config["ollama_model"].strip():
-        config["ollama_model"] = DEFAULT_CONFIG["ollama_model"]
-
     # Eigene Begriffe (Whisper initial_prompt): Whisper sieht nur ~224 Tokens
     # Prompt-Fenster — laengere Eingaben bringen nichts und werden gekappt
     if not isinstance(config.get("initial_prompt"), str):
         config["initial_prompt"] = ""
     config["initial_prompt"] = config["initial_prompt"].strip()[:600]
+
+    v = config.get("idle_unload_min")
+    if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 240:
+        config["idle_unload_min"] = DEFAULT_CONFIG["idle_unload_min"]
 
     # Auto-Stop: 0 = aus, sonst auf 1.5-10 s clampen (unter 1.5 s wuerden
     # normale Sprechpausen das Diktat abschneiden)
@@ -149,11 +153,18 @@ def _load_locked() -> dict:
     config = dict(DEFAULT_CONFIG)
     config.update(user_config)
 
-    # Migration v1.3.x -> v1.4.0: clean/format -> smart
-    if config.get("post_processing_mode") in ("clean", "format"):
-        log.info("Migration: post_processing_mode %s -> smart",
+    # Migration -> v1.11: alle frueheren KI-Modi (clean/format/smart/prompt)
+    # werden zur einzigen verbliebenen Korrektur; Modellwahl entfaellt
+    migrated = False
+    if config.get("post_processing_mode") in ("clean", "format", "smart", "prompt"):
+        log.info("Migration: post_processing_mode %s -> correct",
                  config["post_processing_mode"])
-        config["post_processing_mode"] = "smart"
+        config["post_processing_mode"] = "correct"
+        migrated = True
+    if "ollama_model" in config:
+        del config["ollama_model"]
+        migrated = True
+    if migrated:
         save_config(config)
 
     return _validate(config)

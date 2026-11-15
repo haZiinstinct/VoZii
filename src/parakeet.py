@@ -2,10 +2,11 @@
 
 Die schnelle CPU-Engine fuer normale Laptops: ~20-35x Echtzeit auf der CPU,
 setzt Satzzeichen/Grossschreibung selbst, erkennt die Sprache automatisch
-(25 europaeische Sprachen). Kein Subprozess, kein Server — das Modell bleibt
-nach dem ersten Laden im RAM (~1 GB).
+(25 europaeische Sprachen). Kein Subprozess, kein Server. Geladen belegt das
+Modell ~700 MB RAM; release() gibt sie wieder frei (Leerlauf-Entladen).
 """
 
+import gc
 import logging
 import threading
 import wave
@@ -98,6 +99,12 @@ class ParakeetBackend:
         opts = rt.SessionOptions()
         opts.intra_op_num_threads = self.threads
         opts.inter_op_num_threads = 1
+        # Ohne Arena gibt ONNX Runtime Zwischenpuffer nach jeder Inferenz
+        # zurueck. Mit Arena behielt der Prozess den Spitzenbedarf des
+        # laengsten Diktats dauerhaft (gemessen: +600 MB nach 45 s Audio),
+        # bei gleicher Geschwindigkeit.
+        opts.enable_cpu_mem_arena = False
+        opts.enable_mem_pattern = False
         log.info("Lade Parakeet (%d Threads, %s)", self.threads, self.model_dir)
         model = onnx_asr.load_model(
             "nemo-parakeet-tdt-0.6b-v3", self.model_dir, quantization="int8",
@@ -105,38 +112,59 @@ class ParakeetBackend:
         log.info("Parakeet bereit")
         return model
 
+    @property
+    def loaded(self) -> bool:
+        return self._model is not None
+
+    def _ensure_loaded_locked(self):
+        if self._model is not None:
+            return
+        try:
+            self._model = self._load()
+        except Exception as e:
+            self.last_error_hint = t("err.hint.parakeet", error=e)
+            raise
+
     def ensure_loaded(self):
         with self._lock:
-            if self._model is not None:
-                return
-            try:
-                self._model = self._load()
-            except Exception as e:
-                self.last_error_hint = t("err.hint.parakeet", error=e)
-                raise
+            self._ensure_loaded_locked()
 
     def warmup(self):
         """Laedt das Modell und rechnet einmal Stille durch — die erste
         ONNX-Inferenz ist deutlich langsamer als alle folgenden."""
-        self.ensure_loaded()
         with self._lock:
+            if self._model is not None:
+                return
+            self._ensure_loaded_locked()
             self._model.recognize(np.zeros(_SAMPLE_RATE, dtype=np.float32))
 
     def transcribe(self, wav_path: str) -> str:
-        self.ensure_loaded()
         audio = _read_wav(wav_path)
         parts = []
-        try:
-            with self._lock:
+        # Laden und Rechnen unter EINEM Lock: release() aus dem Leerlauf-
+        # Watchdog darf das Modell nicht zwischen beiden Schritten wegnehmen
+        with self._lock:
+            self._ensure_loaded_locked()
+            try:
                 for chunk in split_chunks(audio):
                     text = self._model.recognize(chunk)
                     if text and text.strip():
                         parts.append(text.strip())
-        except Exception as e:
-            self.last_error_hint = t("err.hint.parakeet", error=e)
-            raise
+            except Exception as e:
+                self.last_error_hint = t("err.hint.parakeet", error=e)
+                raise
         self.last_error_hint = ""
         return " ".join(parts)
+
+    def release(self) -> bool:
+        """Modell aus dem RAM werfen. True, wenn etwas entladen wurde."""
+        with self._lock:
+            if self._model is None:
+                return False
+            self._model = None
+        gc.collect()
+        log.info("Parakeet entladen (Leerlauf)")
+        return True
 
     def shutdown(self):
         with self._lock:

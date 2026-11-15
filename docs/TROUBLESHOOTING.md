@@ -106,6 +106,10 @@ seconds and repairs both on its own, and a dead microphone shows up as
 
 ## Slow or delayed transcription
 
+- **First dictation after a break takes a few seconds longer?** That's the
+  memory saver: after 10 minutes without dictation VoZii unloads the model and
+  reloads it on the next hotkey press, in parallel to your recording. Turn off
+  **Save memory** in the options to keep it loaded permanently (~750&nbsp;MB RAM).
 - VoZii keeps a `whisper-server` in RAM (the model stays loaded). If that
   fails, it silently falls back to a slower per-call CLI mode — the log tells
   you which engine is active (`Transcriber-Engine: whisper (server)`,

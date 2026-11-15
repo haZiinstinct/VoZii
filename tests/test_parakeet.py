@@ -2,6 +2,8 @@
 GPU->CPU-Fallback."""
 
 import os
+import threading
+import time
 import wave
 
 import numpy as np
@@ -314,3 +316,61 @@ def test_config_akzeptiert_parakeet(config_paths):
     assert cfg["model_size"] == "parakeet-v3-int8"
     # whisper_model darf nur ein Whisper-Modell sein
     assert cfg["whisper_model"] == "large-v3-turbo-q5_0"
+
+
+# --- Leerlauf-Entladen ---
+
+def _counting_backend(monkeypatch):
+    backend = ParakeetBackend(threads=2)
+    loads = []
+
+    def load():
+        loads.append(1)
+        return FakeModel()
+
+    monkeypatch.setattr(backend, "_load", load)
+    return backend, loads
+
+
+def test_backend_release_und_neu_laden(tmp_path, monkeypatch):
+    wav = tmp_path / "a.wav"
+    _write_wav(wav, _tone(1))
+    backend, loads = _counting_backend(monkeypatch)
+    assert not backend.loaded
+    assert backend.release() is False  # nichts geladen, nichts zu tun
+
+    backend.transcribe(str(wav))
+    assert backend.loaded and len(loads) == 1
+    assert backend.release() is True
+    assert not backend.loaded
+
+    # Naechste Transkription laedt still nach
+    assert backend.transcribe(str(wav)) == "teil1"
+    assert len(loads) == 2
+
+
+def test_warmup_laedt_nur_einmal(monkeypatch):
+    backend, loads = _counting_backend(monkeypatch)
+    backend.warmup()
+    backend.warmup()
+    assert len(loads) == 1
+    assert len(backend._model.calls) == 1  # nur eine Stille-Inferenz
+
+
+def test_facade_release_und_prepare(monkeypatch):
+    backend, loads = _counting_backend(monkeypatch)
+    t = _facade("parakeet", backend, cli=None)
+    t._prepare_lock = threading.Lock()
+    assert t.loaded is False
+
+    t.prepare_async()
+    deadline = time.monotonic() + 5
+    while not t.loaded and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert t.loaded and len(loads) == 1
+
+    t.prepare_async()  # schon geladen -> kein zweiter Ladevorgang
+    assert len(loads) == 1
+    assert t.release() is True
+    assert t.loaded is False
+    assert t.release() is False

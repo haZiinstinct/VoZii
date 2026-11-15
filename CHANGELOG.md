@@ -11,6 +11,33 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.11.0] — 2026-11-15
+
+Schlank-Release: weniger RAM, weniger Ballast.
+
+### Neu
+- **Speicher sparen** (Optionen, standardmäßig an): Das Sprachmodell lädt
+  erst beim Hotkey-Druck, parallel zur Aufnahme, und wird nach 10 Minuten
+  ohne Diktat wieder entladen (`idle_unload_min`, 0 = immer geladen). Gilt
+  für Parakeet und den whisper-server. Gemessen mit Parakeet v3: Leerlauf
+  **~85 MB statt ~770 MB** Arbeitsspeicher.
+
+### Geändert
+- **ONNX Runtime ohne Speicher-Arena:** Der Prozess behielt bisher den
+  Spitzenbedarf des längsten Diktats dauerhaft (nach 45 s Audio
+  ~1.120 MB statt ~750 MB). Jetzt bleibt er konstant, bei gleicher
+  Geschwindigkeit.
+- **OpenBLAS auf einen Thread begrenzt:** numpy reservierte beim Start
+  ~225 MB Commit-Speicher für Rechen-Threads, die VoZii nie braucht.
+- **Nachbearbeitung auf das Minimum reduziert:** nur noch *Korrektur*
+  (Rechtschreibung, Grammatik, Füllwörter) mit einem Modell (`llama3.2:1b`).
+  Smart-Formatierung, Voice-Commands, Prompt-Modus und die Modellwahl sind
+  entfallen; alte Einstellungen werden automatisch auf *Korrektur* migriert.
+- **Einrichtung per Klick auf „Korrektur“:** VoZii installiert Ollama bei
+  Bedarf selbst (signaturgeprüft), startet es und lädt das Modell, ohne
+  separate Buttons. Ist die Korrektur aktiv, startet VoZii ein beendetes
+  Ollama beim Programmstart mit. Der Start/Stop-Button entfällt.
+
 ## [1.10.0] — 2026-10-24
 
 ### Neu

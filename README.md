@@ -22,7 +22,7 @@ no account. One 49&nbsp;MB file.</p>
   <img alt="whisper.cpp v1.9.5" src="https://img.shields.io/badge/whisper.cpp-v1.9.5-12121a?labelColor=0a0a0f" />
 </p>
 
-<sub><a href="#-highlights">Highlights</a> · <a href="#-how-it-works">How it works</a> · <a href="#-get-vozii">Get it</a> · <a href="#-ai-post-processing-optional">AI post-processing</a> · <a href="#-build-from-source">Build</a></sub>
+<sub><a href="#-highlights">Highlights</a> · <a href="#-how-it-works">How it works</a> · <a href="#-get-vozii">Get it</a> · <a href="#-ai-correction-optional">AI correction</a> · <a href="#-build-from-source">Build</a></sub>
 
 </div>
 
@@ -34,9 +34,10 @@ right at the cursor. The Whisper model runs **on your own machine**, so nothing 
 say ever leaves it — no upload, no subscription, no waiting on a server.
 
 It ships as a **single 49&nbsp;MB `.exe`**. No Python to install, no runtime to set up.
-The Whisper model stays loaded in RAM between dictations, so there's no per-use lag,
-and an optional local LLM (via [Ollama](https://ollama.com)) can clean up filler words
-and formatting — still 100&nbsp;% offline.
+It's built to stay light: idle in the tray it uses **~85&nbsp;MB of RAM**. The speech model
+loads while you speak and is unloaded again after 10 minutes without dictation (or stays
+loaded permanently, if you prefer). An optional local LLM (via [Ollama](https://ollama.com))
+can correct spelling and grammar — still 100&nbsp;% offline.
 
 ## ✨ Highlights
 
@@ -51,7 +52,8 @@ and formatting — still 100&nbsp;% offline.
 - 🧹 **Hallucination filter** — silence and phantom phrases (*"thanks for watching"*, …) are dropped, not typed
 - 📋 **Clipboard-safe** — inserts at the cursor and restores whatever was on your clipboard afterwards; if another app is holding the clipboard, VoZii retries instead of pasting the wrong text
 - 🕘 **History** — your last dictations are re-copyable from the tray menu (local, toggleable)
-- 🧠 **Optional AI cleanup** — a local Ollama model removes filler, fixes grammar, or turns speech into a polished prompt
+- 🪶 **Light on memory** — ~85&nbsp;MB idle; the model loads on demand and unloads when you stop dictating
+- 🧠 **Optional AI correction** — a small local Ollama model fixes spelling, grammar and filler words
 - 🛡️ **Verified downloads** — models and binaries are checked against pinned SHA-256 hashes before they run
 - 🩺 **Self-healing** — a watchdog re-arms the global hotkey and reopens the microphone stream if Windows drops either, so long sessions don't need a restart
 - 📦 **Single 49&nbsp;MB file** — no installer, no dependencies, dark UI in the haZii design language
@@ -85,7 +87,7 @@ clipboard, no field was focused), `SHORT` / `EMPTY` / `TOO LONG`, or `ERR:MIC` /
 | | |
 | --- | --- |
 | 🗣️ **Whisper models** | Fast (Tiny, 75&nbsp;MB) · **Recommended** (large-v3-turbo Q5, ~550&nbsp;MB) · Best (large-v3-turbo, ~1.5&nbsp;GB) |
-| 🦜 **Parakeet (CPU)** | NVIDIA Parakeet TDT 0.6B v3, int8 (~650&nbsp;MB, ~1&nbsp;GB RAM) — 25 European languages, automatic punctuation, no GPU needed |
+| 🦜 **Parakeet (CPU)** | NVIDIA Parakeet TDT 0.6B v3, int8 (~650&nbsp;MB, ~750&nbsp;MB RAM while loaded) — 25 European languages, automatic punctuation, no GPU needed |
 | 🌐 **UI languages** | Deutsch · English · Español · Français · Português · Русский · 中文 · 日本語 · العربية |
 | 🎧 **Dictation** | 18 hand-picked languages + **Auto-detect** covering all ~99 Whisper languages |
 | 🖥️ **Compute** | NVIDIA CUDA · AMD Vulkan · CPU (Parakeet or whisper.cpp) — auto-detected and cached |
@@ -126,25 +128,16 @@ clipboard, no field was focused), `SHORT` / `EMPTY` / `TOO LONG`, or `ERR:MIC` /
 
 Full guide with log locations and more cases: **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**
 
-## 🧠 AI post-processing (optional)
+## 🧠 AI correction (optional)
 
-VoZii can polish transcripts with a **local** LLM through [Ollama](https://ollama.com) —
-no text ever leaves your machine. A one-click setup inside VoZii installs Ollama, starts
-it, and pulls a model (with live progress and a cancel button). Pick a tier to match your
-hardware:
+VoZii can correct transcripts with a **local** LLM through [Ollama](https://ollama.com) —
+no text ever leaves your machine. Deliberately minimal: one mode, one small model
+(`llama3.2:1b`, ~1.3&nbsp;GB). It fixes spelling, grammar, punctuation and filler words
+and rewords nothing else.
 
-| Tier | Model | Size |
-| --- | --- | --- |
-| Fast | `llama3.2:1b` | ~1.3&nbsp;GB |
-| **Balanced** *(default)* | `qwen2.5:3b` | ~2&nbsp;GB |
-| Best | `gemma3:4b` | ~3&nbsp;GB |
-
-**Three modes:**
-
-- **Off** — raw Whisper output.
-- **Smart** — removes filler, fixes grammar, and understands spoken commands like
-  *"as a list"*, *"as an email"*, *"heading"*, *"as code"*, *"new paragraph"*.
-- **Prompt** — rewrites what you said into a clean, well-structured AI prompt.
+Just pick **Correct**: if needed, VoZii installs Ollama itself (signature-checked), starts it
+and downloads the model — with live progress and a cancel button. Afterwards VoZii also
+starts Ollama on its own whenever correction is enabled.
 
 If Ollama isn't installed or a call fails, VoZii silently falls back to the raw transcript —
 you never lose a dictation.
@@ -187,7 +180,7 @@ The tree is a clean set of single-purpose modules — `hotkey.py`, `transcriber.
 | Cost | free, no subscription | monthly fee / per-minute |
 | API key / account | none | usually required |
 | Offline | ✅ works fully offline | ❌ needs a connection |
-| Latency | local, model stays in RAM | network round-trip |
+| Latency | local, no network | network round-trip |
 
 ## 📄 License
 

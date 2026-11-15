@@ -33,7 +33,7 @@ DEFAULT_CONFIG = {
     # Modell nach so vielen Minuten ohne Diktat aus dem RAM nehmen
     # (0 = immer geladen lassen). Laedt beim naechsten Hotkey parallel zur
     # Aufnahme nach.
-    "idle_unload_min": 10,
+    "idle_unload_min": 30,
     "restore_clipboard": True,
     "history_enabled": True,
     "update_check": True,

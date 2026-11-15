@@ -90,13 +90,13 @@ def test_migration_alte_ki_modi_werden_korrektur(config_paths):
 
 def test_idle_unload_validiert(config_paths):
     config_path, _ = config_paths
-    assert load_config()["idle_unload_min"] == 10
+    assert load_config()["idle_unload_min"] == 30
     for good in (0, 1, 30, 240):
         _write(config_path, yaml.dump({"idle_unload_min": good}))
         assert load_config()["idle_unload_min"] == good
     for bad in (-1, 241, "10", True, 2.5, None):
         _write(config_path, yaml.dump({"idle_unload_min": bad}))
-        assert load_config()["idle_unload_min"] == 10, bad
+        assert load_config()["idle_unload_min"] == 30, bad
 
 
 def test_missing_keys_get_defaults(config_paths):

@@ -306,3 +306,14 @@ def test_facade_kein_cli_fallback_bei_timeout(monkeypatch):
 
     with pytest.raises(transcriber_mod.TranscriptionTimeout):
         t.transcribe("x.wav")
+
+
+def test_child_env_entfernt_nur_eigene_openblas_grenze(monkeypatch):
+    from src.transcriber import _child_env
+    monkeypatch.setenv("OPENBLAS_NUM_THREADS", "1")
+    monkeypatch.setenv("VOZII_OPENBLAS_SET", "1")
+    env = _child_env()
+    assert "OPENBLAS_NUM_THREADS" not in env and "VOZII_OPENBLAS_SET" not in env
+    # Vom Nutzer selbst gesetzt (kein Merker) -> bleibt fuer whisper.cpp erhalten
+    monkeypatch.delenv("VOZII_OPENBLAS_SET")
+    assert _child_env()["OPENBLAS_NUM_THREADS"] == "1"

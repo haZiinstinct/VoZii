@@ -17,12 +17,17 @@ Schlank-Release: weniger RAM, weniger Ballast.
 
 ### Neu
 - **Speicher sparen** (Optionen, standardmäßig an): Das Sprachmodell lädt
-  erst beim Hotkey-Druck, parallel zur Aufnahme, und wird nach 10 Minuten
+  erst beim Hotkey-Druck, parallel zur Aufnahme, und wird nach 30 Minuten
   ohne Diktat wieder entladen (`idle_unload_min`, 0 = immer geladen). Gilt
   für Parakeet und den whisper-server. Gemessen mit Parakeet v3: Leerlauf
   **~85 MB statt ~770 MB** Arbeitsspeicher.
 
 ### Geändert
+- **Beschleunigung „Vulkan (AMD / Intel)“:** Vulkan läuft auch auf Intel
+  Iris Xe / Arc. Gemessen auf einem i5-1135G7: Whisper-Encoder ~6 s statt
+  ~15 s auf der CPU. Die Option heißt jetzt so, damit Intel-Nutzer sie finden.
+- **whisper.cpp erbt VoZiis OpenBLAS-Begrenzung nicht mehr:** Die
+  1-Thread-Grenze gilt nur für numpy im VoZii-Prozess.
 - **ONNX Runtime ohne Speicher-Arena:** Der Prozess behielt bisher den
   Spitzenbedarf des längsten Diktats dauerhaft (nach 45 s Audio
   ~1.120 MB statt ~750 MB). Jetzt bleibt er konstant, bei gleicher

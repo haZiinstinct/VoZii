@@ -35,7 +35,7 @@ say ever leaves it — no upload, no subscription, no waiting on a server.
 
 It ships as a **single 49&nbsp;MB `.exe`**. No Python to install, no runtime to set up.
 It's built to stay light: idle in the tray it uses **~85&nbsp;MB of RAM**. The speech model
-loads while you speak and is unloaded again after 10 minutes without dictation (or stays
+loads while you speak and is unloaded again after 30 minutes without dictation (or stays
 loaded permanently, if you prefer). An optional local LLM (via [Ollama](https://ollama.com))
 can correct spelling and grammar — still 100&nbsp;% offline.
 
@@ -44,7 +44,7 @@ can correct spelling and grammar — still 100&nbsp;% offline.
 - 🎙️ **Push-to-talk, your key** — any keyboard or mouse button (default `Ctrl+Shift+Space`); press-and-hold or toggle
 - 🔒 **100&nbsp;% local & private** — no cloud, no API keys, no telemetry; works with the network cable pulled
 - ⚡ **No per-dictation lag** — the model stays resident in a persistent `whisper-server`, saving ~2–10&nbsp;s every time
-- 🚀 **GPU-accelerated** — NVIDIA (CUDA) & AMD (Vulkan), automatic detection; 5–10× faster with a GPU
+- 🚀 **GPU-accelerated** — NVIDIA (CUDA) & AMD (Vulkan), automatic detection; 5–10× faster with a GPU. Vulkan also runs on Intel Iris Xe / Arc (select it manually)
 - 💻 **Fast on any laptop** — the **Parakeet** engine (NVIDIA Parakeet TDT 0.6B v3) runs ~20× faster than real time on a plain CPU: a 10-second dictation is typed in about half a second, punctuation included. Picked automatically on PCs without a graphics card, switchable any time
 - 🛟 **Real CPU fallback** — if the GPU backend crashes, VoZii keeps dictating on the CPU instead of failing
 - 🌍 **9-language UI + 18 dictation languages + auto-detect** — the interface follows your Windows language; dictation covers all ~99 Whisper languages

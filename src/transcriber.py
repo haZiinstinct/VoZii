@@ -104,6 +104,18 @@ def _timeout_for(wav_path: str) -> int:
     return max(_REQUEST_TIMEOUT_S, int(duration * 4) + 30)
 
 
+def _child_env() -> dict:
+    """Umgebung fuer whisper-cli/-server ohne VoZiis OPENBLAS_NUM_THREADS=1.
+
+    Die Begrenzung gilt nur fuer numpy im VoZii-Prozess; whisper.cpp soll
+    seine BLAS-Threads selbst nach -t setzen."""
+    env = dict(os.environ)
+    if os.environ.get("VOZII_OPENBLAS_SET") == "1":
+        env.pop("OPENBLAS_NUM_THREADS", None)
+    env.pop("VOZII_OPENBLAS_SET", None)
+    return env
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -172,6 +184,7 @@ class CliBackend:
                 timeout=timeout_s,
                 creationflags=subprocess.CREATE_NO_WINDOW,
                 cwd=WHISPER_DIR,
+                env=_child_env(),
             )
         except subprocess.TimeoutExpired:
             log.warning("whisper-cli Timeout nach %ds", timeout_s)
@@ -250,6 +263,7 @@ class ServerBackend:
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW,
             cwd=WHISPER_DIR,
+            env=_child_env(),
         )
         if self._job:
             assign_process_to_job(self._job, self._proc.pid)

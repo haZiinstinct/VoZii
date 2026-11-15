@@ -699,7 +699,7 @@ class SettingsWindow:
         """Backend-Override: Erkennung kann sich irren (Treiberleiche einer
         ausgebauten Karte) — bisher nur per Hand in config.yaml korrigierbar."""
         self._accel_label_to_code = {t("accel.auto"): "auto", "NVIDIA (CUDA)": "nvidia",
-                                     "AMD (Vulkan)": "amd", "CPU": "cpu"}
+                                     "Vulkan (AMD / Intel)": "amd", "CPU": "cpu"}
         code_to_label = {v: k for k, v in self._accel_label_to_code.items()}
         self.accel_var = ctk.StringVar(
             value=code_to_label.get(self.config.get("gpu_type", "auto"), t("accel.auto")))
@@ -728,13 +728,14 @@ class SettingsWindow:
 
         # Sparmodus: Modell nach Leerlauf entladen (~700 MB frei), laedt beim
         # naechsten Hotkey parallel zur Aufnahme nach
-        self.memsave_var = ctk.BooleanVar(value=bool(self.config.get("idle_unload_min", 10)))
+        self.memsave_var = ctk.BooleanVar(value=bool(self.config.get("idle_unload_min", 30)))
         mem_switch = ctk.CTkSwitch(c, text=t("opt.memsave"), variable=self.memsave_var,
                       font=(FONT_BODY, 13), text_color=BRAND["text"],
                       progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
                       button_hover_color=BRAND["text"])
         mem_switch.pack(anchor="w", pady=(0, 6))
-        Tooltip(mem_switch, t("opt.memsave.tooltip"))
+        Tooltip(mem_switch, t("opt.memsave.tooltip",
+                                minutes=self.config.get("idle_unload_min") or 30))
 
         self.overlay_var = ctk.BooleanVar(value=self.config.get("show_overlay", True))
         ov_switch = ctk.CTkSwitch(c, text=t("opt.overlay"), variable=self.overlay_var,
@@ -874,8 +875,8 @@ class SettingsWindow:
             "restore_clipboard": self.clipres_var.get(),
             "update_check": self.updchk_var.get(),
             # Eigener Minutenwert aus config.yaml bleibt erhalten, Schalter
-            # setzt nur an (Default 10) bzw. aus (0)
-            "idle_unload_min": ((self.config.get("idle_unload_min") or 10)
+            # setzt nur an (Default 30) bzw. aus (0)
+            "idle_unload_min": ((self.config.get("idle_unload_min") or 30)
                                 if self.memsave_var.get() else 0),
             "initial_prompt": self.vocab_box.get("1.0", "end").strip()[:600],
             "mode": self._hkmode_label_to_code.get(self.hkmode_var.get(), "push_to_talk"),

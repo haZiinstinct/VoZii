@@ -314,3 +314,112 @@ def test_transkription_setzt_leerlauf_zurueck(tmp_path):
     s._last_used = 0.0
     s.process(str(_wav(tmp_path)), 2.0, 0.1)
     assert s._last_used > 0.0
+
+
+# --- Live-Vorschau ---
+
+import numpy as np  # noqa: E402
+
+from src import session as session_mod  # noqa: E402
+
+
+class LiveRecorder(FakeRecorder):
+    def __init__(self, audio, total):
+        super().__init__()
+        self.audio, self.total = audio, total
+
+    def snapshot(self, max_s=0):
+        return self.audio, self.total
+
+
+class LiveTranscriber(FakeTranscriber):
+    live_capable = True
+
+    def __init__(self, preview_text="hallo welt"):
+        super().__init__()
+        self.preview_text = preview_text
+        self.previews = 0
+
+    def preview(self, audio):
+        self.previews += 1
+        return self.preview_text
+
+
+class LiveOverlay(FakeOverlay):
+    def __init__(self):
+        super().__init__()
+        self.previews = []
+
+    def preview(self, text):
+        self.previews.append(text)
+
+
+def _speech(seconds):
+    return (0.1 * np.ones(int(16000 * seconds))).astype(np.float32)
+
+
+def _live_session(audio, total, config=None, text="hallo welt"):
+    s, _ = _session(config, recorder=LiveRecorder(audio, total),
+                    transcriber=LiveTranscriber(text))
+    s.overlay = LiveOverlay()
+    s.state.set_state(AppState.RECORDING)
+    return s
+
+
+def test_live_step_zeigt_vorschau():
+    s = _live_session(_speech(2), 2.0)
+    assert s.live_step(0.0) == 2.0
+    assert s.overlay.previews == ["hallo welt"]
+
+
+def test_live_step_ueberspringt_stille_und_kurze_aufnahmen():
+    s = _live_session(np.zeros(32000, dtype=np.float32), 2.0)
+    assert s.live_step(0.0) == 0.0
+    s = _live_session(_speech(0.5), 0.5)
+    assert s.live_step(0.0) == 0.0
+    assert s.transcriber.previews == 0
+
+
+def test_live_step_ohne_neues_audio_rechnet_nicht():
+    s = _live_session(_speech(2), 2.0)
+    assert s.live_step(1.9) == 1.9
+    assert s.transcriber.previews == 0
+
+
+def test_live_step_schneidet_erstes_wort_bei_vollem_fenster():
+    s = _live_session(_speech(session_mod.LIVE_WINDOW_S), 30.0, text="abgeschnit tenes Wort")
+    s.live_step(0.0)
+    assert s.overlay.previews == ["… tenes Wort"]
+
+
+def test_live_step_nicht_mehr_nach_aufnahmeende():
+    s = _live_session(_speech(2), 2.0)
+    s.state.set_state(AppState.TRANSCRIBING)
+    s.live_step(0.0)
+    assert s.overlay.previews == []
+
+
+def test_live_vorschau_abschaltbar():
+    s = _live_session(_speech(2), 2.0, config={"live_preview": False})
+    s.state.set_state(AppState.IDLE)
+    s.on_activate()
+    assert s._live_stop is None
+    s.on_deactivate()
+
+
+def test_live_vorschau_nur_wenn_engine_schnell_genug():
+    s = _live_session(_speech(2), 2.0)
+    s.transcriber.live_capable = False
+    s.state.set_state(AppState.IDLE)
+    s.on_activate()
+    assert s._live_stop is None
+
+
+def test_live_thread_startet_und_stoppt_mit_aufnahme():
+    s = _live_session(_speech(2), 2.0)
+    s.state.set_state(AppState.IDLE)
+    s.on_activate()
+    stop = s._live_stop
+    assert stop is not None and not stop.is_set()
+    s.on_deactivate()
+    assert stop.is_set() and s._live_stop is None

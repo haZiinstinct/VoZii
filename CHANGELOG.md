@@ -11,6 +11,18 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.12.0] — 2026-11-21
+
+### Neu
+- **Live-Vorschau beim Diktieren** (Optionen, standardmäßig an): Während du
+  sprichst, zeigt das Overlay den erkannten Text schon mit. Eingefügt wird
+  wie bisher erst beim Loslassen. Funktioniert mit Parakeet und mit Whisper
+  auf der Grafikkarte; Whisper auf der CPU bleibt außen vor, weil es zu
+  langsam wäre. Kostet etwas Rechenzeit — auf schwachen Laptops einfach
+  ausschalten, dann läuft nichts zusätzlich.
+
+---
+
 ## [1.11.0] — 2026-11-15
 
 Schlank-Release: weniger RAM, weniger Ballast.

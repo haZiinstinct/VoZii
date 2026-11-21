@@ -249,3 +249,33 @@ def test_autostop_flags_werden_pro_aufnahme_zurueckgesetzt():
     _feed(r, 0.05, 0.5)
     _feed(r, 0.001, 2.5)
     assert fired == [1, 1]
+
+
+def test_snapshot_haelt_aufnahme_nicht_an():
+    rec = _recorder_with_buffer(_sine(440, 16000, 2.0), 16000)
+    audio, total = rec.snapshot()
+    assert len(audio) == 32000
+    assert total == pytest.approx(2.0)
+    assert rec._recording and rec._buffer  # Aufnahme laeuft weiter
+
+
+def test_snapshot_liefert_nur_das_ende():
+    blocks = [np.full((1600, 1), i, dtype=np.float32) for i in range(30)]  # 3 s
+    rec = _recorder_with_buffer(_sine(440, 16000, 0.1), 16000)
+    rec._buffer = blocks
+    audio, total = rec.snapshot(max_s=1.0)
+    assert len(audio) == 16000
+    assert total == pytest.approx(3.0)
+    assert audio[-1] == 29 and audio[0] == 20
+
+
+def test_snapshot_resampelt_auf_16k():
+    rec = _recorder_with_buffer(_sine(440, 48000, 1.0), 48000)
+    audio, _ = rec.snapshot()
+    assert len(audio) == 16000
+
+
+def test_snapshot_ohne_aufnahme():
+    rec = _recorder_with_buffer(_sine(440, 16000, 1.0), 16000)
+    rec._recording = False
+    assert rec.snapshot() == (None, 0.0)

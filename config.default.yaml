@@ -10,6 +10,7 @@ audio_feedback: true            # Beep bei Start/Stop
 gpu_type: "auto"                # auto, nvidia, amd, cpu
 audio_device: null              # null = Systemstandard
 show_overlay: true              # Status-Anzeige unten rechts
+live_preview: true              # Text schon waehrend der Aufnahme im Overlay zeigen (aus = spart Leistung)
 auto_start: false               # Mit Windows starten (direkt in den Tray)
 post_processing_mode: "off"     # off oder correct (Korrektur via Ollama, Modell llama3.2:1b)
 performance_mode: "speed"       # speed (greedy, schnell) oder quality (Beam 5)

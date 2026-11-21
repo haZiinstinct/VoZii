@@ -11,13 +11,22 @@ import queue
 import threading
 import time
 
-from src.filters import is_hallucination
+import numpy as np
+
+from src.filters import RMS_SILENCE_THRESHOLD, is_hallucination
 from src.i18n import t
 from src.state import AppState
 from src.text_inserter import insert_text
 from src.transcriber import TranscriptionTimeout
 
 log = logging.getLogger(__name__)
+
+# Live-Vorschau: alle LIVE_INTERVAL_S die letzten LIVE_WINDOW_S Sekunden
+# transkribieren. Das Fenster begrenzt die Rechenzeit pro Durchlauf — das
+# Overlay zeigt ohnehin nur die letzten Woerter.
+LIVE_INTERVAL_S = 0.7
+LIVE_WINDOW_S = 12.0
+LIVE_MIN_S = 0.8
 
 
 class RunSession:
@@ -45,6 +54,10 @@ class RunSession:
         # Leerlauf-Entladen: 0 = Modell bleibt dauerhaft im RAM
         self.idle_unload_s = max(0, config.get("idle_unload_min", 0)) * 60
         self._last_used = time.monotonic()
+        # Live-Vorschau im Overlay. Abschaltbar (Akku/Leistung): dann startet
+        # kein Thread und es entsteht keine zusaetzliche Last.
+        self.live_preview = bool(config.get("live_preview", True))
+        self._live_stop = None
 
     # --- Feedback ---
 
@@ -80,6 +93,7 @@ class RunSession:
             self.beep_start()
             self.recorder.start_recording()
             log.info("Aufnahme gestartet")
+            self._start_live()
             self._last_used = time.monotonic()
             # Entladenes Modell jetzt nachladen — parallel zur Aufnahme, so
             # ist es meist fertig, bevor der Nutzer ausgesprochen hat
@@ -89,6 +103,7 @@ class RunSession:
                     prepare()
         except Exception:
             log.exception("on_activate fehlgeschlagen")
+            self._stop_live()
             self.state.set_state(AppState.IDLE)
             self.notify("err_mic")
 
@@ -97,6 +112,9 @@ class RunSession:
             if self.state.state != AppState.RECORDING:
                 log.debug("on_deactivate ignoriert (State: %s)", self.state.state.value)
                 return
+            # Zuerst die Vorschau stoppen, damit sie der Transkription keinen
+            # Rechen-Slot mehr wegnimmt
+            self._stop_live()
             wav_path, duration, rms = self.recorder.stop_recording()
             if wav_path:
                 self.state.set_state(AppState.TRANSCRIBING)
@@ -116,6 +134,57 @@ class RunSession:
             log.exception("on_deactivate fehlgeschlagen")
             self.state.set_state(AppState.IDLE)
             self.notify("err_mic")
+
+    # --- Live-Vorschau ---
+
+    def _live_wanted(self) -> bool:
+        # live_capable erst jetzt pruefen: nach einem GPU-Absturz laeuft
+        # Whisper auf der CPU, dann bleibt die Vorschau aus
+        return (self.live_preview and self.overlay is not None
+                and hasattr(self.overlay, "preview")
+                and getattr(self.transcriber, "live_capable", False))
+
+    def _start_live(self):
+        self._stop_live()
+        if not self._live_wanted():
+            return
+        stop = threading.Event()
+        self._live_stop = stop
+        threading.Thread(target=self._live_loop, args=(stop,), daemon=True,
+                         name="live-preview").start()
+
+    def _stop_live(self):
+        stop, self._live_stop = self._live_stop, None
+        if stop is not None:
+            stop.set()
+
+    def live_step(self, last_total: float) -> float:
+        """Ein Vorschau-Durchlauf. Returns die Aufnahmedauer, fuer die
+        zuletzt Text gezeigt wurde (unveraendert, wenn nichts Neues kam)."""
+        audio, total = self.recorder.snapshot(LIVE_WINDOW_S)
+        if audio is None or total < LIVE_MIN_S or total - last_total < 0.3:
+            return last_total
+        rms = float(np.sqrt(np.mean(np.square(audio))))
+        if rms < RMS_SILENCE_THRESHOLD:
+            return last_total  # Sprechpause: letzten Text stehen lassen
+        text = self.transcriber.preview(audio)
+        if not text or is_hallucination(text, len(audio) / 16000, rms):
+            return last_total
+        if total > LIVE_WINDOW_S:
+            # Fensteranfang schneidet mitten ins Wort — erstes Wort weglassen
+            text = "… " + text.split(" ", 1)[-1]
+        if self.state.state == AppState.RECORDING:
+            self.overlay.preview(text)
+        return total
+
+    def _live_loop(self, stop: threading.Event):
+        last_total = 0.0
+        while not stop.wait(LIVE_INTERVAL_S):
+            try:
+                last_total = self.live_step(last_total)
+            except Exception:
+                log.exception("Live-Vorschau fehlgeschlagen — fuer diese Aufnahme aus")
+                return
 
     # Auto-Stop bei Stille (nur Toggle-Modus): wirkt wie der zweite
     # Hotkey-Druck — ueber den HotkeyManager, damit dessen Zustand mitgeht

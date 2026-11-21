@@ -142,6 +142,8 @@ STRINGS = {
         "mic.no_signal": "Kein Signal — anderes Geraet versuchen?",
         "mic.error": "Fehler: {error}",
         # Optionen
+        "opt.live_preview": "Live-Vorschau beim Diktieren",
+        "opt.live_preview.tooltip": "Zeigt den erkannten Text schon während der Aufnahme im Overlay. Kostet Rechenzeit — auf schwachen Laptops ausschalten. Nur mit Parakeet oder Whisper auf der Grafikkarte.",
         "opt.overlay": "Status-Anzeige (unten rechts)",
         "opt.overlay.tooltip": "Kleines Overlay, das Aufnahme/Transkription anzeigt — "
                                "auf dem Monitor, auf dem die Maus steht.",
@@ -289,6 +291,8 @@ STRINGS = {
         "mic.signal_ok": "Signal OK — microphone works",
         "mic.no_signal": "No signal — try another device?",
         "mic.error": "Error: {error}",
+        "opt.live_preview": "Live preview while dictating",
+        "opt.live_preview.tooltip": "Shows the recognized text in the overlay while you are still speaking. Uses extra processing power — turn it off on slow laptops. Only with Parakeet or Whisper on the GPU.",
         "opt.overlay": "Status indicator (bottom right)",
         "opt.overlay.tooltip": "Small overlay that shows recording/transcription — "
                                "on the monitor where the mouse is.",
@@ -430,6 +434,8 @@ STRINGS = {
         "mic.signal_ok": "Señal OK — el micrófono funciona",
         "mic.no_signal": "Sin señal — ¿probar otro dispositivo?",
         "mic.error": "Error: {error}",
+        "opt.live_preview": "Vista previa en vivo al dictar",
+        "opt.live_preview.tooltip": "Muestra el texto reconocido en el overlay mientras todavía hablas. Consume potencia de cálculo — desactívalo en portátiles lentos. Solo con Parakeet o Whisper en la GPU.",
         "opt.overlay": "Indicador de estado (abajo a la derecha)",
         "opt.overlay.tooltip": "Pequeño overlay que muestra grabación/transcripción — "
                                "en el monitor donde está el ratón.",
@@ -571,6 +577,8 @@ STRINGS = {
         "mic.signal_ok": "Signal OK — le microphone fonctionne",
         "mic.no_signal": "Aucun signal — essayer un autre appareil ?",
         "mic.error": "Erreur : {error}",
+        "opt.live_preview": "Aperçu en direct pendant la dictée",
+        "opt.live_preview.tooltip": "Affiche le texte reconnu dans l'overlay pendant que vous parlez. Consomme de la puissance de calcul — à désactiver sur les portables lents. Uniquement avec Parakeet ou Whisper sur le GPU.",
         "opt.overlay": "Indicateur d'état (en bas à droite)",
         "opt.overlay.tooltip": "Petit overlay qui affiche l'enregistrement/la transcription — "
                                "sur l'écran où se trouve la souris.",
@@ -712,6 +720,8 @@ STRINGS = {
         "mic.signal_ok": "Sinal OK — o microfone funciona",
         "mic.no_signal": "Sem sinal — tentar outro dispositivo?",
         "mic.error": "Erro: {error}",
+        "opt.live_preview": "Pré-visualização ao vivo ao ditar",
+        "opt.live_preview.tooltip": "Mostra o texto reconhecido no overlay enquanto você ainda fala. Consome poder de processamento — desative em notebooks lentos. Apenas com Parakeet ou Whisper na GPU.",
         "opt.overlay": "Indicador de status (canto inferior direito)",
         "opt.overlay.tooltip": "Pequeno overlay que mostra gravação/transcrição — "
                                "no monitor onde o mouse está.",
@@ -853,6 +863,8 @@ STRINGS = {
         "mic.signal_ok": "Сигнал есть — микрофон работает",
         "mic.no_signal": "Нет сигнала — попробовать другое устройство?",
         "mic.error": "Ошибка: {error}",
+        "opt.live_preview": "Живой просмотр при диктовке",
+        "opt.live_preview.tooltip": "Показывает распознанный текст в оверлее прямо во время речи. Требует вычислительной мощности — отключите на слабых ноутбуках. Только с Parakeet или Whisper на видеокарте.",
         "opt.overlay": "Индикатор состояния (справа внизу)",
         "opt.overlay.tooltip": "Небольшой оверлей, показывающий запись/транскрипцию — "
                                "на мониторе, где находится мышь.",
@@ -993,6 +1005,8 @@ STRINGS = {
         "mic.signal_ok": "信号正常 — 麦克风工作正常",
         "mic.no_signal": "无信号 — 换个设备试试？",
         "mic.error": "错误：{error}",
+        "opt.live_preview": "听写时实时预览",
+        "opt.live_preview.tooltip": "说话时就在浮层中显示识别出的文字。会占用额外算力 — 在性能较弱的笔记本上请关闭。仅适用于 Parakeet 或 GPU 上的 Whisper。",
         "opt.overlay": "状态指示器（右下角）",
         "opt.overlay.tooltip": "显示录音/转录的小浮层 — 出现在鼠标所在的显示器上。",
         "opt.sound": "声音反馈（开始/完成）",
@@ -1131,6 +1145,8 @@ STRINGS = {
         "mic.signal_ok": "信号OK — マイクは動作しています",
         "mic.no_signal": "信号なし — 別のデバイスを試しますか？",
         "mic.error": "エラー：{error}",
+        "opt.live_preview": "音声入力中のライブプレビュー",
+        "opt.live_preview.tooltip": "話している間に認識されたテキストをオーバーレイに表示します。処理能力を使うため、非力なノートPCではオフにしてください。Parakeet または GPU 上の Whisper のみ。",
         "opt.overlay": "ステータス表示（右下）",
         "opt.overlay.tooltip": "録音/文字起こしを示す小さなオーバーレイ — "
                                "マウスのあるモニターに表示されます。",
@@ -1271,6 +1287,8 @@ STRINGS = {
         "mic.signal_ok": "الإشارة جيدة — الميكروفون يعمل",
         "mic.no_signal": "لا توجد إشارة — تجربة جهاز آخر؟",
         "mic.error": "خطأ: {error}",
+        "opt.live_preview": "معاينة مباشرة أثناء الإملاء",
+        "opt.live_preview.tooltip": "يعرض النص المُتعرَّف عليه في الطبقة أثناء حديثك. يستهلك قدرة معالجة إضافية — أوقفه على الحواسيب الضعيفة. فقط مع Parakeet أو Whisper على بطاقة الرسوميات.",
         "opt.overlay": "مؤشر الحالة (أسفل اليمين)",
         "opt.overlay.tooltip": "طبقة صغيرة تعرض التسجيل/النسخ — على الشاشة التي يوجد بها الماوس.",
         "opt.sound": "تنبيه صوتي (البدء/الانتهاء)",

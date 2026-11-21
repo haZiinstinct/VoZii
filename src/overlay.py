@@ -13,7 +13,7 @@ from tkinter import font as tkfont
 
 from src.i18n import t
 from src.state import AppState
-from src.theme import BRAND, FONT_MONO
+from src.theme import BRAND, FONT_BODY, FONT_MONO
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +25,9 @@ ANIMATION_INTERVAL_MS = 300
 _TRANSPARENT = "#000001"
 _MARGIN = 16
 _HEIGHT = 28
+# Live-Vorschau: Umbruchbreite und wie viel vom Textende gezeigt wird
+_PREVIEW_WIDTH = 420
+_PREVIEW_CHARS = 180
 # Semantischer Flash-Key -> (i18n-Text-Key, Farbe). Trennt Anzeige (uebersetzbar)
 # von der Farb-Logik, die unabhaengig von der Sprache stabil bleibt.
 _FLASH = {
@@ -63,6 +66,8 @@ class RecordingOverlay:
         self._anim_active = False
         self._flash_job = None
         self._scale = 1.0
+        self._preview_id = None
+        self._recording = False
 
     @property
     def is_alive(self) -> bool:
@@ -117,6 +122,9 @@ class RecordingOverlay:
         self._text_id = self._canvas.create_text(
             self._px(26), h // 2, text="REC", anchor="w",
             font=(FONT_MONO, 10, "bold"), fill=BRAND["red"])
+        self._preview_id = self._canvas.create_text(
+            self._px(16), h, text="", anchor="nw", width=self._px(_PREVIEW_WIDTH),
+            font=(FONT_BODY, 11), fill=BRAND["text"])
         self._layout("REC")
 
         self._root.withdraw()
@@ -142,6 +150,13 @@ class RecordingOverlay:
             f = tkfont.Font(family=FONT_MONO, size=10, weight="bold")
             w = self._px(26) + f.measure(text) + self._px(16)
         h = self._px(_HEIGHT)
+        # Live-Vorschau unter der Statuszeile: Panel waechst nach oben,
+        # weil _position() an der unteren rechten Ecke ausrichtet
+        if self._preview_id is not None and self._canvas.itemcget(self._preview_id, "text"):
+            pbox = self._canvas.bbox(self._preview_id)
+            if pbox:
+                w = max(w, self._px(_PREVIEW_WIDTH) + self._px(32))
+                h = pbox[3] + self._px(10)
         self._canvas.configure(width=w, height=h)
         if self._bg_id is not None:
             self._canvas.delete(self._bg_id)
@@ -182,6 +197,12 @@ class RecordingOverlay:
         if not self._root: return
         self._root.after(0, lambda: self._show_flash(key, duration_ms, fmt))
 
+    def preview(self, text: str):
+        """Live-Vorschautext waehrend der Aufnahme. Kommt er nach dem Ende
+        der Aufnahme an, wird er verworfen (Reihenfolge ueber root.after)."""
+        if not self._root: return
+        self._root.after(0, lambda: self._show_preview(text))
+
     def stop(self):
         self._anim_active = False
         if self._root:
@@ -203,6 +224,20 @@ class RecordingOverlay:
                 pass
             self._flash_job = None
 
+    def _set_preview(self, text: str):
+        if self._preview_id is not None:
+            self._canvas.itemconfigure(self._preview_id, text=text)
+
+    def _show_preview(self, text: str):
+        if not self._root or not self._recording:
+            return
+        if len(text) > _PREVIEW_CHARS:
+            # Nur das Ende zeigen, am Wortanfang abschneiden
+            tail = text[-_PREVIEW_CHARS:]
+            text = "… " + tail.split(" ", 1)[-1]
+        self._set_preview(text)
+        self._layout(self._canvas.itemcget(self._text_id, "text"))
+
     def _set_content(self, text: str, color: str):
         self._canvas.itemconfigure(self._dot_id, fill=color)
         self._canvas.itemconfigure(self._text_id, text=text, fill=color)
@@ -211,6 +246,8 @@ class RecordingOverlay:
     def _apply(self, state):
         if not self._root: return
         self._cancel_flash()
+        self._recording = state == AppState.RECORDING
+        self._set_preview("")
         if state == AppState.RECORDING:
             self._anim_active = False
             self._set_content(t("overlay.rec"), BRAND["red"])
@@ -240,7 +277,9 @@ class RecordingOverlay:
     def _show_flash(self, key: str, duration_ms: int, fmt: dict):
         if not self._root: return
         self._anim_active = False
+        self._recording = False
         self._cancel_flash()
+        self._set_preview("")
         text_key, color_name = _FLASH.get(key, (None, "red"))
         text = t(text_key, **fmt) if text_key else key
         color = BRAND.get(color_name, BRAND["red"])

@@ -745,6 +745,14 @@ class SettingsWindow:
         ov_switch.pack(anchor="w", pady=(0, 6))
         Tooltip(ov_switch, t("opt.overlay.tooltip"))
 
+        self.live_var = ctk.BooleanVar(value=self.config.get("live_preview", True))
+        live_switch = ctk.CTkSwitch(c, text=t("opt.live_preview"), variable=self.live_var,
+                      font=(FONT_BODY, 13), text_color=BRAND["text"],
+                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
+                      button_hover_color=BRAND["text"])
+        live_switch.pack(anchor="w", pady=(0, 6))
+        Tooltip(live_switch, t("opt.live_preview.tooltip"))
+
         self.sound_var = ctk.BooleanVar(value=self.config.get("audio_feedback", True))
         ctk.CTkSwitch(c, text=t("opt.sound"), variable=self.sound_var,
                       font=(FONT_BODY, 13), text_color=BRAND["text"],
@@ -866,6 +874,7 @@ class SettingsWindow:
             "whisper_model": self._model_label_to_key.get(self._whisper_label,
                                                           "large-v3-turbo-q5_0"),
             "show_overlay": self.overlay_var.get(),
+            "live_preview": self.live_var.get(),
             "auto_start": self.autostart_var.get(),
             "audio_device": None if self.mic_var.get() == t("mic.default") else self.mic_var.get(),
             "post_processing_mode": self._mode_label_to_code.get(self.mode_var.get(), "off"),

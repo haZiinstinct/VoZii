@@ -25,6 +25,9 @@ DEFAULT_CONFIG = {
     "gpu_type": "auto",
     "audio_device": None,
     "show_overlay": True,
+    # Live-Vorschau des Textes im Overlay waehrend der Aufnahme. Kostet
+    # Rechenzeit — auf schwachen Laptops abschaltbar.
+    "live_preview": True,
     "auto_start": False,
     "post_processing_mode": "off",  # off | correct (Ollama, llama3.2:1b)
     "performance_mode": "speed",
@@ -61,7 +64,7 @@ _ALLOWED_VALUES = {
 _BOOL_KEYS = {
     "audio_feedback", "show_overlay", "auto_start", "use_server",
     "restore_clipboard", "history_enabled", "first_run_done", "update_check",
-    "parakeet_hint_shown",
+    "parakeet_hint_shown", "live_preview",
 }
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")

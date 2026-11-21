@@ -259,6 +259,37 @@ class AudioRecorder:
             self._record_started = time.monotonic()
             self._recording = True
 
+    def snapshot(self, max_s: float = 0) -> tuple[np.ndarray | None, float]:
+        """Aktueller Aufnahmestand fuer die Live-Vorschau, ohne die Aufnahme
+        anzuhalten. Returns (audio 16 kHz float32, gesamte Dauer in s).
+
+        max_s > 0 liefert nur die letzten max_s Sekunden — die Vorschau
+        zeigt ohnehin nur das Ende, so bleibt die Rechenzeit pro Durchlauf
+        auch bei langen Diktaten konstant."""
+        with self._lock:
+            if not self._recording or not self._buffer:
+                return None, 0.0
+            # Flache Kopie der Liste reicht: die Bloecke selbst werden nie
+            # veraendert, der Callback haengt nur neue an
+            buffer = list(self._buffer)
+            rate = self._actual_rate
+        total = sum(len(b) for b in buffer) / rate
+        if max_s > 0:
+            need = int(max_s * rate)
+            tail, n = [], 0
+            for block in reversed(buffer):
+                tail.append(block)
+                n += len(block)
+                if n >= need:
+                    break
+            buffer = tail[::-1]
+        audio = np.concatenate(buffer, axis=0).flatten()
+        if max_s > 0:
+            audio = audio[-int(max_s * rate):]
+        if rate != SAMPLE_RATE:
+            audio = _resample(audio, rate, SAMPLE_RATE)
+        return audio.astype(np.float32, copy=False), total
+
     def stop_recording(self) -> tuple[str | None, float, float]:
         """Beendet die Aufnahme. Returns (wav_path, dauer_s, rms).
 

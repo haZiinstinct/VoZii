@@ -317,3 +317,44 @@ def test_child_env_entfernt_nur_eigene_openblas_grenze(monkeypatch):
     # Vom Nutzer selbst gesetzt (kein Merker) -> bleibt fuer whisper.cpp erhalten
     monkeypatch.delenv("VOZII_OPENBLAS_SET")
     assert _child_env()["OPENBLAS_NUM_THREADS"] == "1"
+
+
+# --- Live-Vorschau ---
+
+class _RunningProc:
+    def poll(self):
+        return None
+
+
+def test_server_preview_sendet_wav_greedy(fake_server):
+    import numpy as np
+    _Handler.response_payload = {"text": " live text "}
+    backend = _backend_on(fake_server.server_address[1])
+    backend.performance_mode = "quality"  # Vorschau bleibt trotzdem greedy
+    backend._proc = _RunningProc()
+
+    assert backend.preview(np.zeros(16000, dtype=np.float32)) == "live text"
+    assert b"RIFF" in _Handler.last_body and b"WAVE" in _Handler.last_body
+    assert b'name="beam_size"\r\n\r\n1' in _Handler.last_body
+
+
+def test_server_preview_startet_keinen_server():
+    import numpy as np
+    backend = _backend_on(1)
+    assert backend.preview(np.zeros(16000, dtype=np.float32)) is None
+
+
+def test_live_capable_nur_parakeet_oder_gpu_server(monkeypatch):
+    t = Transcriber.__new__(Transcriber)
+    t.engine = "parakeet"
+    t._server = None
+    assert t.live_capable
+    t.engine = "whisper"
+    assert not t.live_capable  # CLI
+    t._server = object()
+    monkeypatch.setattr(Transcriber, "_gpu_backend", staticmethod(lambda: False))
+    assert not t.live_capable  # Server auf der CPU
+    monkeypatch.setattr(Transcriber, "_gpu_backend", staticmethod(lambda: True))
+    assert t.live_capable
+    t._no_gpu = True  # nach GPU-Absturz
+    assert not t.live_capable

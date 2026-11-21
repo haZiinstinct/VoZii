@@ -21,6 +21,9 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import wave
+
+import numpy as np
 
 from src.downloader import (
     MODEL_FILES,
@@ -53,6 +56,8 @@ _SERVER_START_TIMEOUT_S = 90
 _REQUEST_TIMEOUT_S = 60
 # 16 kHz mono, 16 Bit -> Bytes pro Sekunde Audio
 _WAV_BYTES_PER_S = 16000 * 2
+# Live-Vorschau: kurzer Timeout, eine haengende Vorschau ist wertlos
+_PREVIEW_TIMEOUT_S = 5
 
 
 class TranscriptionTimeout(Exception):
@@ -102,6 +107,18 @@ def _timeout_for(wav_path: str) -> int:
     except OSError:
         duration = 0.0
     return max(_REQUEST_TIMEOUT_S, int(duration * 4) + 30)
+
+
+def _wav_bytes(audio) -> bytes:
+    """float32-Audio (16 kHz mono) -> WAV-Datei im Speicher."""
+    pcm = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(pcm.tobytes())
+    return buf.getvalue()
 
 
 def _child_env() -> dict:
@@ -304,8 +321,24 @@ class ServerBackend:
             self.ensure_started()
             return self._request(wav_path)
 
+    def preview(self, audio) -> str | None:
+        """Live-Vorschau: greedy, kurzer Timeout, kein Neustart. Laeuft der
+        Server (noch) nicht, None — die Vorschau startet nichts selbst."""
+        if not self.running:
+            return None
+        try:
+            return self._post(_wav_bytes(audio), "speed", _PREVIEW_TIMEOUT_S)
+        except Exception as e:
+            log.debug("Vorschau-Request fehlgeschlagen: %s", e)
+            return None
+
     def _request(self, wav_path: str) -> str:
-        q = _quality_args(self.performance_mode)
+        with open(wav_path, "rb") as f:
+            wav_data = f.read()
+        return self._post(wav_data, self.performance_mode, _timeout_for(wav_path))
+
+    def _post(self, wav_data: bytes, performance_mode: str, timeout_s: float) -> str:
+        q = _quality_args(performance_mode)
         fields = {
             "language": self.language,
             "response_format": "json",
@@ -315,8 +348,6 @@ class ServerBackend:
         }
         if self.initial_prompt:
             fields["prompt"] = self.initial_prompt
-        with open(wav_path, "rb") as f:
-            wav_data = f.read()
         body, content_type = _build_multipart(fields, "file", "audio.wav", wav_data)
 
         req = urllib.request.Request(
@@ -325,7 +356,7 @@ class ServerBackend:
             headers={"Content-Type": content_type},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=_timeout_for(wav_path)) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
         if data.get("error"):
             raise RuntimeError(f"whisper-server: {data['error']}")
@@ -501,6 +532,31 @@ class Transcriber:
                     raise
                 log.exception("Parakeet fehlgeschlagen — Fallback auf Whisper")
         return self._transcribe_whisper(wav_path)
+
+    @property
+    def live_capable(self) -> bool:
+        """Schnell genug fuer die Live-Vorschau? Parakeet immer, Whisper nur
+        als Server auf der GPU — Whisper auf der CPU wuerde mit dem Diktat
+        um die Kerne konkurrieren und haengt ohnehin hinterher."""
+        if self.engine == "parakeet":
+            return True
+        return self._server is not None and self._gpu_backend() and not self._no_gpu
+
+    def preview(self, audio) -> str:
+        """Vorschautext fuer einen Audio-Ausschnitt ("" wenn gerade nichts
+        geht). Blockiert nie auf die eigentliche Transkription und loest
+        keinen Fallback aus."""
+        try:
+            if self.engine == "parakeet":
+                text = self._parakeet.preview(audio)
+            elif self.live_capable:
+                text = self._server.preview(audio)
+            else:
+                return ""
+        except Exception:
+            log.debug("Vorschau fehlgeschlagen", exc_info=True)
+            return ""
+        return _clean_output(text or "")
 
     def _transcribe_whisper(self, wav_path: str) -> str:
         text = self._whisper_once(wav_path)

@@ -156,6 +156,20 @@ class ParakeetBackend:
         self.last_error_hint = ""
         return " ".join(parts)
 
+    def preview(self, audio: np.ndarray) -> str | None:
+        """Live-Vorschau auf einem Audio-Ausschnitt. Wartet nie: laeuft
+        gerade eine Transkription oder ist das Modell (noch) nicht geladen,
+        kommt None zurueck — die Vorschau darf das Diktat nicht bremsen."""
+        if not self._lock.acquire(blocking=False):
+            return None
+        try:
+            if self._model is None:
+                return None
+            text = self._model.recognize(audio)
+        finally:
+            self._lock.release()
+        return text.strip() if text else ""
+
     def release(self) -> bool:
         """Modell aus dem RAM werfen. True, wenn etwas entladen wurde."""
         with self._lock:

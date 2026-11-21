@@ -9,6 +9,10 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ## [Unreleased]
 
+---
+
+## [1.12.0] — 2026-11-21
+
 ### Neu
 - **Live-Vorschau beim Diktieren** (Optionen, standardmäßig an): Während du
   sprichst, zeigt das Overlay den erkannten Text schon mit. Eingefügt wird

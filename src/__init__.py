@@ -1,5 +1,5 @@
 """VoZii — Voice-to-Text by haZii."""
 
-__version__ = "1.11.0"
+__version__ = "1.12.0"
 __author__ = "haZii"
 __url__ = "https://hazii.org"

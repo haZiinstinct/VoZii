@@ -152,7 +152,7 @@ class RecordingOverlay:
         h = self._px(_HEIGHT)
         # Live-Vorschau unter der Statuszeile: Panel waechst nach oben,
         # weil _position() an der unteren rechten Ecke ausrichtet
-        if self._preview_id is not None and self._canvas.itemcget(self._preview_id, "text"):
+        if self._canvas.itemcget(self._preview_id, "text"):
             pbox = self._canvas.bbox(self._preview_id)
             if pbox:
                 w = max(w, self._px(_PREVIEW_WIDTH) + self._px(32))
@@ -225,8 +225,7 @@ class RecordingOverlay:
             self._flash_job = None
 
     def _set_preview(self, text: str):
-        if self._preview_id is not None:
-            self._canvas.itemconfigure(self._preview_id, text=text)
+        self._canvas.itemconfigure(self._preview_id, text=text)
 
     def _show_preview(self, text: str):
         if not self._root or not self._recording:
@@ -235,6 +234,8 @@ class RecordingOverlay:
             # Nur das Ende zeigen, am Wortanfang abschneiden
             tail = text[-_PREVIEW_CHARS:]
             text = "… " + tail.split(" ", 1)[-1]
+        if text == self._canvas.itemcget(self._preview_id, "text"):
+            return  # unveraendert: kein Neuzeichnen, kein Neupositionieren
         self._set_preview(text)
         self._layout(self._canvas.itemcget(self._text_id, "text"))
 

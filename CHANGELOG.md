@@ -30,6 +30,8 @@ Ergebnis des Audits vom 24.11.2026 (`docs/audit/2026-11-24/`).
   Fehlermeldungen nennen, was zu tun ist; Status-Anzeige mit verständlichen
   Texten statt Kürzeln (alle neun Sprachen).
 - Fehler bleiben 8 s sichtbar und haben immer einen Ton.
+- Sprachmenü ohne Emoji; das ausgegraute „Schnell/Genau“ erklärt bei
+  Parakeet, warum es nicht einstellbar ist.
 
 ---
 

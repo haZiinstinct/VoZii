@@ -247,7 +247,7 @@ class SettingsWindow:
         self.root.geometry(f"{WINDOW_W}x{WINDOW_MIN_H}")
         enable_dark_titlebar(self.root)
 
-        # Branding-Kopfzeile + Sprachwaehler (🌐) rechts
+        # Branding-Kopfzeile + Sprachwaehler rechts
         head = ctk.CTkFrame(self.root, fg_color="transparent")
         head.pack(fill="x", padx=24, pady=(14, 0))
         ctk.CTkLabel(head, text="VoZii", font=(FONT_MONO, 22, "bold"),
@@ -259,7 +259,7 @@ class SettingsWindow:
         cur_uilang = UI_LANGUAGES.get(self.config.get("ui_language", "de"), "Deutsch")
         ui_lang_menu = ctk.CTkOptionMenu(
             head, values=list(UI_LANGUAGES.values()),
-            variable=ctk.StringVar(value=f"🌐 {cur_uilang}"),
+            variable=ctk.StringVar(value=cur_uilang),
             width=130, font=(FONT_BODY, 12), height=ROW_H, **_menu_style(),
             command=self._on_ui_language_change)
         ui_lang_menu.pack(side="right", pady=(2, 0))
@@ -279,6 +279,10 @@ class SettingsWindow:
                                            cursor="hand2")
                         lbl.pack(side="left", padx=(10, 0), pady=(6, 0))
                         lbl.bind("<Button-1>", lambda _e: webbrowser.open(RELEASES_PAGE))
+                        lbl.bind("<Enter>", lambda _e: lbl.configure(
+                            text_color=BRAND["text_bright"]), add="+")
+                        lbl.bind("<Leave>", lambda _e: lbl.configure(
+                            text_color=BRAND["cyan"]), add="+")
                         self._keynav.label(lbl, lambda: webbrowser.open(RELEASES_PAGE))
                     except Exception:
                         pass
@@ -691,10 +695,12 @@ class SettingsWindow:
         self.perf_seg = ctk.CTkSegmentedButton(c, values=list(self._perf_label_to_code),
                                                variable=self.perf_var, **_SEG_STYLE)
         self.perf_seg.pack(fill="x", pady=(0, 2))
+        self.perf_desc = ctk.CTkLabel(
+            c, text=t("perf.desc"), font=(FONT_BODY, 12),
+            text_color=BRAND["text_dim"], anchor=_anchor(),
+            justify=_start(), wraplength=400)
+        self.perf_desc.pack(fill="x", pady=(0, 4))
         self._update_perf_state()
-        ctk.CTkLabel(c, text=t("perf.desc"),
-                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor=_anchor()
-                     ).pack(fill="x", pady=(0, 4))
 
     def _build_postproc_section(self, parent):
         # NACHBEARBEITUNG — offen, wenn sie aktiv ist, sonst eingeklappt
@@ -927,7 +933,7 @@ class SettingsWindow:
 
     def _on_ui_language_change(self, _native):
         """Oberflaechen-Sprache wechseln: speichern + Fenster neu aufbauen."""
-        code = self._uilang_to_code.get(_native.replace("🌐 ", ""), "de")
+        code = self._uilang_to_code.get(_native, "de")
         if code == self.config.get("ui_language"):
             return
         self._collect_into_config()
@@ -1056,8 +1062,10 @@ class SettingsWindow:
         """Schnell/Genau (Beam-Search) gibt es nur bei Whisper — Parakeet
         dekodiert immer greedy."""
         if hasattr(self, "perf_seg"):
-            self.perf_seg.configure(
-                state="disabled" if is_parakeet(self._get_model_size()) else "normal")
+            parakeet = is_parakeet(self._get_model_size())
+            self.perf_seg.configure(state="disabled" if parakeet else "normal")
+            # Ausgegraut ohne Grund wirkt kaputt — die Zeile darunter sagt, warum
+            self.perf_desc.configure(text=t("perf.parakeet" if parakeet else "perf.desc"))
 
     def _on_hkmode_change(self, _=None):
         """Auto-Stop-Controls nur im Umschalt-Modus bedienbar."""

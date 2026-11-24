@@ -78,6 +78,22 @@ _SEG_STYLE = dict(
     fg_color=BRAND["card"], corner_radius=8,
 )
 
+# Gemeinsamer Stil fuer alle OptionMenus bzw. Schalter — Breite und Schrift
+# bleiben je Stelle frei
+_MENU_STYLE = dict(
+    fg_color=BRAND["card"], button_color=BRAND["card_hover"],
+    button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
+    dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
+    text_color=BRAND["text"], corner_radius=8,
+)
+_SWITCH_STYLE = dict(
+    font=(FONT_BODY, 13), text_color=BRAND["text"],
+    progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
+    button_hover_color=BRAND["text"],
+)
+# Eine Hoehe fuer alle Buttons neben Menues und Schaltern
+ROW_H = 32
+
 
 def _icon_path() -> str:
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -224,10 +240,7 @@ class SettingsWindow:
         ui_lang_menu = ctk.CTkOptionMenu(
             head, values=list(UI_LANGUAGES.values()),
             variable=ctk.StringVar(value=f"🌐 {cur_uilang}"),
-            width=130, font=(FONT_BODY, 12), fg_color=BRAND["card"],
-            button_color=BRAND["card_hover"], button_hover_color=BRAND["cyan_dim"],
-            dropdown_fg_color=BRAND["card"], dropdown_hover_color=BRAND["card_hover"],
-            dropdown_text_color=BRAND["text"], text_color=BRAND["text"], corner_radius=8,
+            width=130, font=(FONT_BODY, 12), height=ROW_H, **_MENU_STYLE,
             command=self._on_ui_language_change)
         ui_lang_menu.pack(side="right", pady=(2, 0))
         Tooltip(ui_lang_menu, t("header.ui_lang_tooltip"))
@@ -293,10 +306,12 @@ class SettingsWindow:
         # Inhalt darueber aufgeklappt ist
         start_bar = ctk.CTkFrame(self.root, fg_color="transparent")
         start_bar.pack(side="bottom", fill="x", padx=24, pady=(8, 8))
-        ctk.CTkButton(start_bar, text=t("btn.start"), height=44, font=(FONT_BODY, 16, "bold"),
-                      fg_color=BRAND["cyan"], text_color=BRAND["bg"],
-                      hover_color=BRAND["cyan_dim"], corner_radius=10,
-                      command=self._save).pack(fill="x")
+        self.start_btn = ctk.CTkButton(
+            start_bar, text=t("btn.start"), height=44, font=(FONT_BODY, 16, "bold"),
+            fg_color=BRAND["cyan"], text_color=BRAND["bg"],
+            hover_color=BRAND["cyan_dim"], corner_radius=10,
+            border_width=1, border_color=BRAND["cyan"], command=self._save)
+        self.start_btn.pack(fill="x")
 
         # Inhalt zwischen Badge und Start-Button. Scrollbar ist nur das
         # Sicherheitsnetz fuer kleine Displays — das Fenster passt sich unten
@@ -460,6 +475,18 @@ class SettingsWindow:
 
         for widget in (header, arrow, label):
             widget.bind("<Button-1>", toggle)
+
+        def hover(on: bool):
+            # Tastaturfokus (Cyan, siehe KeyNav) nicht ueberschreiben
+            if label.cget("text_color") == BRAND["cyan"]:
+                return
+            color = BRAND["text"] if on else BRAND["text_dim"]
+            arrow.configure(text_color=color)
+            label.configure(text_color=color)
+
+        for widget in (header, arrow, label):
+            widget.bind("<Enter>", lambda _e: hover(True), add="+")
+            widget.bind("<Leave>", lambda _e: hover(False), add="+")
         self._keynav.label(label, toggle)
         if tooltip:
             Tooltip(label, tooltip)
@@ -474,7 +501,7 @@ class SettingsWindow:
         self.hotkey_label = ctk.CTkLabel(hk, text=self.config["hotkey"].upper().replace("+", " + "),
                                          font=(FONT_MONO, 18, "bold"), text_color=BRAND["text_bright"])
         self.hotkey_label.pack(side="left")
-        ctk.CTkButton(hk, text=t("btn.change"), width=80, height=30, font=(FONT_BODY, 12),
+        ctk.CTkButton(hk, text=t("btn.change"), width=80, height=ROW_H, font=(FONT_BODY, 12),
                       fg_color=BRAND["card"], text_color=BRAND["text"],
                       hover_color=BRAND["card_hover"], corner_radius=8,
                       border_width=1, border_color=BRAND["border"],
@@ -498,9 +525,7 @@ class SettingsWindow:
         self.autostop_var = ctk.BooleanVar(value=cur_autostop > 0)
         self.autostop_switch = ctk.CTkSwitch(
             autostop_row, text=t("opt.autostop"), variable=self.autostop_var,
-            font=(FONT_BODY, 13), text_color=BRAND["text"],
-            progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
-            button_hover_color=BRAND["text"])
+            **_SWITCH_STYLE)
         self.autostop_switch.pack(side="left")
         Tooltip(self.autostop_switch, t("opt.autostop.tooltip"))
         self._autostop_label_to_s = {"2 s": 2.0, "3 s": 3.0, "5 s": 5.0}
@@ -510,10 +535,7 @@ class SettingsWindow:
         self.autostop_menu = ctk.CTkOptionMenu(
             autostop_row, values=list(self._autostop_label_to_s),
             variable=self.autostop_secs_var, width=80, font=(FONT_BODY, 12),
-            fg_color=BRAND["card"], button_color=BRAND["card_hover"],
-            button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
-            dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
-            text_color=BRAND["text"], corner_radius=8)
+            height=ROW_H, **_MENU_STYLE)
         self.autostop_menu.pack(side="right")
         self._on_hkmode_change()
 
@@ -549,13 +571,10 @@ class SettingsWindow:
                           mr, values=[self._parakeet_label] if parakeet_on else self._whisper_labels,
                           variable=self.model_var,
                           font=(FONT_BODY, 13),
-                          width=260, fg_color=BRAND["card"], button_color=BRAND["card_hover"],
-                          button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
-                          dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
-                          text_color=BRAND["text"], corner_radius=8,
+                          width=260, height=ROW_H, **_MENU_STYLE,
                           command=self._on_model_change)
         model_menu.pack(side="left")
-        self.dl_btn = ctk.CTkButton(mr, text=t("btn.download"), width=120, height=32,
+        self.dl_btn = ctk.CTkButton(mr, text=t("btn.download"), width=120, height=ROW_H,
                                      font=(FONT_BODY, 12, "bold"), fg_color=BRAND["cyan"],
                                      text_color=BRAND["bg"], hover_color=BRAND["cyan_dim"],
                                      corner_radius=8, command=self._download_current_model)
@@ -570,7 +589,7 @@ class SettingsWindow:
         self.progress = ctk.CTkProgressBar(c, progress_color=BRAND["cyan"],
                                             fg_color=BRAND["card"], height=4, corner_radius=2)
         self.progress.pack(fill="x", pady=(4, 2))
-        self.progress.set(0)
+        self._set_bar(self.progress, 0)
         self.progress_text = ctk.CTkLabel(c, text="", font=(FONT_BODY, 12),
                                            text_color=BRAND["text_dim"], height=16)
         self.progress_text.pack(anchor="w", pady=(0, 10))
@@ -587,10 +606,7 @@ class SettingsWindow:
         self.lang_var = ctk.StringVar(
             value=code_to_label.get(self.config.get("language", "auto"), t("lang.auto")))
         ctk.CTkOptionMenu(c, values=list(dic_labels), variable=self.lang_var, font=(FONT_BODY, 13),
-                          fg_color=BRAND["card"], button_color=BRAND["card_hover"],
-                          button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
-                          dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
-                          text_color=BRAND["text"], corner_radius=8,
+                          height=ROW_H, **_MENU_STYLE,
                           command=lambda _: self._update_model_desc()).pack(fill="x", pady=(0, 14))
         self._update_model_desc()
 
@@ -607,13 +623,10 @@ class SettingsWindow:
         mic_row = ctk.CTkFrame(c, fg_color="transparent")
         mic_row.pack(fill="x", pady=(0, 4))
         ctk.CTkOptionMenu(mic_row, values=devs, variable=self.mic_var, font=(FONT_BODY, 13),
-                          width=280, fg_color=BRAND["card"], button_color=BRAND["card_hover"],
-                          button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
-                          dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
-                          text_color=BRAND["text"], corner_radius=8).pack(side="left")
+                          width=280, height=ROW_H, **_MENU_STYLE).pack(side="left")
         self._mic_testing = False
         self.mic_test_btn = ctk.CTkButton(
-            mic_row, text=t("btn.test"), width=80, height=30, font=(FONT_BODY, 12),
+            mic_row, text=t("btn.test"), width=80, height=ROW_H, font=(FONT_BODY, 12),
             fg_color=BRAND["card"], text_color=BRAND["text"],
             hover_color=BRAND["card_hover"], corner_radius=8,
             border_width=1, border_color=BRAND["border"],
@@ -625,7 +638,7 @@ class SettingsWindow:
         self.mic_level = ctk.CTkProgressBar(c, progress_color=BRAND["cyan"],
                                             fg_color=BRAND["card"], height=4, corner_radius=2)
         self.mic_level.pack(fill="x", pady=(4, 2))
-        self.mic_level.set(0)
+        self._set_bar(self.mic_level, 0)
         self.mic_test_label = ctk.CTkLabel(c, text="", font=(FONT_BODY, 12),
                                            text_color=BRAND["text_dim"], height=16)
         self.mic_test_label.pack(anchor="w", pady=(0, 10))
@@ -718,7 +731,7 @@ class SettingsWindow:
         # Cancel-Button
         self.ollama_cancel_btn = ctk.CTkButton(
             self.ollama_dl_frame, text=t("btn.cancel"),
-            height=30, font=(FONT_BODY, 12),
+            height=ROW_H, font=(FONT_BODY, 12),
             fg_color="transparent", text_color=BRAND["text_dim"],
             border_width=1, border_color=BRAND["border"],
             hover_color=BRAND["card_hover"], corner_radius=8,
@@ -750,10 +763,7 @@ class SettingsWindow:
         ctk.CTkOptionMenu(
             row, values=list(self._accel_label_to_code), variable=self.accel_var,
             command=self._on_accel_change, width=220, font=(FONT_BODY, 12),
-            fg_color=BRAND["card"], button_color=BRAND["card_hover"],
-            button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
-            dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],
-            text_color=BRAND["text"], corner_radius=8).pack(side="right")
+            height=ROW_H, **_MENU_STYLE).pack(side="right")
 
     def _on_accel_change(self, label):
         """Backend wechseln: Badge aktualisieren, Download-Button bietet bei
@@ -788,9 +798,7 @@ class SettingsWindow:
         # naechsten Hotkey parallel zur Aufnahme nach
         self.memsave_var = ctk.BooleanVar(value=bool(self.config.get("idle_unload_min", 30)))
         mem_switch = ctk.CTkSwitch(c, text=t("opt.memsave"), variable=self.memsave_var,
-                      font=(FONT_BODY, 13), text_color=BRAND["text"],
-                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
-                      button_hover_color=BRAND["text"])
+                      **_SWITCH_STYLE)
         mem_switch.pack(anchor="w", pady=(0, 6))
         Tooltip(mem_switch, t("opt.memsave.tooltip",
                                 minutes=self.config.get("idle_unload_min") or 30))
@@ -798,46 +806,34 @@ class SettingsWindow:
         self.overlay_var = ctk.BooleanVar(value=self.config.get("show_overlay", True))
         ov_switch = ctk.CTkSwitch(c, text=t("opt.overlay"), variable=self.overlay_var,
                       command=self._sync_live_switch,
-                      font=(FONT_BODY, 13), text_color=BRAND["text"],
-                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
-                      button_hover_color=BRAND["text"])
+                      **_SWITCH_STYLE)
         ov_switch.pack(anchor="w", pady=(0, 6))
         Tooltip(ov_switch, t("opt.overlay.tooltip"))
 
         self.live_var = ctk.BooleanVar(value=self.config.get("live_preview", True))
         self._live_switch = live_switch = ctk.CTkSwitch(c, text=t("opt.live_preview"), variable=self.live_var,
-                      font=(FONT_BODY, 13), text_color=BRAND["text"],
-                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
-                      button_hover_color=BRAND["text"])
+                      **_SWITCH_STYLE)
         live_switch.pack(anchor="w", pady=(0, 6))
         Tooltip(live_switch, t("opt.live_preview.tooltip"))
         self._sync_live_switch()
 
         self.sound_var = ctk.BooleanVar(value=self.config.get("audio_feedback", True))
         ctk.CTkSwitch(c, text=t("opt.sound"), variable=self.sound_var,
-                      font=(FONT_BODY, 13), text_color=BRAND["text"],
-                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
-                      button_hover_color=BRAND["text"]).pack(anchor="w", pady=(0, 6))
+                      **_SWITCH_STYLE).pack(anchor="w", pady=(0, 6))
 
         self.clipres_var = ctk.BooleanVar(value=self.config.get("restore_clipboard", True))
         clip_switch = ctk.CTkSwitch(c, text=t("opt.clipboard"), variable=self.clipres_var,
-                      font=(FONT_BODY, 13), text_color=BRAND["text"],
-                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
-                      button_hover_color=BRAND["text"])
+                      **_SWITCH_STYLE)
         clip_switch.pack(anchor="w", pady=(0, 6))
         Tooltip(clip_switch, t("opt.clipboard.tooltip"))
 
         self.autostart_var = ctk.BooleanVar(value=self.config.get("auto_start", False))
         ctk.CTkSwitch(c, text=t("opt.autostart"), variable=self.autostart_var,
-                      font=(FONT_BODY, 13), text_color=BRAND["text"],
-                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
-                      button_hover_color=BRAND["text"]).pack(anchor="w", pady=(0, 6))
+                      **_SWITCH_STYLE).pack(anchor="w", pady=(0, 6))
 
         self.updchk_var = ctk.BooleanVar(value=self.config.get("update_check", True))
         upd_switch = ctk.CTkSwitch(c, text=t("opt.update_check"), variable=self.updchk_var,
-                      font=(FONT_BODY, 13), text_color=BRAND["text"],
-                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
-                      button_hover_color=BRAND["text"])
+                      **_SWITCH_STYLE)
         upd_switch.pack(anchor="w", pady=(0, 6))
         Tooltip(upd_switch, t("opt.update_check.tooltip"))
 
@@ -846,12 +842,10 @@ class SettingsWindow:
         hist_row = ctk.CTkFrame(c, fg_color="transparent")
         hist_row.pack(fill="x", pady=(0, 6))
         ctk.CTkSwitch(hist_row, text=t("opt.history"), variable=self.history_var,
-                      font=(FONT_BODY, 13), text_color=BRAND["text"],
-                      progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
-                      button_hover_color=BRAND["text"]).pack(side="left")
+                      **_SWITCH_STYLE).pack(side="left")
         self._hist_confirm = False
         self.hist_clear_btn = ctk.CTkButton(
-            hist_row, text=self._hist_clear_label(), width=110, height=26,
+            hist_row, text=self._hist_clear_label(), width=110, height=ROW_H,
             font=(FONT_BODY, 12), fg_color="transparent",
             text_color=BRAND["text_dim"], border_width=1,
             border_color=BRAND["border"], hover_color=BRAND["card_hover"],
@@ -888,7 +882,7 @@ class SettingsWindow:
                 peak[0] = max(peak[0], rms)
                 # 0.125 rms ~ Vollausschlag; normale Sprache landet gut sichtbar
                 level = min(1.0, rms * 8)
-                self.root.after(0, lambda v=level: self.mic_level.set(v))
+                self.root.after(0, lambda v=level: self._set_bar(self.mic_level, v))
 
             try:
                 with sd.InputStream(device=device_index, channels=1,
@@ -908,7 +902,7 @@ class SettingsWindow:
         self._mic_testing = False
         self.mic_test_btn.configure(state="normal", text=t("btn.test"))
         self.mic_test_label.configure(text=msg, text_color=color)
-        self.mic_level.set(0)
+        self._set_bar(self.mic_level, 0)
 
     def _on_ui_language_change(self, _native):
         """Oberflaechen-Sprache wechseln: speichern + Fenster neu aufbauen."""
@@ -980,6 +974,13 @@ class SettingsWindow:
         self.hist_clear_btn.configure(text=self._hist_clear_label(),
                                       text_color=BRAND["text_dim"],
                                       border_color=BRAND["border"])
+
+    @staticmethod
+    def _set_bar(bar, value: float):
+        """Fortschritt setzen. Bei 0 nimmt der Balken die Farbe der Spur an —
+        CTk zeichnet sonst auch im Leerlauf einen cyanfarbenen Punkt."""
+        bar.configure(progress_color=BRAND["cyan"] if value > 0 else BRAND["card"])
+        bar.set(value)
 
     def _heading(self, parent, text):
         ctk.CTkLabel(parent, text=text.upper(), font=(FONT_BODY, 12, "bold"),
@@ -1067,6 +1068,14 @@ class SettingsWindow:
             self.dl_btn.configure(text=t("btn.download"), state="normal",
                                   fg_color=BRAND["cyan"], text_color=BRAND["bg"],
                                   hover_color=BRAND["cyan_dim"])
+        # Nur EIN Hauptbutton: solange das Modell fehlt, fuehrt "Herunterladen",
+        # und "Speichern & starten" tritt zurueck (Umriss statt Flaeche)
+        if ok:
+            self.start_btn.configure(fg_color=BRAND["cyan"], text_color=BRAND["bg"],
+                                     hover_color=BRAND["cyan_dim"])
+        else:
+            self.start_btn.configure(fg_color=BRAND["bg"], text_color=BRAND["cyan"],
+                                     hover_color=BRAND["card_hover"])
 
     def _download_current_model(self):
         if self._downloading:
@@ -1117,21 +1126,21 @@ class SettingsWindow:
         if speed_bps > 0 and total > dl:
             eta = f"  ·  {speed_bps / 1048576:.1f} MB/s  ·  {_fmt_eta((total - dl) / speed_bps)}"
         text = f"{dl // 1048576} / {total // 1048576} MB{eta}"
-        self.root.after(0, lambda: self.progress.set(f))
+        self.root.after(0, lambda: self._set_bar(self.progress, f))
         self.root.after(0, lambda: self.progress_text.configure(text=text))
 
     def _msg(self, t):
         self.root.after(0, lambda: self.progress_text.configure(text=t, text_color=BRAND["text_dim"]))
 
     def _dl_done(self):
-        self.progress.set(1.0)
+        self._set_bar(self.progress, 1.0)
         hotkey = self.config.get("hotkey", "ctrl+shift+space").upper().replace("+", " + ")
         self.progress_text.configure(text=t("download.done", hotkey=hotkey),
                                      text_color=BRAND["green"])
         self._update_dl_button()
 
     def _dl_fail(self, msg):
-        self.progress.set(0)
+        self._set_bar(self.progress, 0)
         self.progress_text.configure(text=msg, text_color=BRAND["red"])
         self._update_dl_button()
 

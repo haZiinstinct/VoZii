@@ -65,6 +65,24 @@ ob seit dem letzten genug neues Audio da ist. Vorher messen.
 Prüfkriterium: Zeit Hotkey-los → Text eingefügt, 20 Diktate mit und ohne
 Live-Vorschau; Median-Differenz unter 100 ms.
 
+*Gemessen am 24.11.2026* mit `scripts/bench_live.py` (whisper-server,
+large-v3-turbo, Vulkan, je 8 Durchläufe, synthetische Sprache):
+
+| Fenster | Median | Max | mittlere Mehr-Latenz |
+|---|---|---|---|
+| 4 s | 568 ms | 592 ms | ~127 ms |
+| 6 s | 574 ms | 578 ms | ~129 ms |
+| 8 s | 602 ms | 619 ms | ~139 ms |
+| 12 s | 643 ms | 661 ms | ~154 ms |
+
+Ergebnis: Bei Whisper ist die Fenstergröße fast egal (das Modell rechnet
+intern immer auf 30 s). Das Fenster zu verkleinern bringt also nichts; das
+Ziel „unter 100 ms“ wäre nur mit einem Intervall von etwa 1,5 s erreichbar,
+dann wirkt die Vorschau träge. **Entscheidung: Parameter bleiben**, die
+Docstrings versprechen nicht mehr „bremst nie“. Im Mittel kostet die
+Live-Vorschau hier rund 0,15 s je Diktat, im ungünstigsten Fall 0,65 s.
+Parakeet wurde nicht gemessen (Modell auf dem Prüfrechner nicht installiert).
+
 **C3 · P1 · Sprechpausen-Erkennung greift nicht**
 Beleg: `src/session.py:167-169`. Der RMS wird über das ganze 12-s-Fenster
 gebildet. 3 s Sprache (RMS 0,05) plus 8 s Stille ergeben rund 0,025, also

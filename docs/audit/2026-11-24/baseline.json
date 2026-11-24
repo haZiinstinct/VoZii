@@ -1,0 +1,23 @@
+{
+  "datum": "2026-11-24",
+  "commit": "7121da4",
+  "version": "1.12.0",
+  "hinweis": "Desktop-App: statt Web-Kennzahlen (HTTP-Status, Title, Lighthouse) der pruefbare Ist-Stand des Codes.",
+  "tests": { "befehl": ".venv/Scripts/python -m pytest -q", "bestanden": 236, "fehlgeschlagen": 0 },
+  "ruff": {
+    "befehl": ".venv/Scripts/python -m ruff check src tests scripts",
+    "src_tests": 0,
+    "scripts": 2
+  },
+  "i18n": { "sprachen": 9, "keys_je_sprache": 138, "umlaut_ersatz_de": 46 },
+  "kontrast": {
+    "segment_aktiv": 1.69,
+    "segment_aktiv_hover": 2.69,
+    "ollama_abbrechen_hover": 1.47,
+    "download_abbrechen_hover": 4.09,
+    "border_auf_bg": 1.2
+  },
+  "tastatur_bindings_settings": 0,
+  "live_vorschau": { "intervall_s": 0.7, "fenster_s": 12.0 },
+  "nicht_gemessen": ["pip-audit", "Mehr-Latenz durch Live-Vorschau", "Screenreader", "Tests auf Linux"]
+}

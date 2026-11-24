@@ -423,3 +423,20 @@ def test_live_thread_startet_und_stoppt_mit_aufnahme():
     assert stop is not None and not stop.is_set()
     s.on_deactivate()
     assert stop.is_set() and s._live_stop is None
+
+
+def test_live_step_rechnet_nicht_in_sprechpause():
+    # 3 s Sprache, dann 5 s Stille: der Pegel ueber das ganze Fenster liegt
+    # ueber der Schwelle, das Fensterende ist aber still
+    audio = np.concatenate([_speech(3), np.zeros(16000 * 5, dtype=np.float32)])
+    s = _live_session(audio, 8.0)
+    assert s.live_step(0.0) == 0.0
+    assert s.transcriber.previews == 0
+
+
+def test_live_loop_endet_mit_zyklusende(monkeypatch):
+    monkeypatch.setattr(session_mod, "LIVE_INTERVAL_S", 0.01)
+    s = _live_session(_speech(2), 2.0)
+    s.shutdown_event.set()
+    s._live_loop(threading.Event())  # kehrt zurueck, obwohl stop nie gesetzt wird
+    assert s.transcriber.previews == 0

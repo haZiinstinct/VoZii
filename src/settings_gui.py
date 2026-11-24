@@ -738,8 +738,8 @@ class SettingsWindow:
     def _build_accel_row(self, c):
         """Backend-Override: Erkennung kann sich irren (Treiberleiche einer
         ausgebauten Karte) — bisher nur per Hand in config.yaml korrigierbar."""
-        self._accel_label_to_code = {t("accel.auto"): "auto", "NVIDIA (CUDA)": "nvidia",
-                                     "Vulkan (AMD / Intel)": "amd", "CPU": "cpu"}
+        self._accel_label_to_code = {t("accel.auto"): "auto", t("accel.nvidia"): "nvidia",
+                                     t("accel.amd"): "amd", t("accel.cpu"): "cpu"}
         code_to_label = {v: k for k, v in self._accel_label_to_code.items()}
         self.accel_var = ctk.StringVar(
             value=code_to_label.get(self.config.get("gpu_type", "auto"), t("accel.auto")))
@@ -749,7 +749,7 @@ class SettingsWindow:
                      text_color=BRAND["text"]).pack(side="left")
         ctk.CTkOptionMenu(
             row, values=list(self._accel_label_to_code), variable=self.accel_var,
-            command=self._on_accel_change, width=150, font=(FONT_BODY, 12),
+            command=self._on_accel_change, width=220, font=(FONT_BODY, 12),
             fg_color=BRAND["card"], button_color=BRAND["card_hover"],
             button_hover_color=BRAND["cyan_dim"], dropdown_fg_color=BRAND["card"],
             dropdown_hover_color=BRAND["card_hover"], dropdown_text_color=BRAND["text"],

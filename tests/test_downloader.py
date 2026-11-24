@@ -78,7 +78,7 @@ def test_sha256_ok(tmp_path, fake_urlopen):
 def test_sha256_mismatch_deletes_file(tmp_path, fake_urlopen):
     dest = str(tmp_path / "file.bin")
     fake_urlopen["response"] = FakeResponse(b"tampered content")
-    with pytest.raises(RuntimeError, match="Checksumme"):
+    with pytest.raises(RuntimeError, match="beschädigt"):
         downloader.download_file("https://example.com/f", dest,
                                  expected_sha256="00" * 32)
     assert not os.path.exists(dest)

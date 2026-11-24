@@ -327,7 +327,7 @@ def install_ollama(progress_callback=None, cancel_event=None) -> bool:
 
     # Phase 2: Installer starten (User sieht Wizard)
     if progress_callback:
-        progress_callback(0, 0, "Installer gestartet, bitte durchklicken...", 0)
+        progress_callback(0, 0, t("ollama.installer_started"), 0)
     log.info("Starte Ollama-Installer: %s", installer_path)
     try:
         subprocess.Popen([installer_path])
@@ -337,7 +337,7 @@ def install_ollama(progress_callback=None, cancel_event=None) -> bool:
 
     # Phase 3: Warte bis API erreichbar (mit Cancel)
     if progress_callback:
-        progress_callback(0, 0, "Warte auf Ollama-Start...", 0)
+        progress_callback(0, 0, t("ollama.waiting"), 0)
     log.info("Warte auf Ollama-API...")
     deadline = time.time() + 180
     while time.time() < deadline:
@@ -380,13 +380,13 @@ def _download_ollama_installer(url, dest, progress_callback, cancel_event):
                     delta_time = now - last_update
                     speed = delta_bytes / delta_time if delta_time > 0 else 0
                     if progress_callback:
-                        progress_callback(downloaded, total, "Lade Installer", speed)
+                        progress_callback(downloaded, total, t("ollama.dl_installer"), speed)
                     last_update = now
                     last_bytes = downloaded
 
         # Final update
         if progress_callback:
-            progress_callback(downloaded, total, "Installer geladen", 0)
+            progress_callback(downloaded, total, t("ollama.dl_installer"), 0)
 
 
 def ensure_ready(progress_callback=None, cancel_event=None, model: str = MODEL) -> bool:
@@ -456,7 +456,9 @@ def pull_model(model_name: str, progress_callback=None, cancel_event=None) -> bo
                     delta_bytes = completed - last_completed
                     speed = delta_bytes / delta_t if delta_t > 0 else 0
                     if progress_callback:
-                        progress_callback(completed, total, status, speed)
+                        # Ollamas eigener Status ("pulling manifest") ist
+                        # englischer Jargon — einheitlicher Text statt dessen
+                        progress_callback(completed, total, t("ollama.dl_model"), speed)
                     last_update = now
                     last_completed = completed
 

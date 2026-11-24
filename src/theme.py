@@ -10,12 +10,19 @@ BRAND = {
     "card_hover": "#1a1a25",
     "cyan": "#00d4ff",
     "cyan_dim": "#00a8cc",
+    # Flaeche unter heller Schrift (aktives Segment): text_bright darauf
+    # 4,7:1 bzw. 6,2:1 — auf cyan selbst waeren es nur 1,7:1
+    "cyan_deep": "#007a99",
+    "cyan_deeper": "#006680",
     "text": "#e2e8f0",
     "text_dim": "#94a3b8",
     "text_bright": "#f8fafc",
-    "border": "#1e1e2a",        # entspricht ~ white/8% auf bg (Website: #ffffff14)
+    # Heller als die Website (#ffffff14 ~ #1e1e2a): dort tragen Schatten die
+    # Kante mit, hier muss der Rahmen Buttons und Felder allein abgrenzen
+    "border": "#3a3a4d",
     "border_hover": "#0d4c5f",  # entspricht ~ cyan/30% auf card (Website: #00d4ff4d)
     "red": "#ef4444",
+    "red_hover": "#f87171",     # heller statt dunkler: bg-Schrift darauf 7,1:1
     "amber": "#f59e0b",
     "green": "#22c55e",
 }

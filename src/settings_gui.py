@@ -71,8 +71,8 @@ MODEL_DESC_KEYS = {
 _update_check = {"started": False, "latest": None}
 
 _SEG_STYLE = dict(
-    font=(FONT_BODY, 13), selected_color=BRAND["cyan"],
-    selected_hover_color=BRAND["cyan_dim"], unselected_color=BRAND["card"],
+    font=(FONT_BODY, 13), selected_color=BRAND["cyan_deep"],
+    selected_hover_color=BRAND["cyan_deeper"], unselected_color=BRAND["card"],
     unselected_hover_color=BRAND["card_hover"], text_color=BRAND["text_bright"],
     fg_color=BRAND["card"], corner_radius=8,
 )
@@ -681,7 +681,7 @@ class SettingsWindow:
             height=30, font=(FONT_BODY, 12),
             fg_color="transparent", text_color=BRAND["text_dim"],
             border_width=1, border_color=BRAND["border"],
-            hover_color=BRAND["red"], corner_radius=8,
+            hover_color=BRAND["card_hover"], corner_radius=8,
             command=self._cancel_ollama_action,
         )
         self.ollama_cancel_btn.pack(fill="x")
@@ -1017,13 +1017,16 @@ class SettingsWindow:
             # nicht mehr zu Backend/gepinnter whisper.cpp-Version — als Update
             # anbieten (kein stiller Auto-Download beim Start)
             self.dl_btn.configure(text=t("btn.update"), state="normal",
-                                  fg_color=BRAND["cyan"], text_color=BRAND["bg"])
+                                  fg_color=BRAND["cyan"], text_color=BRAND["bg"],
+                                  hover_color=BRAND["cyan_dim"])
         elif ok:
             self.dl_btn.configure(text=t("btn.ready"), state="disabled",
-                                  fg_color=BRAND["card"], text_color=BRAND["green"])
+                                  fg_color=BRAND["card"], text_color=BRAND["green"],
+                                  text_color_disabled=BRAND["green"])
         else:
             self.dl_btn.configure(text=t("btn.download"), state="normal",
-                                  fg_color=BRAND["cyan"], text_color=BRAND["bg"])
+                                  fg_color=BRAND["cyan"], text_color=BRAND["bg"],
+                                  hover_color=BRAND["cyan_dim"])
 
     def _download_current_model(self):
         if self._downloading:
@@ -1036,7 +1039,8 @@ class SettingsWindow:
         size = self._get_model_size()
         self._downloading = True
         self._cancel_download.clear()
-        self.dl_btn.configure(text=t("btn.cancel"), fg_color=BRAND["red"], hover_color="#dc2626")
+        self.dl_btn.configure(text=t("btn.cancel"), fg_color=BRAND["red"],
+                              hover_color=BRAND["red_hover"])
 
         def run():
             try:

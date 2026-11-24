@@ -58,9 +58,9 @@ def test_no_empty_translations():
 
 def test_t_returns_active_language():
     set_language("en")
-    assert t("btn.start") == "Start"
+    assert t("btn.start") == "Save & start"
     set_language("de")
-    assert t("btn.start") == "Starten"
+    assert t("btn.start") == "Speichern & starten"
 
 
 def test_t_formats_kwargs():
@@ -125,3 +125,19 @@ def test_detect_system_language(monkeypatch, lcid_primary, expected):
     import ctypes
     monkeypatch.setattr(ctypes, "windll", FakeWindll(), raising=False)
     assert detect_system_language() == expected
+
+
+def test_deutsche_texte_mit_echten_umlauten():
+    """Keine ae/oe/ue/ss-Ersatzschreibung in der deutschen Oberflaeche
+    (Audit 2026-11, T1). Wortstaemme, die frueher falsch geschrieben waren."""
+    import re
+
+    from src.i18n import STRINGS
+    ersatz = re.compile(
+        r"fuer|ueber|oeffne|loesch|aender|pruef|waehl|laeuf|laess|geraet|groess|"
+        r"qualitaet|staerk|aelter|gruendlich|druecke?n?\b|unterstuetz|einfueg|"
+        r"verfuegbar|benoetig|beschaedig|vollstaendig|europaeisch|abgestuerzt|"
+        r"gestossen|weisst|oberflaech|naechst|waehrend|moeglich|koenn|muess",
+        re.IGNORECASE)
+    treffer = {k: v for k, v in STRINGS["de"].items() if ersatz.search(v)}
+    assert not treffer, treffer

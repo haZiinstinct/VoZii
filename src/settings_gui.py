@@ -555,7 +555,7 @@ class SettingsWindow:
                           text_color=BRAND["text"], corner_radius=8,
                           command=self._on_model_change)
         model_menu.pack(side="left")
-        self.dl_btn = ctk.CTkButton(mr, text=t("btn.download"), width=100, height=32,
+        self.dl_btn = ctk.CTkButton(mr, text=t("btn.download"), width=120, height=32,
                                      font=(FONT_BODY, 12, "bold"), fg_color=BRAND["cyan"],
                                      text_color=BRAND["bg"], hover_color=BRAND["cyan_dim"],
                                      corner_radius=8, command=self._download_current_model)

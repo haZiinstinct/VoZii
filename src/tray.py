@@ -57,11 +57,8 @@ class TrayApp:
     def _menu_items(self):
         """Generator — pystray ruft ihn bei jedem Oeffnen neu auf, daher sind
         Status-Label und Historie immer aktuell (kein Cross-Thread-Neubau)."""
-        labels = {AppState.IDLE: t("tray.state.idle"),
-                  AppState.RECORDING: t("tray.state.recording"),
-                  AppState.TRANSCRIBING: t("tray.state.transcribing")}
         yield pystray.MenuItem(
-            t("tray.title", state=labels.get(self.state_manager.state, "?")),
+            t("tray.title", state=self._state_label(self.state_manager.state)),
             None, enabled=False)
         if self.hotkey_str:
             yield pystray.MenuItem(
@@ -116,9 +113,16 @@ class TrayApp:
         self.on_quit()
         icon.stop()
 
+    def _state_label(self, state) -> str:
+        return {AppState.IDLE: t("tray.state.idle"),
+                AppState.RECORDING: t("tray.state.recording"),
+                AppState.TRANSCRIBING: t("tray.state.transcribing")}.get(state, "?")
+
     def _on_state_change(self, new_state):
         if self._icon:
             self._icon.icon = self._icons.get(new_state, self._icons[AppState.IDLE])
+            # Zustand auch als Text (Tooltip) — nicht nur ueber die Icon-Farbe
+            self._icon.title = t("tray.title", state=self._state_label(new_state))
             # Generator-Menu liest sich beim Oeffnen selbst neu — update_menu
             # synchronisiert nur die Plattformen, die nicht zur Anzeigezeit bauen
             self._icon.update_menu()
@@ -126,5 +130,6 @@ class TrayApp:
     def run(self):
         self.state_manager.on_change(self._on_state_change)
         self._icon = pystray.Icon("VoZii", self._icons[AppState.IDLE],
-                                   "VoZii", pystray.Menu(self._menu_items))
+                                   t("tray.title", state=self._state_label(AppState.IDLE)),
+                                   pystray.Menu(self._menu_items))
         self._icon.run()

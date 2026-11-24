@@ -6,6 +6,7 @@ Raw tkinter (kein zweites Tray-Icon). Abgerundete Ecken via
 
 import ctypes
 import logging
+import os
 import threading
 import tkinter as tk
 from ctypes import wintypes
@@ -20,6 +21,13 @@ log = logging.getLogger(__name__)
 # Animation frames fuer Transcribing-State (wechsel alle 300ms)
 TRANSCRIBING_FRAMES = ["·", "· ·", "· · ·", "· ·"]
 ANIMATION_INTERVAL_MS = 300
+
+# Fenster-Stile: Klicks gehen durch die Anzeige hindurch, und sie nimmt dem
+# Fenster, in das diktiert wird, nie den Fokus weg
+_GWL_EXSTYLE = -20
+_WS_EX_TRANSPARENT = 0x00000020
+_WS_EX_NOACTIVATE = 0x08000000
+_SPI_GETCLIENTAREAANIMATION = 0x1042
 
 # Diese Farbe wird per -transparentcolor ausgestanzt -> runde Ecken
 _TRANSPARENT = "#000001"
@@ -40,6 +48,18 @@ _FLASH = {
     "err_mic": ("overlay.err_mic", "red"),
     "err_whisper": ("overlay.err_whisper", "red"),
 }
+
+
+def _animations_enabled() -> bool:
+    """Windows-Einstellung Barrierefreiheit > Visuelle Effekte > Animationseffekte."""
+    try:
+        flag = wintypes.BOOL(True)
+        if ctypes.windll.user32.SystemParametersInfoW(
+                _SPI_GETCLIENTAREAANIMATION, 0, ctypes.byref(flag), 0):
+            return bool(flag.value)
+    except Exception:
+        pass
+    return True
 
 
 class _MONITORINFO(ctypes.Structure):
@@ -71,6 +91,7 @@ class RecordingOverlay:
         self._preview_id = None
         self._recording = False
         self._corner = None  # untere rechte Ecke (x, y) der letzten Platzierung
+        self._animate = True  # Windows-Einstellung "Animationseffekte"
 
     @property
     def is_alive(self) -> bool:
@@ -87,6 +108,10 @@ class RecordingOverlay:
         return True
 
     def _run(self):
+        user32 = ctypes.windll.user32
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+        previous = user32.GetForegroundWindow()
         try:
             self._root = tk.Tk()
         except Exception:
@@ -131,6 +156,19 @@ class RecordingOverlay:
         self._layout("REC")
 
         self._root.withdraw()
+        self._animate = _animations_enabled()
+        # Tk aktiviert ein neues Fenster beim Erzeugen, und versteckt behielt
+        # es den Fokus bis zum ersten Aus- und Einblenden — das erste Diktat
+        # nach dem Start waere im Overlay statt im Zielfenster gelandet.
+        # Fokus dem Fenster zurueckgeben, das ihn vorher hatte.
+        try:
+            self._root.update_idletasks()
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), ctypes.byref(pid))
+            if previous and pid.value == os.getpid():
+                user32.SetForegroundWindow(previous)
+        except Exception:
+            log.debug("Overlay: Fokus-Rueckgabe fehlgeschlagen", exc_info=True)
         self._ready.set()
         self._root.mainloop()
 
@@ -232,6 +270,31 @@ class RecordingOverlay:
                 pass
             self._flash_job = None
 
+    def _show(self):
+        """Einblenden. Die Fenster-Stile vorher UND nachher setzen: vorher,
+        damit schon das erste Einblenden den Fokus nicht nimmt; nachher,
+        weil Tk die Stile beim Einblenden teils neu aufbaut."""
+        self._apply_styles()
+        self._root.deiconify()
+        self._apply_styles()
+
+    def _apply_styles(self):
+        try:
+            user32 = ctypes.windll.user32
+            user32.GetParent.restype = wintypes.HWND
+            get = user32.GetWindowLongPtrW
+            put = user32.SetWindowLongPtrW
+            get.restype = put.restype = ctypes.c_ssize_t
+            get.argtypes = [wintypes.HWND, ctypes.c_int]
+            put.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+            hwnd = user32.GetParent(self._root.winfo_id()) or self._root.winfo_id()
+            style = get(hwnd, _GWL_EXSTYLE)
+            wanted = style | _WS_EX_TRANSPARENT | _WS_EX_NOACTIVATE
+            if wanted != style:
+                put(hwnd, _GWL_EXSTYLE, wanted)
+        except Exception:
+            log.debug("Overlay: Fenster-Stile nicht setzbar", exc_info=True)
+
     def _cancel_anim(self):
         if self._anim_job is not None:
             try:
@@ -268,13 +331,14 @@ class RecordingOverlay:
         if state == AppState.RECORDING:
             self._anim_active = False
             self._set_content(t("overlay.rec"), BRAND["red"])
-            self._root.deiconify()
+            self._show()
         elif state == AppState.TRANSCRIBING:
             # Feld auf den breitesten Animations-Frame dimensionieren, damit die
             # Punkte waehrend der Animation nicht aus dem Kasten ragen
             self._set_content(max(TRANSCRIBING_FRAMES, key=len), BRAND["cyan"])
-            self._root.deiconify()
-            if not self._anim_active:
+            self._show()
+            # Animationen in Windows abgeschaltet: die drei Punkte stehen still
+            if self._animate and not self._anim_active:
                 # Alte Kette abbrechen: nach Transkribieren -> Flash ->
                 # Transkribieren binnen 300 ms liefen sonst zwei parallel
                 # und die Punkte doppelt so schnell
@@ -305,7 +369,7 @@ class RecordingOverlay:
         text = t(text_key, **fmt) if text_key else key
         color = BRAND.get(color_name, BRAND["red"])
         self._set_content(text, color)
-        self._root.deiconify()
+        self._show()
         self._flash_job = self._root.after(duration_ms, self._end_flash)
 
     def _end_flash(self):

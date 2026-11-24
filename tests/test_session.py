@@ -277,7 +277,9 @@ def test_entlaedt_erst_nach_leerlaufzeit():
     s, _ = _session(config={"idle_unload_min": 10}, transcriber=tr)
     t0 = s._last_used
     assert s.release_if_idle(now=t0 + 599) is False
-    assert s.release_if_idle(now=t0 + 600) is True
+    # 601 statt 600: (t0 + 600) - t0 ergibt je nach t0 durch Gleitkomma-
+    # Rundung knapp unter 600 — der Test schlug dann sporadisch fehl
+    assert s.release_if_idle(now=t0 + 601) is True
     assert tr.released == 1
     # Schon entladen -> kein zweites release()
     assert s.release_if_idle(now=t0 + 1200) is False

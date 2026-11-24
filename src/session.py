@@ -27,6 +27,8 @@ log = logging.getLogger(__name__)
 LIVE_INTERVAL_S = 0.7
 LIVE_WINDOW_S = 12.0
 LIVE_MIN_S = 0.8
+# Ist das Ende des Fensters so lange still, laeuft kein neuer Durchlauf
+LIVE_PAUSE_S = 1.5
 
 
 class RunSession:
@@ -164,9 +166,13 @@ class RunSession:
         audio, total = self.recorder.snapshot(LIVE_WINDOW_S)
         if audio is None or total < LIVE_MIN_S or total - last_total < 0.3:
             return last_total
-        rms = float(np.sqrt(np.mean(np.square(audio))))
-        if rms < RMS_SILENCE_THRESHOLD:
+        # Pause am Fensterende messen, nicht ueber das ganze Fenster: sonst
+        # haelt frueher Gesprochenes den Pegel oben und jede Denkpause
+        # rechnet dasselbe Audio alle LIVE_INTERVAL_S neu
+        tail = audio[-int(LIVE_PAUSE_S * 16000):]
+        if float(np.sqrt(np.mean(np.square(tail)))) < RMS_SILENCE_THRESHOLD:
             return last_total  # Sprechpause: letzten Text stehen lassen
+        rms = float(np.sqrt(np.mean(np.square(audio))))
         text = self.transcriber.preview(audio)
         if not text or is_hallucination(text, len(audio) / 16000, rms):
             return last_total
@@ -179,7 +185,9 @@ class RunSession:
 
     def _live_loop(self, stop: threading.Event):
         last_total = 0.0
-        while not stop.wait(LIVE_INTERVAL_S):
+        # shutdown_event: endet der Zyklus mitten in einer Aufnahme, ruft
+        # niemand mehr on_deactivate — der Thread liefe sonst ewig weiter
+        while not stop.wait(LIVE_INTERVAL_S) and not self.shutdown_event.is_set():
             try:
                 last_total = self.live_step(last_total)
             except Exception:
@@ -212,8 +220,10 @@ class RunSession:
                 # GPU-Backend abgestuerzt, laeuft ab jetzt auf der CPU
                 self.notify("cpu_fallback", 4000)
             if text and is_hallucination(text, duration, rms):
-                log.info("Halluzination verworfen (%.1fs, rms %.4f): %r",
-                         duration, rms, text)
+                # Nur die Laenge: der Filter kann auch ein echtes Kurzdiktat
+                # treffen, und Diktat-Text gehoert nicht ins Log
+                log.info("Halluzination verworfen (%.1fs, rms %.4f, %d Zeichen)",
+                         duration, rms, len(text))
                 text = ""
             if text:
                 text = self.text_processor.process(text)

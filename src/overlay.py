@@ -68,6 +68,7 @@ class RecordingOverlay:
         self._scale = 1.0
         self._preview_id = None
         self._recording = False
+        self._corner = None  # untere rechte Ecke (x, y) der letzten Platzierung
 
     @property
     def is_alive(self) -> bool:
@@ -139,8 +140,11 @@ class RecordingOverlay:
                x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
         return self._canvas.create_polygon(pts, smooth=True, **kwargs)
 
-    def _layout(self, text: str):
-        """Passt Canvas-Breite an den Text an und zeichnet den Hintergrund neu."""
+    def _layout(self, text: str, follow_mouse: bool = True):
+        """Passt Canvas-Breite an den Text an und zeichnet den Hintergrund neu.
+
+        follow_mouse=False behaelt den Monitor der letzten Platzierung — die
+        Live-Vorschau soll beim Diktieren nicht dem Mauszeiger nachspringen."""
         # Echte gerenderte Ausdehnung statt Font.measure() — measure weicht auf
         # High-DPI minimal vom tatsaechlich gezeichneten Text ab (Punkte ragten raus).
         bbox = self._canvas.bbox(self._dot_id, self._text_id)
@@ -162,12 +166,14 @@ class RecordingOverlay:
             self._canvas.delete(self._bg_id)
         self._bg_id = self._round_rect(0, 0, w, h, self._px(13), fill=BRAND["card"])
         self._canvas.tag_lower(self._bg_id)
-        self._root.geometry(f"{w}x{h}")
-        self._position(w, h)
+        if follow_mouse or self._corner is None:
+            self._corner = self._find_corner()
+        # Groesse und Position in EINEM Aufruf — sonst springt das nach oben
+        # wachsende Panel einen Frame lang
+        self._root.geometry(f"{w}x{h}+{self._corner[0] - w}+{self._corner[1] - h}")
 
-    def _position(self, w: int, h: int):
-        """Unten rechts auf dem Monitor, auf dem der Mauszeiger steht."""
-        x = y = None
+    def _find_corner(self) -> tuple[int, int]:
+        """Untere rechte Ecke auf dem Monitor, auf dem der Mauszeiger steht."""
         try:
             pt = wintypes.POINT()
             ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
@@ -176,14 +182,11 @@ class RecordingOverlay:
             info.cbSize = ctypes.sizeof(_MONITORINFO)
             if ctypes.windll.user32.GetMonitorInfoW(mon, ctypes.byref(info)):
                 work = info.rcWork
-                x = work.right - w - self._px(_MARGIN)
-                y = work.bottom - h - self._px(_MARGIN)
+                return work.right - self._px(_MARGIN), work.bottom - self._px(_MARGIN)
         except Exception:
             pass
-        if x is None:
-            x = self._root.winfo_screenwidth() - w - self._px(_MARGIN)
-            y = self._root.winfo_screenheight() - h - self._px(60)
-        self._root.geometry(f"+{x}+{y}")
+        return (self._root.winfo_screenwidth() - self._px(_MARGIN),
+                self._root.winfo_screenheight() - self._px(60))
 
     # --- Thread-sichere API (alles via root.after auf den Tk-Thread) ---
 
@@ -237,7 +240,7 @@ class RecordingOverlay:
         if text == self._canvas.itemcget(self._preview_id, "text"):
             return  # unveraendert: kein Neuzeichnen, kein Neupositionieren
         self._set_preview(text)
-        self._layout(self._canvas.itemcget(self._text_id, "text"))
+        self._layout(self._canvas.itemcget(self._text_id, "text"), follow_mouse=False)
 
     def _set_content(self, text: str, color: str):
         self._canvas.itemconfigure(self._dot_id, fill=color)

@@ -721,7 +721,25 @@ class SettingsWindow:
         self.config["gpu_type"] = self._accel_label_to_code.get(label, "auto")
         self.gpu_type = effective_gpu_type(self.config["gpu_type"], self._detected_gpu)
         self._badge_label.configure(text=self._badge_text())
+        self._sync_live_switch()
         self._update_dl_button()
+
+    def _live_possible(self) -> bool:
+        """Kann die Live-Vorschau mit der aktuellen Auswahl ueberhaupt
+        erscheinen? Braucht die Status-Anzeige und eine schnelle Engine
+        (Parakeet oder Whisper auf der Grafikkarte) — wie
+        Transcriber.live_capable."""
+        if not self.overlay_var.get():
+            return False
+        size = (self._get_model_size() if hasattr(self, "model_var")
+                else self.config["model_size"])
+        return is_parakeet(size) or self.gpu_type in ("nvidia", "amd")
+
+    def _sync_live_switch(self):
+        """Schalter ausgrauen, solange er wirkungslos waere."""
+        if hasattr(self, "_live_switch"):
+            self._live_switch.configure(
+                state="normal" if self._live_possible() else "disabled")
 
     def _build_options_section(self, c):
         self._build_accel_row(c)
@@ -739,6 +757,7 @@ class SettingsWindow:
 
         self.overlay_var = ctk.BooleanVar(value=self.config.get("show_overlay", True))
         ov_switch = ctk.CTkSwitch(c, text=t("opt.overlay"), variable=self.overlay_var,
+                      command=self._sync_live_switch,
                       font=(FONT_BODY, 13), text_color=BRAND["text"],
                       progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
                       button_hover_color=BRAND["text"])
@@ -746,12 +765,13 @@ class SettingsWindow:
         Tooltip(ov_switch, t("opt.overlay.tooltip"))
 
         self.live_var = ctk.BooleanVar(value=self.config.get("live_preview", True))
-        live_switch = ctk.CTkSwitch(c, text=t("opt.live_preview"), variable=self.live_var,
+        self._live_switch = live_switch = ctk.CTkSwitch(c, text=t("opt.live_preview"), variable=self.live_var,
                       font=(FONT_BODY, 13), text_color=BRAND["text"],
                       progress_color=BRAND["cyan"], button_color=BRAND["text_dim"],
                       button_hover_color=BRAND["text"])
         live_switch.pack(anchor="w", pady=(0, 6))
         Tooltip(live_switch, t("opt.live_preview.tooltip"))
+        self._sync_live_switch()
 
         self.sound_var = ctk.BooleanVar(value=self.config.get("audio_feedback", True))
         ctk.CTkSwitch(c, text=t("opt.sound"), variable=self.sound_var,
@@ -946,6 +966,7 @@ class SettingsWindow:
             self.model_var.set(self._whisper_label)
         self.config["parakeet_hint_shown"] = True
         self._badge_label.configure(text=self._badge_text())
+        self._sync_live_switch()
         self._update_model_desc()
         self._update_dl_button()
         self._update_perf_state()

@@ -97,8 +97,8 @@ def build(dist_dir: str | None = None):
         size_mb = os.path.getsize(exe_path) / (1024 * 1024)
         print(f"\n  Fertig: {exe_path}")
         print(f"  Groesse: {size_mb:.0f} MB")
-        print(f"\n  Diese eine Datei an Kollegen schicken!")
-        print(f"  whisper-cpp + Modell werden beim ersten Start geladen.")
+        print("\n  Diese eine Datei an Kollegen schicken!")
+        print("  whisper-cpp + Modell werden beim ersten Start geladen.")
 
 
 if __name__ == "__main__":

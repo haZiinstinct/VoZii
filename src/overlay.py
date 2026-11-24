@@ -65,6 +65,8 @@ class RecordingOverlay:
         self._anim_frame = 0
         self._anim_active = False
         self._flash_job = None
+        self._anim_job = None
+        self._bg_size = None
         self._scale = 1.0
         self._preview_id = None
         self._recording = False
@@ -162,10 +164,13 @@ class RecordingOverlay:
                 w = max(w, self._px(_PREVIEW_WIDTH) + self._px(32))
                 h = pbox[3] + self._px(10)
         self._canvas.configure(width=w, height=h)
-        if self._bg_id is not None:
-            self._canvas.delete(self._bg_id)
-        self._bg_id = self._round_rect(0, 0, w, h, self._px(13), fill=BRAND["card"])
-        self._canvas.tag_lower(self._bg_id)
+        if (w, h) != self._bg_size:
+            # Hintergrund nur neu erzeugen, wenn sich die Groesse aendert
+            if self._bg_id is not None:
+                self._canvas.delete(self._bg_id)
+            self._bg_id = self._round_rect(0, 0, w, h, self._px(13), fill=BRAND["card"])
+            self._canvas.tag_lower(self._bg_id)
+            self._bg_size = (w, h)
         if follow_mouse or self._corner is None:
             self._corner = self._find_corner()
         # Groesse und Position in EINEM Aufruf — sonst springt das nach oben
@@ -227,6 +232,14 @@ class RecordingOverlay:
                 pass
             self._flash_job = None
 
+    def _cancel_anim(self):
+        if self._anim_job is not None:
+            try:
+                self._root.after_cancel(self._anim_job)
+            except Exception:
+                pass
+            self._anim_job = None
+
     def _set_preview(self, text: str):
         self._canvas.itemconfigure(self._preview_id, text=text)
 
@@ -262,6 +275,10 @@ class RecordingOverlay:
             self._set_content(max(TRANSCRIBING_FRAMES, key=len), BRAND["cyan"])
             self._root.deiconify()
             if not self._anim_active:
+                # Alte Kette abbrechen: nach Transkribieren -> Flash ->
+                # Transkribieren binnen 300 ms liefen sonst zwei parallel
+                # und die Punkte doppelt so schnell
+                self._cancel_anim()
                 self._anim_active = True
                 self._anim_frame = 0
                 self._animate_step()
@@ -276,7 +293,7 @@ class RecordingOverlay:
         frame = TRANSCRIBING_FRAMES[self._anim_frame % len(TRANSCRIBING_FRAMES)]
         self._canvas.itemconfigure(self._text_id, text=frame)
         self._anim_frame += 1
-        self._root.after(ANIMATION_INTERVAL_MS, self._animate_step)
+        self._anim_job = self._root.after(ANIMATION_INTERVAL_MS, self._animate_step)
 
     def _show_flash(self, key: str, duration_ms: int, fmt: dict):
         if not self._root: return

@@ -269,25 +269,31 @@ nach Zweck gestaffelt, CPU-Last vernachlässigbar.
 
 ## Checkliste
 
-- [ ] C1 Vorschau-Thread endet mit dem Zyklus
-- [ ] C2 Mehr-Latenz gemessen, Fenster angepasst
-- [ ] C3 Pausen-Erkennung über die letzten Sekunden
-- [ ] C4 Overlay bleibt auf dem Monitor
-- [ ] C5 Schalter zeigt, wann die Vorschau nicht geht
-- [ ] S1 Hash vor dem Umbenennen
-- [ ] S2 kein Diktat-Text im Log
-- [ ] S3 Ollama-Pfad fest
-- [ ] S4 / E1 Dependabot entschieden
-- [ ] A1 Segment-Kontrast
-- [ ] A2 Tastaturbedienung
-- [ ] A3 Hover-Farben
-- [ ] A4 Tooltips per Fokus
-- [ ] A5–A8 Schrift, Rahmen, Overlay, Kleinkram
-- [ ] D1–D5 Stil und Maße
-- [ ] D6 RTL
-- [ ] D7 Screenshots neu
-- [ ] T1 Umlaute
-- [ ] T2 hart kodierte Texte
-- [ ] T3 Fehlermeldungen
-- [ ] T4–T7 Overlay-Codes, Begriffe, Jargon, Buttons
-- [ ] M1, M2, B1
+Stand 24.11.2026: alle Pakete umgesetzt (PRs 15–24). Abweichungen: C2 nur
+gemessen, Parameter unverändert; A6 Rahmen 1,78:1 statt 3:1; Tray- und
+Overlay-Farben bleiben verschieden; E1 Dependabot bleibt entfernt; Abstände
+und Eckenradien (D2) nur teilweise vereinheitlicht; Übersetzungen der sieben
+weiteren Sprachen nicht gegengelesen.
+
+- [x] C1 Vorschau-Thread endet mit dem Zyklus
+- [x] C2 Mehr-Latenz gemessen, Fenster angepasst
+- [x] C3 Pausen-Erkennung über die letzten Sekunden
+- [x] C4 Overlay bleibt auf dem Monitor
+- [x] C5 Schalter zeigt, wann die Vorschau nicht geht
+- [x] S1 Hash vor dem Umbenennen
+- [x] S2 kein Diktat-Text im Log
+- [x] S3 Ollama-Pfad fest
+- [x] S4 / E1 Dependabot entschieden
+- [x] A1 Segment-Kontrast
+- [x] A2 Tastaturbedienung
+- [x] A3 Hover-Farben
+- [x] A4 Tooltips per Fokus
+- [x] A5–A8 Schrift, Rahmen, Overlay, Kleinkram
+- [x] D1–D5 Stil und Maße
+- [x] D6 RTL
+- [x] D7 Screenshots neu
+- [x] T1 Umlaute
+- [x] T2 hart kodierte Texte
+- [x] T3 Fehlermeldungen
+- [x] T4–T7 Overlay-Codes, Begriffe, Jargon, Buttons
+- [x] M1, M2, B1

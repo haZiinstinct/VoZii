@@ -11,6 +11,7 @@ from pynput import keyboard, mouse
 
 from src import __url__, __version__
 from src.theme import BRAND, FONT_BODY, FONT_MONO
+from src.keynav import KeyNav
 from src.hotkey import key_to_name, mouse_button_to_name
 from src.winutil import enable_dark_titlebar, work_area
 from src.hardware import effective_gpu_type, get_backend_name
@@ -90,23 +91,35 @@ def _fmt_eta(seconds: float) -> str:
 
 
 class Tooltip:
-    """Hover-Tooltip im Card-Design (tkinter-Toplevel, randlos)."""
+    """Tooltip im Card-Design (tkinter-Toplevel, randlos). Erscheint beim
+    Ueberfahren mit der Maus und wenn das Widget den Tastaturfokus bekommt."""
+
+    DELAY_MS = 400  # nicht bei jedem Vorbeifahren aufblitzen
 
     def __init__(self, widget, text: str):
         self.widget = widget
         self.text = text
         self._tip = None
+        self._job = None
         try:
-            widget.bind("<Enter>", self._show, add="+")
+            widget.bind("<Enter>", self._schedule, add="+")
             widget.bind("<Leave>", self._hide, add="+")
             widget.bind("<ButtonPress>", self._hide, add="+")
+            widget.bind("<FocusIn>", self._schedule, add="+")
+            widget.bind("<FocusOut>", self._hide, add="+")
+            widget.bind("<KeyPress>", self._hide, add="+")
         except NotImplementedError:
             # CTkSegmentedButton & Co. unterstuetzen bind() nicht — dann eben
             # kein Tooltip fuer dieses Widget
             pass
 
-    def _show(self, _e=None):
-        if self._tip is not None:
+    def _schedule(self, _e=None):
+        if self._tip is None and self._job is None:
+            self._job = self.widget.after(self.DELAY_MS, self._show)
+
+    def _show(self):
+        self._job = None
+        if self._tip is not None or not self.widget.winfo_exists():
             return
         import tkinter as tk
         self._tip = tk.Toplevel(self.widget)
@@ -115,11 +128,22 @@ class Tooltip:
         tk.Label(self._tip, text=self.text, bg=BRAND["card_hover"], fg=BRAND["text"],
                  font=(FONT_BODY, 10), justify="left", padx=10, pady=6,
                  wraplength=300).pack()
+        self._tip.update_idletasks()
         x = self.widget.winfo_rootx() + 10
         y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        # Im Arbeitsbereich halten: am rechten Rand nach links ruecken, am
+        # unteren Rand ueber das Widget klappen
+        work = work_area()
+        w, h = self._tip.winfo_reqwidth(), self._tip.winfo_reqheight()
+        x = max(work["left"], min(x, work["left"] + work["width"] - w - 4))
+        if y + h > work["top"] + work["height"]:
+            y = self.widget.winfo_rooty() - h - 4
         self._tip.geometry(f"+{x}+{y}")
 
     def _hide(self, _e=None):
+        if self._job is not None:
+            self.widget.after_cancel(self._job)
+            self._job = None
         if self._tip is not None:
             self._tip.destroy()
             self._tip = None
@@ -167,6 +191,8 @@ class SettingsWindow:
 
     def run(self):
         self.root = ctk.CTk()
+        # Schon hier: Abschnittskoepfe und Links melden sich beim Aufbau an
+        self._keynav = KeyNav(BRAND["cyan"])
         self.root.title("VoZii")
         self.root.configure(fg_color=BRAND["bg"])
         self.root.resizable(False, False)
@@ -176,6 +202,9 @@ class SettingsWindow:
             pass
         # Nativer Schliessen-Button (X) = Abbrechen
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.root.bind("<Return>", self._on_return_key)
+        self.root.bind("<KP_Enter>", self._on_return_key)
+        self.root.bind("<Escape>", self._on_escape_key)
 
         # Vorlaeufige Groesse; die endgueltige Hoehe richtet sich nach dem
         # Inhalt und wird am Ende von _fit_window() gesetzt
@@ -187,7 +216,7 @@ class SettingsWindow:
         head.pack(fill="x", padx=24, pady=(14, 0))
         ctk.CTkLabel(head, text="VoZii", font=(FONT_MONO, 22, "bold"),
                      text_color=BRAND["cyan"]).pack(side="left")
-        ctk.CTkLabel(head, text=f"v{__version__}", font=(FONT_MONO, 10),
+        ctk.CTkLabel(head, text=f"v{__version__}", font=(FONT_MONO, 11),
                      text_color=BRAND["text_dim"]).pack(side="left", padx=(6, 0), pady=(6, 0))
 
         self._uilang_to_code = {name: code for code, name in UI_LANGUAGES.items()}
@@ -217,6 +246,7 @@ class SettingsWindow:
                                            cursor="hand2")
                         lbl.pack(side="left", padx=(10, 0), pady=(6, 0))
                         lbl.bind("<Button-1>", lambda _e: webbrowser.open(RELEASES_PAGE))
+                        self._keynav.label(lbl, lambda: webbrowser.open(RELEASES_PAGE))
                     except Exception:
                         pass
 
@@ -257,6 +287,7 @@ class SettingsWindow:
                                text_color=color, cursor="hand2")
             lbl.pack(side="left")
             lbl.bind("<Button-1>", lambda _e: webbrowser.open(__url__))
+            credit_link = lbl
 
         # START-Button unten fixiert — bleibt immer sichtbar, egal wie viel
         # Inhalt darueber aufgeklappt ist
@@ -273,6 +304,8 @@ class SettingsWindow:
         c = ctk.CTkScrollableFrame(self.root, fg_color="transparent")
         c.pack(fill="both", expand=True, padx=20)
         self._content = c
+        self._keynav.scroll_frame = c
+        self._keynav.label(credit_link, lambda: webbrowser.open(__url__))
         # Alles ausser dem Inhaltsbereich — daraus ergibt sich die Grundhoehe
         self._chrome = (head, badge, start_bar, credit_bar)
 
@@ -288,6 +321,7 @@ class SettingsWindow:
         self._build_postproc_section(c)
         self._build_options_section(self._collapsible(c, t("section.options")))
 
+        self._keynav.attach(self.root)
         self._fit_window()
         self.root.mainloop()
         if self._relaunch:
@@ -426,6 +460,7 @@ class SettingsWindow:
 
         for widget in (header, arrow, label):
             widget.bind("<Button-1>", toggle)
+        self._keynav.label(label, toggle)
         if tooltip:
             Tooltip(label, tooltip)
         return container
@@ -526,7 +561,7 @@ class SettingsWindow:
                                      corner_radius=8, command=self._download_current_model)
         self.dl_btn.pack(side="right")
 
-        self.model_desc = ctk.CTkLabel(c, text="", font=(FONT_BODY, 11),
+        self.model_desc = ctk.CTkLabel(c, text="", font=(FONT_BODY, 12),
                                        text_color=BRAND["text_dim"], anchor="w",
                                        justify="left", wraplength=400)
         self.model_desc.pack(fill="x", pady=(0, 2))
@@ -536,7 +571,7 @@ class SettingsWindow:
                                             fg_color=BRAND["card"], height=4, corner_radius=2)
         self.progress.pack(fill="x", pady=(4, 2))
         self.progress.set(0)
-        self.progress_text = ctk.CTkLabel(c, text="", font=(FONT_BODY, 11),
+        self.progress_text = ctk.CTkLabel(c, text="", font=(FONT_BODY, 12),
                                            text_color=BRAND["text_dim"], height=16)
         self.progress_text.pack(anchor="w", pady=(0, 10))
         self._update_dl_button()
@@ -591,7 +626,7 @@ class SettingsWindow:
                                             fg_color=BRAND["card"], height=4, corner_radius=2)
         self.mic_level.pack(fill="x", pady=(4, 2))
         self.mic_level.set(0)
-        self.mic_test_label = ctk.CTkLabel(c, text="", font=(FONT_BODY, 11),
+        self.mic_test_label = ctk.CTkLabel(c, text="", font=(FONT_BODY, 12),
                                            text_color=BRAND["text_dim"], height=16)
         self.mic_test_label.pack(anchor="w", pady=(0, 10))
 
@@ -602,10 +637,15 @@ class SettingsWindow:
             text_color=BRAND["text"], border_width=1, border_color=BRAND["border"],
             corner_radius=8, wrap="word")
         self.vocab_box.pack(fill="x", pady=(0, 2))
+        # Tab soll das Feld verlassen statt ein Tab-Zeichen einzufuegen —
+        # sonst bleibt der Tastaturfokus hier haengen
+        for seq, step in (("<Tab>", "tk_focusNext"), ("<Shift-Tab>", "tk_focusPrev")):
+            self.vocab_box.bind(
+                seq, lambda e, step=step: (getattr(e.widget, step)().focus_set(), "break")[1])
         if self.config.get("initial_prompt"):
             self.vocab_box.insert("1.0", self.config["initial_prompt"])
         ctk.CTkLabel(c, text=t("vocab.hint"),
-                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
+                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor="w",
                      justify="left", wraplength=390).pack(fill="x", pady=(0, 4))
 
     def _build_transcription_section(self, c):
@@ -619,7 +659,7 @@ class SettingsWindow:
         self.perf_seg.pack(fill="x", pady=(0, 2))
         self._update_perf_state()
         ctk.CTkLabel(c, text=t("perf.desc"),
-                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w"
+                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor="w"
                      ).pack(fill="x", pady=(0, 4))
 
     def _build_postproc_section(self, parent):
@@ -639,13 +679,13 @@ class SettingsWindow:
         )
         self.mode_btn.pack(fill="x", pady=(0, 2))
         ctk.CTkLabel(c, text=t("mode.desc", model=OLLAMA_MODEL),
-                     font=(FONT_BODY, 11), text_color=BRAND["text_dim"], anchor="w",
+                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor="w",
                      wraplength=400, justify="left").pack(fill="x", pady=(0, 4))
 
         self.ollama_status_row = ctk.CTkFrame(c, fg_color="transparent")
         self.ollama_status_row.pack(fill="x", pady=(0, 2))
         self.ollama_status_label = ctk.CTkLabel(
-            self.ollama_status_row, text="", font=(FONT_BODY, 11),
+            self.ollama_status_row, text="", font=(FONT_BODY, 12),
             text_color=BRAND["text_dim"], anchor="w",
         )
         self.ollama_status_label.pack(side="left", fill="x", expand=True)
@@ -671,7 +711,7 @@ class SettingsWindow:
         # Detail-Zeile: "650 MB / 2 GB · 12 MB/s · Status"
         self.ollama_detail_label = ctk.CTkLabel(
             self.ollama_dl_frame, text="",
-            font=(FONT_BODY, 11), text_color=BRAND["text_dim"],
+            font=(FONT_BODY, 12), text_color=BRAND["text_dim"],
         )
         self.ollama_detail_label.pack(anchor="w", pady=(0, 6))
 
@@ -812,7 +852,7 @@ class SettingsWindow:
         self._hist_confirm = False
         self.hist_clear_btn = ctk.CTkButton(
             hist_row, text=self._hist_clear_label(), width=110, height=26,
-            font=(FONT_BODY, 11), fg_color="transparent",
+            font=(FONT_BODY, 12), fg_color="transparent",
             text_color=BRAND["text_dim"], border_width=1,
             border_color=BRAND["border"], hover_color=BRAND["card_hover"],
             corner_radius=8, command=self._clear_history)
@@ -1209,6 +1249,11 @@ class SettingsWindow:
 
     # Hotkey Recording
     def _start_recording(self):
+        if self._recording_hotkey:
+            return
+        # Fokus vom Button nehmen: sonst loest die Leertaste, die als Hotkey
+        # aufgenommen werden soll, den Button gleich noch einmal aus
+        self.root.focus_set()
         self._recording_hotkey = True
         self._pressed_keys = set()
         self._current_combo = []
@@ -1298,6 +1343,19 @@ class SettingsWindow:
         self._result = self.config
         self._stop_listeners()
         self.root.destroy()
+
+    def _on_return_key(self, event=None):
+        """Enter = Speichern & Starten — ausser im Textfeld (dort Zeilenumbruch)
+        und waehrend der Hotkey-Aufnahme (dort ist Enter eine Taste wie jede)."""
+        if self._recording_hotkey:
+            return
+        if event is not None and event.widget.winfo_class() == "Text":
+            return
+        self._save()
+
+    def _on_escape_key(self, _event=None):
+        if not self._recording_hotkey:
+            self._cancel()
 
     def _cancel(self):
         self._result = None

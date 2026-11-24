@@ -306,3 +306,19 @@ def test_download_model_zu_kleine_bin_und_part_kollidieren_nicht(tmp_path, monke
     part.write_bytes(b"y" * 5)
     downloader.download_model("tiny")
     assert seen == {"part": b"x" * 30, "bin_exists": False}
+
+
+def test_hash_wird_vor_dem_umbenennen_geprueft(tmp_path, fake_urlopen, monkeypatch):
+    """Unter dem Zielnamen liegt nie eine ungepruefte Datei — auch nicht,
+    wenn der Prozess mitten in der Pruefung stirbt (Audit 2026-11, S1)."""
+    dest = str(tmp_path / "file.bin")
+    fake_urlopen["response"] = FakeResponse(b"content")
+
+    def crash(path):
+        assert not os.path.exists(dest), "Zieldatei existiert schon vor der Pruefung"
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(downloader, "_sha256_of", crash)
+    with pytest.raises(KeyboardInterrupt):
+        downloader.download_file("https://example.com/f", dest, expected_sha256="00" * 32)
+    assert not os.path.exists(dest)

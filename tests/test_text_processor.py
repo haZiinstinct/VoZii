@@ -203,3 +203,17 @@ def test_laufzeit_start_installiert_nie(monkeypatch):
     monkeypatch.setattr(tp, "install_ollama", lambda *a: calls.append("install"))
     assert tp.start_ollama_if_needed() is False
     assert calls == []
+
+
+def test_ollama_feste_pfade_vor_path(tmp_path, monkeypatch):
+    """Der Standard-Installationsort gewinnt gegen einen PATH-Treffer
+    (Audit 2026-11, S3)."""
+    exe = tmp_path / "Programs" / "Ollama" / "ollama.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(tp.shutil, "which", lambda _name: r"C:\irgendwo\ollama.exe")
+    assert tp.is_ollama_installed() == str(exe)
+    exe.unlink()
+    monkeypatch.setattr(tp.os.path, "isfile", lambda _p: False)
+    assert tp.is_ollama_installed() == r"C:\irgendwo\ollama.exe"

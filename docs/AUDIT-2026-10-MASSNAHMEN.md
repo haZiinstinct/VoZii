@@ -282,6 +282,10 @@ Aufwand: **S** = unter 30 min, **M** = 1–2 h, **L** = halber Tag oder mehr.
 
 Alle Punkte A–E umgesetzt, je Block ein Commit. Abweichungen vom Vorschlag:
 
+- **A2:** Dependabot wurde am 27.10.2026 wieder entfernt (Commit `0e3bfcf`):
+  Die automatischen Läufe erzeugten nur Fehler-Mails, geprüft und gebaut wird
+  von Hand. Die SHA- und pip-Pins werden deshalb bei jedem Release von Hand
+  geprüft (Entscheidung E1 im Audit 2026-11).
 - **A1:** `softprops/action-gh-release` auf v2.6.2 gepinnt (letzte v2), nicht auf
   das inzwischen erschienene v3 — Major-Update gern über Dependabot.
 - **A4:** Vulkan-SHA-256 aus LunarGs Hash-API

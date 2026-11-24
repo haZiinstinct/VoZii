@@ -164,12 +164,9 @@ def is_ollama_installed() -> str | None:
     Returns:
         Pfad zur ollama executable, oder None wenn nicht gefunden.
     """
-    # 1. PATH check
-    path = shutil.which("ollama")
-    if path:
-        return path
-
-    # 2. Standard Windows Install-Locations
+    # 1. Standard-Installationsorte zuerst: das Ergebnis wird beim App-Start
+    # automatisch ausgefuehrt (start_ollama_if_needed), und PATH schliesst
+    # unter Windows auch das aktuelle Verzeichnis ein
     local_appdata = os.environ.get("LOCALAPPDATA", "")
     candidates = [
         os.path.join(local_appdata, "Programs", "Ollama", "ollama app.exe"),
@@ -179,7 +176,9 @@ def is_ollama_installed() -> str | None:
     for p in candidates:
         if p and os.path.isfile(p):
             return p
-    return None
+
+    # 2. PATH als Fallback (eigener Installationsort)
+    return shutil.which("ollama")
 
 
 def get_ollama_state(required_model: str = MODEL) -> str:

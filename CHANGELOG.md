@@ -9,6 +9,28 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ## [Unreleased]
 
+Ergebnis des Audits vom 24.11.2026 (`docs/audit/2026-11-24/`).
+
+### Neu
+- Einstellungen komplett per Tastatur bedienbar (Tab, Leertaste, Enter,
+  Escape), Fokus sichtbar, Tooltips auch bei Tastaturfokus.
+- Arabische Oberfläche läuft von rechts nach links.
+- `scripts/bench_live.py` misst die Dauer eines Vorschau-Durchlaufs.
+
+### Behoben
+- Status-Anzeige nahm beim Programmstart den Fokus; sie ist jetzt
+  klick-durchlässig und aktiviert sich nie.
+- Live-Vorschau: Thread endet mit dem Zyklus, rechnet in Sprechpausen nicht
+  mehr, springt nicht mehr zwischen Monitoren.
+- Aktives Segment und zwei Hover-Zustände waren kaum lesbar.
+- Download: Hash wird vor dem Umbenennen geprüft.
+
+### Geändert
+- Deutsche Texte mit echten Umlauten und einheitlichen Begriffen;
+  Fehlermeldungen nennen, was zu tun ist; Status-Anzeige mit verständlichen
+  Texten statt Kürzeln (alle neun Sprachen).
+- Fehler bleiben 8 s sichtbar und haben immer einen Ton.
+
 ---
 
 ## [1.12.0] — 2026-11-21

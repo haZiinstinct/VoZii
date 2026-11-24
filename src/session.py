@@ -27,6 +27,8 @@ log = logging.getLogger(__name__)
 LIVE_INTERVAL_S = 0.7
 LIVE_WINDOW_S = 12.0
 LIVE_MIN_S = 0.8
+# Fehler in der Status-Anzeige mindestens so lange zeigen
+ERROR_FLASH_MS = 8000
 # Ist das Ende des Fensters so lange still, laeuft kein neuer Durchlauf
 LIVE_PAUSE_S = 1.5
 
@@ -79,10 +81,14 @@ class RunSession:
     def notify(self, code: str, duration_ms: int = 5000):
         """Kurzes visuelles Feedback (Status-Code im Overlay).
 
-        Ohne Overlay waeren Fehler unsichtbar — dann wenigstens ein tiefer Ton."""
+        Fehler bleiben laenger stehen und bekommen zusaetzlich einen tiefen
+        Ton: wer gerade nicht auf die Anzeige schaut (oder sie abgeschaltet
+        hat), merkt sonst nicht, dass das Diktat verloren ist."""
+        is_error = code.startswith("err")
         if self.overlay:
-            self.overlay.flash(code, duration_ms)
-        elif code.startswith("err") and self.use_sound:
+            self.overlay.flash(code, max(duration_ms, ERROR_FLASH_MS) if is_error
+                               else duration_ms)
+        if is_error and self.use_sound:
             self._tone(300, 250)
 
     # --- Hotkey-Callbacks ---

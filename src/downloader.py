@@ -192,18 +192,19 @@ def download_file(url, dest, progress_callback=None, expected_sha256=None):
     if progress_callback and total > 0:
         progress_callback(downloaded, total, 0)
 
-    # Download fertig → .part umbenennen
-    if os.path.exists(dest):
-        os.remove(dest)
-    os.rename(part_path, dest)
-
+    # Erst pruefen, dann umbenennen: unter dem Zielnamen darf nie eine
+    # ungepruefte Datei liegen. Spaetere Aufrufe (is_model_installed) schauen
+    # nur noch auf die Groesse — stuerbe der Prozess zwischen Umbenennen und
+    # Pruefung, gaelte sie sonst dauerhaft als installiert.
     if expected_sha256:
-        actual = _sha256_of(dest)
+        actual = _sha256_of(part_path)
         if actual.lower() != expected_sha256.lower():
-            os.remove(dest)
+            os.remove(part_path)
             log.error("SHA256-Mismatch fuer %s: erwartet %s, erhalten %s",
                       url, expected_sha256, actual)
             raise RuntimeError(t("err.checksum"))
+
+    os.replace(part_path, dest)
 
     return True
 

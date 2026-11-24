@@ -9,6 +9,10 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ## [Unreleased]
 
+---
+
+## [1.13.0] — 2026-11-24
+
 Ergebnis des Audits vom 24.11.2026 (`docs/audit/2026-11-24/`).
 
 ### Neu

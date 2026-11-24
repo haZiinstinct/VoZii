@@ -16,7 +16,7 @@ from src.hotkey import key_to_name, mouse_button_to_name
 from src.winutil import enable_dark_titlebar, work_area
 from src.hardware import effective_gpu_type, get_backend_name
 from src.config import _is_valid_hotkey, save_config
-from src.i18n import DICTATION_LANGS, UI_LANGUAGES, set_language, t
+from src.i18n import DICTATION_LANGS, UI_LANGUAGES, is_rtl, set_language, t
 from src.update_checker import RELEASES_PAGE, check_async
 from src.downloader import (
     is_binary_installed, is_model_installed, is_server_available,
@@ -95,6 +95,26 @@ _SWITCH_STYLE = dict(
 ROW_H = 32
 
 
+# Schreibrichtung: Arabisch laeuft von rechts nach links — dann beginnt jede
+# Zeile rechts. Als Funktionen, weil die Sprache zur Laufzeit wechseln kann
+# (das Fenster wird dann neu aufgebaut). Kopfzeile und Credit bleiben
+# bewusst links-nach-rechts (Markenname, Versionsnummer, Domain).
+def _start() -> str:
+    return "right" if is_rtl() else "left"
+
+
+def _end() -> str:
+    return "left" if is_rtl() else "right"
+
+
+def _anchor() -> str:
+    return "e" if is_rtl() else "w"
+
+
+def _menu_style() -> dict:
+    return dict(_MENU_STYLE, anchor=_anchor())
+
+
 def _icon_path() -> str:
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     return os.path.join(base, "src", "vozii.ico")
@@ -142,7 +162,7 @@ class Tooltip:
         self._tip.overrideredirect(True)
         self._tip.attributes("-topmost", True)
         tk.Label(self._tip, text=self.text, bg=BRAND["card_hover"], fg=BRAND["text"],
-                 font=(FONT_BODY, 10), justify="left", padx=10, pady=6,
+                 font=(FONT_BODY, 10), justify=_start(), padx=10, pady=6,
                  wraplength=300).pack()
         self._tip.update_idletasks()
         x = self.widget.winfo_rootx() + 10
@@ -240,7 +260,7 @@ class SettingsWindow:
         ui_lang_menu = ctk.CTkOptionMenu(
             head, values=list(UI_LANGUAGES.values()),
             variable=ctk.StringVar(value=f"🌐 {cur_uilang}"),
-            width=130, font=(FONT_BODY, 12), height=ROW_H, **_MENU_STYLE,
+            width=130, font=(FONT_BODY, 12), height=ROW_H, **_menu_style(),
             command=self._on_ui_language_change)
         ui_lang_menu.pack(side="right", pady=(2, 0))
         Tooltip(ui_lang_menu, t("header.ui_lang_tooltip"))
@@ -282,7 +302,7 @@ class SettingsWindow:
         # Backend-Info als Pill-Badge (hazii.org-Stil)
         badge = ctk.CTkFrame(self.root, fg_color=BRAND["card"], corner_radius=12,
                              border_width=1, border_color=BRAND["border"])
-        badge.pack(anchor="w", padx=24, pady=(6, 10))
+        badge.pack(anchor=_anchor(), padx=24, pady=(6, 10))
         self._badge_label = ctk.CTkLabel(badge, text=self._badge_text(),
                                          font=(FONT_MONO, 11), text_color=BRAND["text_dim"])
         self._badge_label.pack(padx=10, pady=2)
@@ -447,13 +467,14 @@ class SettingsWindow:
         """
         header = ctk.CTkFrame(parent, fg_color="transparent", cursor="hand2")
         header.pack(fill="x", pady=(0, 4))
-        arrow = ctk.CTkLabel(header, text="▸" if collapsed else "▾",
+        closed = "◂" if is_rtl() else "▸"
+        arrow = ctk.CTkLabel(header, text=closed if collapsed else "▾",
                              font=(FONT_BODY, 12, "bold"),
                              text_color=BRAND["text_dim"], width=14)
-        arrow.pack(side="left")
+        arrow.pack(side=_start())
         label = ctk.CTkLabel(header, text=title.upper(), font=(FONT_BODY, 12, "bold"),
                              text_color=BRAND["text_dim"])
-        label.pack(side="left", padx=(4, 0))
+        label.pack(side=_start(), padx=(4, 0))
 
         container = ctk.CTkFrame(parent, fg_color="transparent")
         if not collapsed:
@@ -467,7 +488,7 @@ class SettingsWindow:
             state["collapsed"] = not state["collapsed"]
             if state["collapsed"]:
                 container.pack_forget()
-                arrow.configure(text="▸")
+                arrow.configure(text=closed)
             else:
                 container.pack(fill="x", after=header)
                 arrow.configure(text="▾")
@@ -500,12 +521,12 @@ class SettingsWindow:
         hk.pack(fill="x", pady=(0, 6))
         self.hotkey_label = ctk.CTkLabel(hk, text=self.config["hotkey"].upper().replace("+", " + "),
                                          font=(FONT_MONO, 18, "bold"), text_color=BRAND["text_bright"])
-        self.hotkey_label.pack(side="left")
+        self.hotkey_label.pack(side=_start())
         ctk.CTkButton(hk, text=t("btn.change"), width=80, height=ROW_H, font=(FONT_BODY, 12),
                       fg_color=BRAND["card"], text_color=BRAND["text"],
                       hover_color=BRAND["card_hover"], corner_radius=8,
                       border_width=1, border_color=BRAND["border"],
-                      command=self._start_recording).pack(side="right")
+                      command=self._start_recording).pack(side=_end())
 
         # Aufnahme-Modus (war bisher nur per config.yaml erreichbar)
         self._hkmode_label_to_code = {t("hotkey.mode.ptt"): "push_to_talk",
@@ -526,7 +547,7 @@ class SettingsWindow:
         self.autostop_switch = ctk.CTkSwitch(
             autostop_row, text=t("opt.autostop"), variable=self.autostop_var,
             **_SWITCH_STYLE)
-        self.autostop_switch.pack(side="left")
+        self.autostop_switch.pack(side=_start())
         Tooltip(self.autostop_switch, t("opt.autostop.tooltip"))
         self._autostop_label_to_s = {"2 s": 2.0, "3 s": 3.0, "5 s": 5.0}
         cur_label = next((lbl for lbl, s in self._autostop_label_to_s.items()
@@ -535,8 +556,8 @@ class SettingsWindow:
         self.autostop_menu = ctk.CTkOptionMenu(
             autostop_row, values=list(self._autostop_label_to_s),
             variable=self.autostop_secs_var, width=80, font=(FONT_BODY, 12),
-            height=ROW_H, **_MENU_STYLE)
-        self.autostop_menu.pack(side="right")
+            height=ROW_H, **_menu_style())
+        self.autostop_menu.pack(side=_end())
         self._on_hkmode_change()
 
     def _build_model_section(self, c):
@@ -571,18 +592,18 @@ class SettingsWindow:
                           mr, values=[self._parakeet_label] if parakeet_on else self._whisper_labels,
                           variable=self.model_var,
                           font=(FONT_BODY, 13),
-                          width=260, height=ROW_H, **_MENU_STYLE,
+                          width=260, height=ROW_H, **_menu_style(),
                           command=self._on_model_change)
-        model_menu.pack(side="left")
+        model_menu.pack(side=_start())
         self.dl_btn = ctk.CTkButton(mr, text=t("btn.download"), width=120, height=ROW_H,
                                      font=(FONT_BODY, 12, "bold"), fg_color=BRAND["cyan"],
                                      text_color=BRAND["bg"], hover_color=BRAND["cyan_dim"],
                                      corner_radius=8, command=self._download_current_model)
-        self.dl_btn.pack(side="right")
+        self.dl_btn.pack(side=_end())
 
         self.model_desc = ctk.CTkLabel(c, text="", font=(FONT_BODY, 12),
-                                       text_color=BRAND["text_dim"], anchor="w",
-                                       justify="left", wraplength=400)
+                                       text_color=BRAND["text_dim"], anchor=_anchor(),
+                                       justify=_start(), wraplength=400)
         self.model_desc.pack(fill="x", pady=(0, 2))
         self._update_model_desc()
 
@@ -592,7 +613,7 @@ class SettingsWindow:
         self._set_bar(self.progress, 0)
         self.progress_text = ctk.CTkLabel(c, text="", font=(FONT_BODY, 12),
                                            text_color=BRAND["text_dim"], height=16)
-        self.progress_text.pack(anchor="w", pady=(0, 10))
+        self.progress_text.pack(anchor=_anchor(), pady=(0, 10))
         self._update_dl_button()
 
     def _build_language_section(self, c):
@@ -606,7 +627,7 @@ class SettingsWindow:
         self.lang_var = ctk.StringVar(
             value=code_to_label.get(self.config.get("language", "auto"), t("lang.auto")))
         ctk.CTkOptionMenu(c, values=list(dic_labels), variable=self.lang_var, font=(FONT_BODY, 13),
-                          height=ROW_H, **_MENU_STYLE,
+                          height=ROW_H, **_menu_style(),
                           command=lambda _: self._update_model_desc()).pack(fill="x", pady=(0, 14))
         self._update_model_desc()
 
@@ -623,7 +644,7 @@ class SettingsWindow:
         mic_row = ctk.CTkFrame(c, fg_color="transparent")
         mic_row.pack(fill="x", pady=(0, 4))
         ctk.CTkOptionMenu(mic_row, values=devs, variable=self.mic_var, font=(FONT_BODY, 13),
-                          width=280, height=ROW_H, **_MENU_STYLE).pack(side="left")
+                          width=280, height=ROW_H, **_menu_style()).pack(side=_start())
         self._mic_testing = False
         self.mic_test_btn = ctk.CTkButton(
             mic_row, text=t("btn.test"), width=80, height=ROW_H, font=(FONT_BODY, 12),
@@ -631,7 +652,7 @@ class SettingsWindow:
             hover_color=BRAND["card_hover"], corner_radius=8,
             border_width=1, border_color=BRAND["border"],
             command=self._test_microphone)
-        self.mic_test_btn.pack(side="right")
+        self.mic_test_btn.pack(side=_end())
         Tooltip(self.mic_test_btn, t("mic.tooltip"))
 
         # Live-Pegel waehrend des Tests
@@ -641,7 +662,7 @@ class SettingsWindow:
         self._set_bar(self.mic_level, 0)
         self.mic_test_label = ctk.CTkLabel(c, text="", font=(FONT_BODY, 12),
                                            text_color=BRAND["text_dim"], height=16)
-        self.mic_test_label.pack(anchor="w", pady=(0, 10))
+        self.mic_test_label.pack(anchor=_anchor(), pady=(0, 10))
 
     def _build_vocab_section(self, c):
         # EIGENE BEGRIFFE (Whisper initial_prompt: Namen/Fachwoerter als Kontext)
@@ -658,8 +679,8 @@ class SettingsWindow:
         if self.config.get("initial_prompt"):
             self.vocab_box.insert("1.0", self.config["initial_prompt"])
         ctk.CTkLabel(c, text=t("vocab.hint"),
-                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor="w",
-                     justify="left", wraplength=390).pack(fill="x", pady=(0, 4))
+                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor=_anchor(),
+                     justify=_start(), wraplength=390).pack(fill="x", pady=(0, 4))
 
     def _build_transcription_section(self, c):
         # TRANSKRIPTION (Beam-Search: schnell vs. genau)
@@ -672,7 +693,7 @@ class SettingsWindow:
         self.perf_seg.pack(fill="x", pady=(0, 2))
         self._update_perf_state()
         ctk.CTkLabel(c, text=t("perf.desc"),
-                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor="w"
+                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor=_anchor()
                      ).pack(fill="x", pady=(0, 4))
 
     def _build_postproc_section(self, parent):
@@ -692,16 +713,16 @@ class SettingsWindow:
         )
         self.mode_btn.pack(fill="x", pady=(0, 2))
         ctk.CTkLabel(c, text=t("mode.desc", model=OLLAMA_MODEL),
-                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor="w",
-                     wraplength=400, justify="left").pack(fill="x", pady=(0, 4))
+                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor=_anchor(),
+                     wraplength=400, justify=_start()).pack(fill="x", pady=(0, 4))
 
         self.ollama_status_row = ctk.CTkFrame(c, fg_color="transparent")
         self.ollama_status_row.pack(fill="x", pady=(0, 2))
         self.ollama_status_label = ctk.CTkLabel(
             self.ollama_status_row, text="", font=(FONT_BODY, 12),
-            text_color=BRAND["text_dim"], anchor="w",
+            text_color=BRAND["text_dim"], anchor=_anchor(),
         )
-        self.ollama_status_label.pack(side="left", fill="x", expand=True)
+        self.ollama_status_label.pack(side=_start(), fill="x", expand=True)
 
         # Download-Container (erscheint waehrend Install/Pull)
         self.ollama_dl_frame = ctk.CTkFrame(c, fg_color="transparent")
@@ -711,7 +732,7 @@ class SettingsWindow:
             self.ollama_dl_frame, text="0%",
             font=(FONT_MONO, 20, "bold"), text_color=BRAND["cyan"],
         )
-        self.ollama_percent_label.pack(anchor="w")
+        self.ollama_percent_label.pack(anchor=_anchor())
 
         # Progress-Bar (groesser)
         self.ollama_progress = ctk.CTkProgressBar(
@@ -726,7 +747,7 @@ class SettingsWindow:
             self.ollama_dl_frame, text="",
             font=(FONT_BODY, 12), text_color=BRAND["text_dim"],
         )
-        self.ollama_detail_label.pack(anchor="w", pady=(0, 6))
+        self.ollama_detail_label.pack(anchor=_anchor(), pady=(0, 6))
 
         # Cancel-Button
         self.ollama_cancel_btn = ctk.CTkButton(
@@ -759,11 +780,11 @@ class SettingsWindow:
         row = ctk.CTkFrame(c, fg_color="transparent")
         row.pack(fill="x", pady=(0, 6))
         ctk.CTkLabel(row, text=t("accel.label"), font=(FONT_BODY, 13),
-                     text_color=BRAND["text"]).pack(side="left")
+                     text_color=BRAND["text"]).pack(side=_start())
         ctk.CTkOptionMenu(
             row, values=list(self._accel_label_to_code), variable=self.accel_var,
             command=self._on_accel_change, width=220, font=(FONT_BODY, 12),
-            height=ROW_H, **_MENU_STYLE).pack(side="right")
+            height=ROW_H, **_menu_style()).pack(side=_end())
 
     def _on_accel_change(self, label):
         """Backend wechseln: Badge aktualisieren, Download-Button bietet bei
@@ -799,7 +820,7 @@ class SettingsWindow:
         self.memsave_var = ctk.BooleanVar(value=bool(self.config.get("idle_unload_min", 30)))
         mem_switch = ctk.CTkSwitch(c, text=t("opt.memsave"), variable=self.memsave_var,
                       **_SWITCH_STYLE)
-        mem_switch.pack(anchor="w", pady=(0, 6))
+        mem_switch.pack(anchor=_anchor(), pady=(0, 6))
         Tooltip(mem_switch, t("opt.memsave.tooltip",
                                 minutes=self.config.get("idle_unload_min") or 30))
 
@@ -807,34 +828,34 @@ class SettingsWindow:
         ov_switch = ctk.CTkSwitch(c, text=t("opt.overlay"), variable=self.overlay_var,
                       command=self._sync_live_switch,
                       **_SWITCH_STYLE)
-        ov_switch.pack(anchor="w", pady=(0, 6))
+        ov_switch.pack(anchor=_anchor(), pady=(0, 6))
         Tooltip(ov_switch, t("opt.overlay.tooltip"))
 
         self.live_var = ctk.BooleanVar(value=self.config.get("live_preview", True))
         self._live_switch = live_switch = ctk.CTkSwitch(c, text=t("opt.live_preview"), variable=self.live_var,
                       **_SWITCH_STYLE)
-        live_switch.pack(anchor="w", pady=(0, 6))
+        live_switch.pack(anchor=_anchor(), pady=(0, 6))
         Tooltip(live_switch, t("opt.live_preview.tooltip"))
         self._sync_live_switch()
 
         self.sound_var = ctk.BooleanVar(value=self.config.get("audio_feedback", True))
         ctk.CTkSwitch(c, text=t("opt.sound"), variable=self.sound_var,
-                      **_SWITCH_STYLE).pack(anchor="w", pady=(0, 6))
+                      **_SWITCH_STYLE).pack(anchor=_anchor(), pady=(0, 6))
 
         self.clipres_var = ctk.BooleanVar(value=self.config.get("restore_clipboard", True))
         clip_switch = ctk.CTkSwitch(c, text=t("opt.clipboard"), variable=self.clipres_var,
                       **_SWITCH_STYLE)
-        clip_switch.pack(anchor="w", pady=(0, 6))
+        clip_switch.pack(anchor=_anchor(), pady=(0, 6))
         Tooltip(clip_switch, t("opt.clipboard.tooltip"))
 
         self.autostart_var = ctk.BooleanVar(value=self.config.get("auto_start", False))
         ctk.CTkSwitch(c, text=t("opt.autostart"), variable=self.autostart_var,
-                      **_SWITCH_STYLE).pack(anchor="w", pady=(0, 6))
+                      **_SWITCH_STYLE).pack(anchor=_anchor(), pady=(0, 6))
 
         self.updchk_var = ctk.BooleanVar(value=self.config.get("update_check", True))
         upd_switch = ctk.CTkSwitch(c, text=t("opt.update_check"), variable=self.updchk_var,
                       **_SWITCH_STYLE)
-        upd_switch.pack(anchor="w", pady=(0, 6))
+        upd_switch.pack(anchor=_anchor(), pady=(0, 6))
         Tooltip(upd_switch, t("opt.update_check.tooltip"))
 
         # Historie: Switch + Loeschen-Button (zweistufig statt Dialog)
@@ -842,7 +863,7 @@ class SettingsWindow:
         hist_row = ctk.CTkFrame(c, fg_color="transparent")
         hist_row.pack(fill="x", pady=(0, 6))
         ctk.CTkSwitch(hist_row, text=t("opt.history"), variable=self.history_var,
-                      **_SWITCH_STYLE).pack(side="left")
+                      **_SWITCH_STYLE).pack(side=_start())
         self._hist_confirm = False
         self.hist_clear_btn = ctk.CTkButton(
             hist_row, text=self._hist_clear_label(), width=110, height=ROW_H,
@@ -850,7 +871,7 @@ class SettingsWindow:
             text_color=BRAND["text_dim"], border_width=1,
             border_color=BRAND["border"], hover_color=BRAND["card_hover"],
             corner_radius=8, command=self._clear_history)
-        self.hist_clear_btn.pack(side="right")
+        self.hist_clear_btn.pack(side=_end())
 
     # --- Mikrofontest ---
 
@@ -984,7 +1005,7 @@ class SettingsWindow:
 
     def _heading(self, parent, text):
         ctk.CTkLabel(parent, text=text.upper(), font=(FONT_BODY, 12, "bold"),
-                     text_color=BRAND["text_dim"]).pack(anchor="w", pady=(0, 4))
+                     text_color=BRAND["text_dim"]).pack(anchor=_anchor(), pady=(0, 4))
 
     # Model
     def _get_model_size(self):

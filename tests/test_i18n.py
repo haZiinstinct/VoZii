@@ -141,3 +141,11 @@ def test_deutsche_texte_mit_echten_umlauten():
         re.IGNORECASE)
     treffer = {k: v for k, v in STRINGS["de"].items() if ersatz.search(v)}
     assert not treffer, treffer
+
+
+def test_rtl_richtung_nur_fuer_arabisch():
+    from src.i18n import is_rtl
+    set_language("ar")
+    assert is_rtl()
+    set_language("de")
+    assert not is_rtl()

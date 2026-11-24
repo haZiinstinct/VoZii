@@ -552,7 +552,9 @@ class Transcriber:
     def preview(self, audio) -> str:
         """Vorschautext fuer einen Audio-Ausschnitt ("" wenn gerade nichts
         geht). Blockiert nie auf die eigentliche Transkription und loest
-        keinen Fallback aus."""
+        keinen Fallback aus. Ein beim Loslassen noch laufender Durchlauf
+        verzoegert die Transkription um seine Restlaufzeit (gemessen: im
+        Mittel ~0,15 s, siehe scripts/bench_live.py)."""
         try:
             backend = self._live_backend()
             if backend is None:

@@ -159,7 +159,9 @@ class ParakeetBackend:
     def preview(self, audio: np.ndarray) -> str | None:
         """Live-Vorschau auf einem Audio-Ausschnitt. Wartet nie: laeuft
         gerade eine Transkription oder ist das Modell (noch) nicht geladen,
-        kommt None zurueck — die Vorschau darf das Diktat nicht bremsen."""
+        kommt None zurueck. Umgekehrt wartet transcribe() auf einen schon
+        laufenden Vorschau-Durchlauf (nicht abbrechbar) — siehe
+        scripts/bench_live.py fuer die Groessenordnung."""
         if not self._lock.acquire(blocking=False):
             return None
         try:

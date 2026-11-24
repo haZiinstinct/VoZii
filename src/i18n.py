@@ -240,6 +240,7 @@ STRINGS = {
         "accel.nvidia": "NVIDIA-Grafikkarte",
         "accel.amd": "AMD-/Intel-Grafikkarte",
         "accel.cpu": "Nur Prozessor (CPU)",
+        "perf.parakeet": "Nur bei Whisper einstellbar — Parakeet arbeitet immer im schnellen Modus.",
     },
     "en": {
         "header.ui_lang_tooltip": "Interface language",
@@ -390,6 +391,7 @@ STRINGS = {
         "accel.nvidia": "NVIDIA graphics card",
         "accel.amd": "AMD / Intel graphics card",
         "accel.cpu": "Processor only (CPU)",
+        "perf.parakeet": "Whisper only — Parakeet always runs in fast mode.",
     },
     "es": {
         "header.ui_lang_tooltip": "Idioma de la interfaz",
@@ -540,6 +542,7 @@ STRINGS = {
         "accel.nvidia": "Tarjeta gráfica NVIDIA",
         "accel.amd": "Tarjeta gráfica AMD / Intel",
         "accel.cpu": "Solo procesador (CPU)",
+        "perf.parakeet": "Solo con Whisper: Parakeet siempre usa el modo rápido.",
     },
     "fr": {
         "header.ui_lang_tooltip": "Langue de l'interface",
@@ -690,6 +693,7 @@ STRINGS = {
         "accel.nvidia": "Carte graphique NVIDIA",
         "accel.amd": "Carte graphique AMD / Intel",
         "accel.cpu": "Processeur seul (CPU)",
+        "perf.parakeet": "Uniquement avec Whisper : Parakeet fonctionne toujours en mode rapide.",
     },
     "pt": {
         "header.ui_lang_tooltip": "Idioma da interface",
@@ -840,6 +844,7 @@ STRINGS = {
         "accel.nvidia": "Placa de vídeo NVIDIA",
         "accel.amd": "Placa de vídeo AMD / Intel",
         "accel.cpu": "Somente processador (CPU)",
+        "perf.parakeet": "Somente com Whisper: o Parakeet sempre usa o modo rápido.",
     },
     "ru": {
         "header.ui_lang_tooltip": "Язык интерфейса",
@@ -990,6 +995,7 @@ STRINGS = {
         "accel.nvidia": "Видеокарта NVIDIA",
         "accel.amd": "Видеокарта AMD / Intel",
         "accel.cpu": "Только процессор (CPU)",
+        "perf.parakeet": "Только для Whisper: Parakeet всегда работает в быстром режиме.",
     },
     "zh": {
         "header.ui_lang_tooltip": "界面语言",
@@ -1137,6 +1143,7 @@ STRINGS = {
         "accel.nvidia": "NVIDIA 显卡",
         "accel.amd": "AMD / Intel 显卡",
         "accel.cpu": "仅处理器（CPU）",
+        "perf.parakeet": "仅适用于 Whisper：Parakeet 始终使用快速模式。",
     },
     "ja": {
         "header.ui_lang_tooltip": "インターフェースの言語",
@@ -1286,6 +1293,7 @@ STRINGS = {
         "accel.nvidia": "NVIDIA グラフィックカード",
         "accel.amd": "AMD / Intel グラフィックカード",
         "accel.cpu": "プロセッサのみ（CPU）",
+        "perf.parakeet": "Whisper のみ設定できます。Parakeet は常に高速モードで動作します。",
     },
     "ar": {
         "header.ui_lang_tooltip": "لغة الواجهة",
@@ -1434,5 +1442,6 @@ STRINGS = {
         "accel.nvidia": "بطاقة رسومات NVIDIA",
         "accel.amd": "بطاقة رسومات AMD / Intel",
         "accel.cpu": "المعالج فقط (CPU)",
+        "perf.parakeet": "مع Whisper فقط: يعمل Parakeet دائمًا في الوضع السريع.",
     },
 }

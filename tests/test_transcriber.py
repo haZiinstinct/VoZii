@@ -347,6 +347,7 @@ def test_server_preview_startet_keinen_server():
 def test_live_capable_nur_parakeet_oder_gpu_server(monkeypatch):
     t = Transcriber.__new__(Transcriber)
     t.engine = "parakeet"
+    t._parakeet = object()  # engine == "parakeet" gibt es nur mit Backend
     t._server = None
     assert t.live_capable
     t.engine = "whisper"

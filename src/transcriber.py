@@ -533,26 +533,31 @@ class Transcriber:
                 log.exception("Parakeet fehlgeschlagen — Fallback auf Whisper")
         return self._transcribe_whisper(wav_path)
 
+    def _live_backend(self):
+        """Backend, das schnell genug fuer die Live-Vorschau ist (sonst None).
+        Parakeet immer, Whisper nur als Server auf der GPU — Whisper auf der
+        CPU wuerde mit dem Diktat um die Kerne konkurrieren und haengt
+        ohnehin hinterher."""
+        if self.engine == "parakeet":
+            return self._parakeet
+        # _no_gpu zuerst: _gpu_backend() geht ans Dateisystem
+        if self._server is not None and not self._no_gpu and self._gpu_backend():
+            return self._server
+        return None
+
     @property
     def live_capable(self) -> bool:
-        """Schnell genug fuer die Live-Vorschau? Parakeet immer, Whisper nur
-        als Server auf der GPU — Whisper auf der CPU wuerde mit dem Diktat
-        um die Kerne konkurrieren und haengt ohnehin hinterher."""
-        if self.engine == "parakeet":
-            return True
-        return self._server is not None and self._gpu_backend() and not self._no_gpu
+        return self._live_backend() is not None
 
     def preview(self, audio) -> str:
         """Vorschautext fuer einen Audio-Ausschnitt ("" wenn gerade nichts
         geht). Blockiert nie auf die eigentliche Transkription und loest
         keinen Fallback aus."""
         try:
-            if self.engine == "parakeet":
-                text = self._parakeet.preview(audio)
-            elif self.live_capable:
-                text = self._server.preview(audio)
-            else:
+            backend = self._live_backend()
+            if backend is None:
                 return ""
+            text = backend.preview(audio)
         except Exception:
             log.debug("Vorschau fehlgeschlagen", exc_info=True)
             return ""

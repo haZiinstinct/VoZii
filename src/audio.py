@@ -274,8 +274,8 @@ class AudioRecorder:
             buffer = list(self._buffer)
             rate = self._actual_rate
         total = sum(len(b) for b in buffer) / rate
-        if max_s > 0:
-            need = int(max_s * rate)
+        need = int(max_s * rate) if max_s > 0 else 0
+        if need:
             tail, n = [], 0
             for block in reversed(buffer):
                 tail.append(block)
@@ -283,9 +283,9 @@ class AudioRecorder:
                 if n >= need:
                     break
             buffer = tail[::-1]
-        audio = np.concatenate(buffer, axis=0).flatten()
-        if max_s > 0:
-            audio = audio[-int(max_s * rate):]
+        audio = np.concatenate(buffer, axis=0).reshape(-1)
+        if need:
+            audio = audio[-need:]
         if rate != SAMPLE_RATE:
             audio = _resample(audio, rate, SAMPLE_RATE)
         return audio.astype(np.float32, copy=False), total

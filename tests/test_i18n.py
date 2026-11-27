@@ -67,7 +67,7 @@ def test_t_formats_kwargs():
     set_language("en")
     assert t("tray.hotkey", hotkey="CTRL+SPACE") == "Hotkey: CTRL+SPACE"
     assert "550" not in t("download.model", model="turbo")  # nur Platzhalter ersetzt
-    assert t("download.model", model="turbo") == "Downloading model 'turbo'..."
+    assert t("download.model", model="turbo") == "Downloading model 'turbo'…"
 
 
 def test_t_fallback_to_en_then_de(monkeypatch):

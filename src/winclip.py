@@ -50,6 +50,8 @@ if IS_WINDOWS:
     _user32.SetClipboardData.restype = wintypes.HANDLE
     _user32.GetClipboardSequenceNumber.argtypes = []
     _user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
+    _user32.RegisterClipboardFormatW.argtypes = [wintypes.LPCWSTR]
+    _user32.RegisterClipboardFormatW.restype = wintypes.UINT
 
     _kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
     _kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
@@ -64,6 +66,49 @@ if IS_WINDOWS:
 
     _user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
     _user32.MapVirtualKeyW.restype = wintypes.UINT
+
+# Offizielle Windows-10/11-Marker: verhindern, dass temporaere Diktat-Texte
+# im Zwischenablage-Verlauf (Win+V) landen oder in die Microsoft-Cloud
+# synchronisiert werden (wie bei Passwort-Managern).
+_PRIVATE_FORMAT_NAMES = (
+    "ExcludeClipboardContentFromMonitorProcessing",
+    "CanIncludeInClipboardHistory",
+    "CanUploadToCloudClipboard",
+)
+_private_formats: tuple[int, ...] | None = None
+
+
+def _get_private_formats() -> tuple[int, ...]:
+    global _private_formats
+    if _private_formats is None:
+        if not IS_WINDOWS:
+            _private_formats = ()
+        else:
+            fmts = []
+            for name in _PRIVATE_FORMAT_NAMES:
+                fid = _user32.RegisterClipboardFormatW(name)
+                if fid:
+                    fmts.append(fid)
+            _private_formats = tuple(fmts)
+    return _private_formats
+
+
+def _attach_private_markers() -> None:
+    """Setzt DWORD=0 fuer History-/Cloud-Exclusion innerhalb einer offenen Ablage."""
+    zero = ctypes.c_uint32(0)
+    size = ctypes.sizeof(zero)
+    for fmt in _get_private_formats():
+        handle = _kernel32.GlobalAlloc(_GMEM_MOVEABLE, size)
+        if not handle:
+            continue
+        ptr = _kernel32.GlobalLock(handle)
+        if not ptr:
+            _kernel32.GlobalFree(handle)
+            continue
+        ctypes.memmove(ptr, ctypes.byref(zero), size)
+        _kernel32.GlobalUnlock(handle)
+        if not _user32.SetClipboardData(fmt, handle):
+            _kernel32.GlobalFree(handle)
 
 
 class _Clipboard:
@@ -132,8 +177,12 @@ def get_text() -> str | None:
         return None
 
 
-def set_text(text: str) -> bool:
-    """Text in die Zwischenablage legen. Returns True bei Erfolg."""
+def set_text(text: str, *, private: bool = False) -> bool:
+    """Text in die Zwischenablage legen. Returns True bei Erfolg.
+
+    private=True markiert den Inhalt fuer Windows 10/11 als privat — er landet
+    weder im Zwischenablage-Verlauf (Win+V) noch in der Cloud-Synchronisation.
+    """
     if not IS_WINDOWS:
         return _fallback_copy(text)
     try:
@@ -158,6 +207,8 @@ def set_text(text: str) -> bool:
             if not _user32.SetClipboardData(_CF_UNICODETEXT, handle):
                 _kernel32.GlobalFree(handle)
                 return False
+            if private:
+                _attach_private_markers()
         return True
     except Exception:
         log.exception("Zwischenablage schreiben fehlgeschlagen")

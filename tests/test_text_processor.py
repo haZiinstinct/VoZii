@@ -18,6 +18,15 @@ def test_clean_response_strips_preamble():
     assert _clean_response("Hier ist der Text: Hallo Welt") == "Hallo Welt"
     assert _clean_response("Klar, Hallo Welt") == "Hallo Welt"
     assert _clean_response("Gerne! Hallo Welt") == "Hallo Welt"
+    assert _clean_response("Natürlich, Hallo Welt") == "Hallo Welt"
+
+
+def test_ollama_uses_ipv4_loopback_and_truncation_guard(monkeypatch):
+    assert tp.OLLAMA_URL == "http://127.0.0.1:11434"
+    long_input = "Das ist ein langer diktierter Satz mit vielen Wörtern, der nicht abgeschnitten werden darf."
+    monkeypatch.setattr(TextProcessor, "_chat", lambda *a, **kw: "Kurz.")
+    # Guard rettet den Rohtext, wenn das kleine Modell >65 % wegschneidet
+    assert TextProcessor(mode="correct").process(long_input) == long_input
 
 
 def test_clean_response_strips_quotes():

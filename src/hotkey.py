@@ -84,10 +84,16 @@ def _key_matches_part(key, part: str) -> bool:
     if part in SPECIAL_KEYS:
         return key in SPECIAL_KEYS[part]
     if len(part) == 1:
-        if hasattr(key, "char") and key.char is not None:
-            return key.char.lower() == part.lower()
-        if hasattr(key, "vk") and key.vk is not None:
-            return key.vk == ord(part.upper())
+        # Bei gedruecktem Ctrl liefert Windows ein Steuerzeichen (z. B. Ctrl+R
+        # -> '\x12') statt des Buchstabens. Nur druckbare Zeichen direkt
+        # vergleichen; Steuerzeichen fallen auf den Virtual-Key-Code zurueck.
+        ch = getattr(key, "char", None)
+        if ch is not None and ord(ch) >= 32:
+            if ch.lower() == part.lower():
+                return True
+        vk = getattr(key, "vk", None)
+        if vk is not None and part.isascii():
+            return vk == ord(part.upper())
     return False
 
 
@@ -103,13 +109,17 @@ def key_to_name(key) -> str:
     for name, key_set in SPECIAL_KEYS.items():
         if key in key_set:
             return name
-    if hasattr(key, "char") and key.char is not None:
-        return key.char.lower()
-    if hasattr(key, "vk") and key.vk is not None:
-        if 65 <= key.vk <= 90:
-            return chr(key.vk).lower()
-        if 48 <= key.vk <= 57:
-            return chr(key.vk)
+    ch = getattr(key, "char", None)
+    if ch is not None and ord(ch) >= 32 and ch.isalnum():
+        return ch.lower()
+    vk = getattr(key, "vk", None)
+    if vk is not None:
+        if 65 <= vk <= 90:
+            return chr(vk).lower()
+        if 48 <= vk <= 57:
+            return chr(vk)
+    if ch is not None and ord(ch) >= 32:
+        return ch.lower()
     return str(key)
 
 
@@ -130,6 +140,7 @@ class HotkeyManager:
         self.on_deactivate = on_deactivate
         self.mode = mode
         self._active = False
+        self._state_lock = threading.Lock()
         self._kb_listener = None
         self._mouse_listener = None
         self._parts = _parse_hotkey(hotkey_str)
@@ -160,30 +171,38 @@ class HotkeyManager:
         return self._pressed_parts == set(self._parts)
 
     def _handle_press(self, part: str):
-        if part in self._pressed_parts:
-            # Tasten-Auto-Repeat: Windows liefert beim Halten laufend weitere
-            # Key-Down-Events. Im Umschalt-Modus wuerde jedes davon die
-            # Aufnahme erneut umschalten — Halten > 0,5 s stoppte sie sofort.
-            return
-        self._pressed_parts.add(part)
-        if self._all_pressed():
-            if self.mode == "push_to_talk":
-                if not self._active:
-                    self._active = True
-                    self._fire(self.on_activate)
-            elif self.mode == "toggle":
-                if not self._active:
-                    self._active = True
-                    self._fire(self.on_activate)
-                else:
-                    self._active = False
-                    self._fire(self.on_deactivate)
+        cb = None
+        with self._state_lock:
+            if part in self._pressed_parts:
+                # Tasten-Auto-Repeat: Windows liefert beim Halten laufend weitere
+                # Key-Down-Events. Im Umschalt-Modus wuerde jedes davon die
+                # Aufnahme erneut umschalten — Halten > 0,5 s stoppte sie sofort.
+                return
+            self._pressed_parts.add(part)
+            if self._all_pressed():
+                if self.mode == "push_to_talk":
+                    if not self._active:
+                        self._active = True
+                        cb = self.on_activate
+                elif self.mode == "toggle":
+                    if not self._active:
+                        self._active = True
+                        cb = self.on_activate
+                    else:
+                        self._active = False
+                        cb = self.on_deactivate
+        if cb is not None:
+            self._fire(cb)
 
     def _handle_release(self, part: str):
-        self._pressed_parts.discard(part)
-        if self.mode == "push_to_talk" and self._active:
-            self._active = False
-            self._fire(self.on_deactivate)
+        cb = None
+        with self._state_lock:
+            self._pressed_parts.discard(part)
+            if self.mode == "push_to_talk" and self._active:
+                self._active = False
+                cb = self.on_deactivate
+        if cb is not None:
+            self._fire(cb)
 
     # Keyboard callbacks
     def _on_kb_press(self, key):
@@ -269,26 +288,30 @@ class HotkeyManager:
         Aufnahme zu starten. Der Callback laeuft wie alle anderen ueber den
         Dispatcher-Thread — nicht im Audio-Callback des Aufrufers.
         """
-        if not self._active:
-            return
-        self._active = False
+        with self._state_lock:
+            if not self._active:
+                return
+            self._active = False
         self._fire(self.on_deactivate)
+
+    @staticmethod
+    def _part_physically_held(part: str) -> bool:
+        if not IS_WINDOWS:
+            return True
+        vks = _part_vks(part)
+        if not vks:
+            return True
+        try:
+            get_state = ctypes.windll.user32.GetAsyncKeyState
+            return any(get_state(vk) & 0x8000 for vk in vks)
+        except Exception:
+            return True
 
     def _physically_held(self) -> bool:
         """Haelt der Nutzer den Hotkey laut Windows gerade wirklich?"""
         if not IS_WINDOWS:
             return True  # ohne Gegenprobe lieber nichts erzwingen
-        try:
-            get_state = ctypes.windll.user32.GetAsyncKeyState
-        except Exception:
-            return True
-        for part in self._parts:
-            vks = _part_vks(part)
-            if not vks:
-                return True  # unbekannter Teil -> nicht raten
-            if not any(get_state(vk) & 0x8000 for vk in vks):
-                return False
-        return True
+        return all(self._part_physically_held(part) for part in self._parts)
 
     def release_if_stuck(self) -> bool:
         """Loest ein verlorengegangenes Release nach. Returns True, wenn
@@ -298,36 +321,43 @@ class HotkeyManager:
         dauerhaft im Zustand "gedrueckt" — der Hotkey waere bis zum
         App-Neustart tot und die Aufnahme liefe weiter.
         """
-        if not self._active or self.mode != "push_to_talk":
+        # Auch im Toggle-Modus oder im Leerlauf: haengende _pressed_parts
+        # (z. B. nach UAC/Sperrbildschirm) still wegraeumen, damit der
+        # Auto-Repeat-Schutz den naechsten Druck nicht verschluckt.
+        with self._state_lock:
+            stale = [p for p in self._pressed_parts if not self._part_physically_held(p)]
+            for p in stale:
+                self._pressed_parts.discard(p)
+            active_ptt = self._active and self.mode == "push_to_talk"
+        if not active_ptt:
             return False
         if self._physically_held():
             return False
         log.warning("Hotkey-Release verpasst — hole Aufnahme-Stopp nach")
-        self._pressed_parts.clear()
-        self._active = False
+        with self._state_lock:
+            self._pressed_parts.clear()
+            self._active = False
         self._fire(self.on_deactivate)
         return True
 
     def is_healthy(self) -> bool:
         """Leben alle benoetigten Listener noch? Windows entfernt Low-Level-
         Hooks gelegentlich (Hook-Timeout) — dann ist der Hotkey still tot."""
-        if self._has_kb_parts:
-            if self._kb_listener is None or not self._kb_listener.is_alive():
-                return False
-        if self._has_mouse_parts:
-            if self._mouse_listener is None or not self._mouse_listener.is_alive():
-                return False
-        if self._dispatcher is None or not self._dispatcher.is_alive():
+        if self._has_kb_parts and (self._kb_listener is None or not self._kb_listener.is_alive()):
             return False
-        return True
+        if self._has_mouse_parts and (
+                self._mouse_listener is None or not self._mouse_listener.is_alive()):
+            return False
+        return self._dispatcher is not None and self._dispatcher.is_alive()
 
     def restart(self):
         """Listener neu aufbauen (vom Watchdog gerufen)."""
         log.warning("Hotkey-Listener werden neu gestartet")
-        was_active = self._active
+        with self._state_lock:
+            was_active = self._active
+            self._pressed_parts = set()
+            self._active = False
         self.stop()
-        self._pressed_parts = set()
-        self._active = False
         self.start()
         if was_active:
             # Waehrend einer laufenden Aufnahme neu gestartet: das Release

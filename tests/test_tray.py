@@ -54,9 +54,24 @@ def test_history_action_copies_full_text(monkeypatch):
     tray = _tray(FakeHistory([long_text]))
     items = _items(tray._history_items)
 
-    assert items[0].text == long_text[:37] + "..."
+    assert items[0].text == long_text[:39] + "…"
     items[0](None)  # MenuItem.__call__(icon) loest die Action aus
     assert copied == [long_text]  # Volltext, nicht das gekuerzte Label
+
+
+def test_menu_shows_engine_status_and_settings_default():
+    tray = TrayApp(
+        StateManager(), on_quit=lambda: None,
+        hotkey_str="ctrl+shift+space", backend_name="Parakeet · CPU",
+        mic_name="Testmikrofon", on_open_settings=lambda: None,
+        on_open_log=lambda: None, history=None,
+        is_model_loaded=lambda: False, memsave=True,
+    )
+    items = _items(tray._menu_items)
+    texts = [i.text or "" for i in items]
+    assert any("Parakeet · CPU" in txt and "Sparmodus" in txt for txt in texts)
+    settings_item = next(i for i in items if i.text == "Einstellungen")
+    assert settings_item.default is True
 
 
 def test_history_empty_and_none():

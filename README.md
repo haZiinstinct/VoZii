@@ -7,7 +7,7 @@
 <p><b>Local AI voice-to-text for Windows.</b><br />
 Hold a hotkey, speak, and your words are typed at the cursor — powered by
 whisper.cpp, GPU-accelerated, and <b>100&nbsp;% offline</b>. No cloud, no API keys,
-no account. One 49&nbsp;MB file.</p>
+no account. One 40&nbsp;MB file.</p>
 
 <p>
   <a href="https://github.com/haZiinstinct/VoZii/releases/latest"><img alt="Download VoZii.exe" src="https://img.shields.io/badge/%E2%AC%87%20download-VoZii.exe-00d4ff?style=for-the-badge&labelColor=0a0a0f" /></a>
@@ -15,7 +15,7 @@ no account. One 49&nbsp;MB file.</p>
 
 <p>
   <a href="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/haZiinstinct/VoZii/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-1.13.0-00d4ff?labelColor=0a0a0f" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.14.0-00d4ff?labelColor=0a0a0f" />
   <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-00d4ff?labelColor=0a0a0f" />
   <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-00d4ff?labelColor=0a0a0f&logo=python&logoColor=white" />
   <img alt="Windows 11" src="https://img.shields.io/badge/Windows-11-00d4ff?labelColor=0a0a0f&logo=windows&logoColor=white" />
@@ -33,7 +33,7 @@ IDE, a form field. Press and hold your hotkey, talk, let go: the transcription l
 right at the cursor. The Whisper model runs **on your own machine**, so nothing you
 say ever leaves it — no upload, no subscription, no waiting on a server.
 
-It ships as a **single 49&nbsp;MB `.exe`**. No Python to install, no runtime to set up.
+It ships as a **single 40&nbsp;MB `.exe`**. No Python to install, no runtime to set up.
 It's built to stay light: idle in the tray it uses **~85&nbsp;MB of RAM**. The speech model
 loads while you speak and is unloaded again after 30 minutes without dictation (or stays
 loaded permanently, if you prefer). An optional local LLM (via [Ollama](https://ollama.com))
@@ -51,13 +51,14 @@ can correct spelling and grammar — still 100&nbsp;% offline.
 - 🌍 **9-language UI + 18 dictation languages + auto-detect** — the interface follows your Windows language; dictation covers all ~99 Whisper languages
 - 🎯 **Speed / Accuracy toggle** — greedy decoding for snappy dictation, beam search when you want it exact
 - 🧹 **Hallucination filter** — silence and phantom phrases (*"thanks for watching"*, …) are dropped, not typed
-- 📋 **Clipboard-safe** — inserts at the cursor and restores whatever was on your clipboard afterwards; if another app is holding the clipboard, VoZii retries instead of pasting the wrong text
+- 📋 **Clipboard-safe & private** — inserts at the cursor, keeps temporary paste data out of Windows 11 Clipboard History (`Win+V`) and Cloud Clipboard sync, and restores whatever was on your clipboard afterwards
+- 🎧 **Bluetooth-friendly** — optional idle microphone release lets Bluetooth headsets stay in stereo mode (A2DP) and hides the Windows microphone indicator when you're not dictating
 - 🕘 **History** — your last dictations are re-copyable from the tray menu (local, toggleable)
 - 🪶 **Light on memory** — ~85&nbsp;MB idle; the model loads on demand and unloads when you stop dictating
 - 🧠 **Optional AI correction** — a small local Ollama model fixes spelling, grammar and filler words
 - 🛡️ **Verified downloads** — models and binaries are checked against pinned SHA-256 hashes before they run
 - 🩺 **Self-healing** — a watchdog re-arms the global hotkey and reopens the microphone stream if Windows drops either, so long sessions don't need a restart
-- 📦 **Single 49&nbsp;MB file** — no installer, no dependencies, dark UI in the haZii design language
+- 📦 **Single 40&nbsp;MB file** — no installer, no dependencies, dark UI in the haZii design language
 
 ## 🖼️ Screenshots
 
@@ -79,9 +80,10 @@ can correct spelling and grammar — still 100&nbsp;% offline.
 3. **Release** the hotkey — VoZii transcribes locally (`· · ·`) …
 4. … and **types the text** at your cursor. Optionally, a local LLM cleans it up first.
 
-Right-click the tray icon for your **last transcriptions**, **settings**, the **log**, or
-to **quit**. The status overlay reports everything at a glance — `CLIP` (text is on the
-clipboard, no field was focused), `SHORT` / `EMPTY` / `TOO LONG`, or `ERR:MIC` / `ERR:WHISPER`.
+Right-click the tray icon for your **last transcriptions**, **settings** (or left-click the icon),
+the **log**, or to **quit**. The status overlay reports everything at a glance — `COPIED — CTRL+V`
+(text is on the clipboard, no field was focused), `TOO SHORT` / `NOTHING HEARD` / `TOO LONG`,
+or `ERR: MIC` / `RECOGNITION FAILED` — plus a live timer and level bars while recording.
 
 ### What's inside
 

@@ -11,9 +11,11 @@ import logging
 import os
 import shutil
 import time
+import urllib.error
 import urllib.request
 import zipfile
 
+from src import __version__
 from src.hardware import (
     BACKEND_DLLS,
     BACKEND_VERSION,
@@ -132,62 +134,90 @@ def download_file(url, dest, progress_callback=None, expected_sha256=None):
     bei Mismatch geloescht.
     """
     part_path = dest + ".part"
-    existing = 0
+    existing = os.path.getsize(part_path) if os.path.exists(part_path) else 0
 
-    if os.path.exists(part_path):
-        existing = os.path.getsize(part_path)
-
-    req = urllib.request.Request(url)
-    if existing > 0:
-        req.add_header("Range", f"bytes={existing}-")
+    def _open(offset: int):
+        req = urllib.request.Request(url, headers={"User-Agent": f"VoZii/{__version__}"})
+        if offset > 0:
+            req.add_header("Range", f"bytes={offset}-")
+        return urllib.request.urlopen(req, timeout=_NET_TIMEOUT_S)
 
     try:
         # Timeout pro Socket-Operation: ohne ihn haengt ein eingeschlafener
         # Download endlos — und der Abbrechen-Button greift nie, weil der
         # Progress-Callback nur zwischen zwei Chunks laeuft
-        resp = urllib.request.urlopen(req, timeout=_NET_TIMEOUT_S)
+        resp = _open(existing)
+    except urllib.error.HTTPError as e:
+        if e.code == 416 and existing > 0:
+            # .part ist bereits vollstaendig oder groesser als die Quelle —
+            # verwerfen und sauber neu laden, sonst klemmt jeder Versuch an 416.
+            log.warning("HTTP 416 bei Resume (%s) — verwerfe .part und lade neu", url)
+            try:
+                os.remove(part_path)
+            except OSError:
+                pass
+            existing = 0
+            try:
+                resp = _open(0)
+            except Exception as e2:
+                raise RuntimeError(t("err.connection", error=e2)) from e2
+        else:
+            raise RuntimeError(t("err.connection", error=e)) from e
     except Exception as e:
         raise RuntimeError(t("err.connection", error=e)) from e
 
-    # Resume nur wenn der Server den Range-Request akzeptiert (206 Partial
-    # Content). Bei 200 liefert er die ganze Datei -> .part verwerfen,
-    # sonst entsteht eine korrupte Doppel-Datei.
-    status = getattr(resp, "status", 200)
-    if existing > 0 and status != 206:
-        log.warning("Server ignoriert Range-Request (HTTP %s) — Download startet neu", status)
-        existing = 0
-
-    total = int(resp.headers.get("Content-Length", 0) or 0) + existing
-    if total > existing:
-        _ensure_disk_space(os.path.dirname(dest), total - existing)
-
-    mode = "ab" if existing > 0 else "wb"
-    downloaded = existing
-    last_update = time.time()
-    last_bytes = downloaded
-
     try:
-        with open(part_path, mode) as f:
-            while True:
-                chunk = resp.read(65536)
-                if not chunk:
-                    break
-                f.write(chunk)
-                downloaded += len(chunk)
-                now = time.time()
-                if progress_callback and total > 0 and now - last_update >= 0.2:
-                    speed = (downloaded - last_bytes) / (now - last_update)
-                    progress_callback(downloaded, total, speed)
-                    last_update = now
-                    last_bytes = downloaded
-    except InterruptedError:
-        # Abbruch durch den Nutzer (Progress-Callback wirft). Muss VOR OSError
-        # stehen: InterruptedError ist eine OSError-Unterklasse und wuerde
-        # sonst als "Schreiben fehlgeschlagen (Festplatte voll)" gemeldet.
-        raise
-    except OSError as e:
-        # Disk voll, Permission-Fehler etc.
-        raise RuntimeError(t("err.write_failed", error=e)) from e
+        # Resume nur wenn der Server den Range-Request akzeptiert (206 Partial
+        # Content). Bei 200 liefert er die ganze Datei -> .part verwerfen,
+        # sonst entsteht eine korrupte Doppel-Datei.
+        status = getattr(resp, "status", 200)
+        if existing > 0 and status != 206:
+            log.warning("Server ignoriert Range-Request (HTTP %s) — Download startet neu", status)
+            existing = 0
+
+        total = int(resp.headers.get("Content-Length", 0) or 0) + existing
+        if total > existing:
+            _ensure_disk_space(os.path.dirname(dest), total - existing)
+
+        mode = "ab" if existing > 0 else "wb"
+        downloaded = existing
+        last_update = time.monotonic()
+        last_bytes = downloaded
+        # Bei frischem Download direkt im Stream hashen: spart bei 1,5-GB-
+        # Modellen das komplette zweite Einlesen von Platte bei 100 %.
+        stream_hash = hashlib.sha256() if (expected_sha256 and existing == 0) else None
+
+        try:
+            with open(part_path, mode) as f:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    if stream_hash is not None:
+                        stream_hash.update(chunk)
+                    downloaded += len(chunk)
+                    now = time.monotonic()
+                    if progress_callback and total > 0 and now - last_update >= 0.2:
+                        speed = (downloaded - last_bytes) / (now - last_update)
+                        progress_callback(downloaded, total, speed)
+                        last_update = now
+                        last_bytes = downloaded
+        except InterruptedError:
+            # Abbruch durch den Nutzer (Progress-Callback wirft). Muss VOR OSError
+            # stehen: InterruptedError ist eine OSError-Unterklasse und wuerde
+            # sonst als "Schreiben fehlgeschlagen (Festplatte voll)" gemeldet.
+            raise
+        except OSError as e:
+            # Disk voll, Permission-Fehler etc.
+            raise RuntimeError(t("err.write_failed", error=e)) from e
+    finally:
+        close = getattr(resp, "close", None)
+        if close:
+            try:
+                close()
+            except Exception:
+                pass
 
     if progress_callback and total > 0:
         progress_callback(downloaded, total, 0)
@@ -197,7 +227,7 @@ def download_file(url, dest, progress_callback=None, expected_sha256=None):
     # nur noch auf die Groesse — stuerbe der Prozess zwischen Umbenennen und
     # Pruefung, gaelte sie sonst dauerhaft als installiert.
     if expected_sha256:
-        actual = _sha256_of(part_path)
+        actual = stream_hash.hexdigest() if stream_hash is not None else _sha256_of(part_path)
         if actual.lower() != expected_sha256.lower():
             os.remove(part_path)
             log.error("SHA256-Mismatch fuer %s: erwartet %s, erhalten %s",
@@ -226,32 +256,37 @@ def _extract_binaries(zip_path: str, want_cli: bool, want_server: bool, with_dll
     clean_first entfernt vorhandene exe/dll — erst NACH erfolgreichem Unzip,
     damit ein korruptes Zip den Nutzer nicht ohne Binaries zuruecklaesst."""
     extract_dir = os.path.join(WHISPER_DIR, "_extract")
-    try:
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            _safe_extract(zf, extract_dir)
-    except (zipfile.BadZipFile, OSError) as e:
-        log.error("ZIP extract fehlgeschlagen: %s", e)
-        if os.path.exists(zip_path):
-            os.remove(zip_path)
-        shutil.rmtree(extract_dir, ignore_errors=True)
-        raise RuntimeError(t("err.zip_corrupt", error=e)) from e
-
-    if clean_first:
-        _remove_old_binaries()
-
-    for root, _, files in os.walk(extract_dir):
-        for f in files:
-            src = os.path.join(root, f)
-            lower = f.lower()
-            if want_cli and lower in _CLI_NAMES:
-                shutil.copy2(src, os.path.join(WHISPER_DIR, "whisper-cli.exe"))
-            elif want_server and lower == "whisper-server.exe":
-                shutil.copy2(src, os.path.join(WHISPER_DIR, "whisper-server.exe"))
-            elif with_dlls and lower.endswith(".dll"):
-                shutil.copy2(src, os.path.join(WHISPER_DIR, f))
-
     shutil.rmtree(extract_dir, ignore_errors=True)
-    os.remove(zip_path)
+    try:
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                _safe_extract(zf, extract_dir)
+        except (zipfile.BadZipFile, OSError) as e:
+            log.error("ZIP extract fehlgeschlagen: %s", e)
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+            raise RuntimeError(t("err.zip_corrupt", error=e)) from e
+
+        if clean_first:
+            _remove_old_binaries()
+
+        for root, _, files in os.walk(extract_dir):
+            for f in files:
+                src = os.path.join(root, f)
+                lower = f.lower()
+                if want_cli and lower in _CLI_NAMES:
+                    shutil.copy2(src, os.path.join(WHISPER_DIR, "whisper-cli.exe"))
+                elif want_server and lower == "whisper-server.exe":
+                    shutil.copy2(src, os.path.join(WHISPER_DIR, "whisper-server.exe"))
+                elif with_dlls and lower.endswith(".dll"):
+                    shutil.copy2(src, os.path.join(WHISPER_DIR, f))
+    finally:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        if os.path.exists(zip_path):
+            try:
+                os.remove(zip_path)
+            except OSError:
+                pass
 
 
 # Marker neben den Binaries: welches Backend in welcher Version installiert ist.

@@ -20,7 +20,7 @@ from src.winutil import system32
 
 log = logging.getLogger(__name__)
 
-OLLAMA_URL = "http://localhost:11434"
+OLLAMA_URL = "http://127.0.0.1:11434"
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
 # CN des Code-Signing-Zertifikats von Ollama (abgelesen per
 # Get-AuthenticodeSignature an ollama.exe, Oktober 2026). Exakter Vergleich —
@@ -30,20 +30,31 @@ OLLAMA_SIGNER_CN = "Ollama Inc."
 MODEL = "llama3.2:1b"
 MODES = ("off", "correct")
 
+# Loopback-Opener ohne System-Proxy (Firmen-/VPN-Umgebungen)
+_LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_ORIG_URLOPEN = urllib.request.urlopen
+
+
+def _local_urlopen(req, timeout: float):
+    if urllib.request.urlopen is not _ORIG_URLOPEN:
+        return urllib.request.urlopen(req, timeout=timeout)
+    return _LOCAL_OPENER.open(req, timeout=timeout)
+
+
 # Nur korrigieren: keine Voice-Commands, kein Umformatieren. Ein Few-Shot-
 # Beispiel haelt kleine Modelle vom Vorreden ab.
 _CORRECT_SYSTEM = (
     "Du korrigierst diktierten Text aus einer Voice-to-Text-App:\n"
     "1. Korrigiere Rechtschreibung, Grammatik, Interpunktion und offensichtliche "
     "Versprecher.\n"
-    "2. Entferne Fuellwoerter (aehm, aeh, also, halt, sozusagen).\n"
-    "3. Aendere sonst nichts: kein Umformulieren, kein Umformatieren, keine "
-    "Uebersetzung.\n"
-    "Gib AUSSCHLIESSLICH den korrigierten Text aus - keine Erklaerung, keine "
-    "Anfuehrungszeichen, kein Vorwort."
+    "2. Entferne Füllwörter (ähm, äh, also, halt, sozusagen).\n"
+    "3. Ändere sonst nichts: kein Umformulieren, kein Umformatieren, keine "
+    "Übersetzung.\n"
+    "Gib AUSSCHLIESSLICH den korrigierten Text aus — keine Erklärung, keine "
+    "Anführungszeichen, kein Vorwort."
 )
 _CORRECT_FEWSHOT = [
-    ("aehm ich wollte halt sagen das das tool wirklich super funktioniert",
+    ("ähm ich wollte halt sagen das das tool wirklich super funktioniert",
      "Ich wollte sagen, dass das Tool wirklich super funktioniert."),
 ]
 
@@ -78,7 +89,7 @@ def prompt_language(dictation_lang: str, ui_lang: str) -> str:
 # Nur Vorworte mit Doppelpunkt fuer Englisch — "Sure, ..." kann echter
 # Diktat-Inhalt sein
 _PREAMBLE_RE = re.compile(
-    r"^(hier ist[^\n:]*:|klar[,!.]?\s+|gerne[,!.]?\s+|sicher[,!.]?\s+|natuerlich[,!.]?\s+"
+    r"^(hier ist[^\n:]*:|klar[,!.]?\s+|gerne[,!.]?\s+|sicher[,!.]?\s+|nat(?:ü|ue)rlich[,!.]?\s+"
     r"|here is[^\n:]*:|here's[^\n:]*:)",
     re.IGNORECASE,
 )
@@ -95,8 +106,6 @@ def _clean_response(text: str) -> str:
     return text
 
 
-
-
 class TextProcessor:
     def __init__(self, mode: str = "off", prompt_lang: str = "de", model: str = MODEL):
         self.mode = mode if mode in MODES else "off"
@@ -110,11 +119,17 @@ class TextProcessor:
         system, fewshot = PROMPTS[self.prompt_lang]
         try:
             result = _clean_response(self._chat(system, fewshot, text))
-            if result:
-                log.info("Korrektur: %d -> %d Zeichen", len(text), len(result))
-                return result
-            log.warning("Ollama lieferte leeren Text, fallback auf raw")
-            return text
+            if not result:
+                log.warning("Ollama lieferte leeren Text, fallback auf raw")
+                return text
+            # Plausibilitaets-Guard: wenn das 1B-Modell ein langes Diktat stark
+            # abschneidet oder verweigert, lieber den vollstaendigen Rohtext retten
+            if len(text) >= 40 and len(result) < len(text) * 0.35:
+                log.warning("Ollama-Antwort verdaechtig kurz (%d -> %d Zeichen) — "
+                            "nutze Rohtext", len(text), len(result))
+                return text
+            log.info("Korrektur: %d -> %d Zeichen", len(text), len(result))
+            return result
         except Exception as e:
             log.error("Ollama-Korrektur fehlgeschlagen: %s", e)
             return text
@@ -126,12 +141,13 @@ class TextProcessor:
             messages.append({"role": "assistant", "content": assistant_msg})
         messages.append({"role": "user", "content": text})
 
+        num_predict = max(1024, int(len(text) * 0.6) + 256)
         payload = json.dumps({
             "model": self.model,
             "messages": messages,
             "stream": False,
             "think": False,
-            "options": {"temperature": 0.1, "num_predict": 1024},
+            "options": {"temperature": 0.1, "num_predict": num_predict},
         }).encode("utf-8")
 
         req = urllib.request.Request(
@@ -140,7 +156,7 @@ class TextProcessor:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _local_urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return data.get("message", {}).get("content", "").strip()
 
@@ -150,7 +166,7 @@ class TextProcessor:
 def check_ollama() -> tuple[bool, list[str]]:
     """Prueft ob Ollama-API erreichbar ist. Returns (is_running, list_of_model_names)."""
     try:
-        with urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=2) as resp:
+        with _local_urlopen(f"{OLLAMA_URL}/api/tags", timeout=2) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             models = [m["name"] for m in data.get("models", [])]
             return True, models
@@ -216,13 +232,13 @@ def start_ollama(ollama_path: str, timeout: int = 30) -> bool:
         log.error("Ollama start failed: %s", e)
         return False
 
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         running, _ = check_ollama()
         if running:
             log.info("Ollama gestartet, API bereit")
             return True
-        time.sleep(1)
+        time.sleep(0.5)
     log.warning("Ollama-Start Timeout nach %ds", timeout)
     return False
 
@@ -294,63 +310,57 @@ def install_ollama(progress_callback=None, cancel_event=None) -> bool:
     progress_callback(completed, total, status_text, speed_bps)
     cancel_event: threading.Event, bei is_set() wird InterruptedError geworfen.
     """
-    installer_path = os.path.join(tempfile.gettempdir(), "OllamaSetup.exe")
+    # Eigenes Temp-Unterverzeichnis statt festem Pfad %TEMP%\OllamaSetup.exe
+    # (Audit S5: verhindert Pfad-Kollisionen/Manipulation zwischen Pruefung & Start)
+    tmp_dir = tempfile.mkdtemp(prefix="vozii_ollama_")
+    installer_path = os.path.join(tmp_dir, "OllamaSetup.exe")
 
-    # Phase 1: Chunked Download
-    log.info("Lade Ollama-Installer von %s", OLLAMA_INSTALLER_URL)
     try:
-        _download_ollama_installer(
-            OLLAMA_INSTALLER_URL, installer_path, progress_callback, cancel_event,
-        )
-    except InterruptedError:
-        if os.path.exists(installer_path):
-            try: os.remove(installer_path)
-            except OSError: pass
-        raise
-    except Exception as e:
-        log.error("Ollama-Download fehlgeschlagen: %s", e)
-        if os.path.exists(installer_path):
-            try: os.remove(installer_path)
-            except OSError: pass
-        raise RuntimeError(t("err.ollama_download", error=e)) from e
+        # Phase 1: Chunked Download
+        log.info("Lade Ollama-Installer von %s", OLLAMA_INSTALLER_URL)
+        try:
+            _download_ollama_installer(
+                OLLAMA_INSTALLER_URL, installer_path, progress_callback, cancel_event,
+            )
+        except InterruptedError:
+            raise
+        except Exception as e:
+            log.error("Ollama-Download fehlgeschlagen: %s", e)
+            raise RuntimeError(t("err.ollama_download", error=e)) from e
 
-    # Phase 1b: Signatur pruefen BEVOR irgendwas ausgefuehrt wird
-    if progress_callback:
-        progress_callback(0, 0, t("ollama.verify_sig"), 0)
-    if not _verify_authenticode(installer_path):
-        try: os.remove(installer_path)
-        except OSError: pass
-        raise RuntimeError(
-            t("err.ollama_signature")
-        )
+        # Phase 1b: Signatur pruefen BEVOR irgendwas ausgefuehrt wird
+        if progress_callback:
+            progress_callback(0, 0, t("ollama.verify_sig"), 0)
+        if not _verify_authenticode(installer_path):
+            raise RuntimeError(t("err.ollama_signature"))
 
-    # Phase 2: Installer starten (User sieht Wizard)
-    if progress_callback:
-        progress_callback(0, 0, t("ollama.installer_started"), 0)
-    log.info("Starte Ollama-Installer: %s", installer_path)
-    try:
-        subprocess.Popen([installer_path])
-    except Exception as e:
-        log.error("Installer-Start fehlgeschlagen: %s", e)
-        raise RuntimeError(t("err.installer_start", error=e)) from e
+        # Phase 2: Installer starten (User sieht Wizard)
+        if progress_callback:
+            progress_callback(0, 0, t("ollama.installer_started"), 0)
+        log.info("Starte Ollama-Installer: %s", installer_path)
+        try:
+            subprocess.Popen([installer_path])
+        except Exception as e:
+            log.error("Installer-Start fehlgeschlagen: %s", e)
+            raise RuntimeError(t("err.installer_start", error=e)) from e
 
-    # Phase 3: Warte bis API erreichbar (mit Cancel)
-    if progress_callback:
-        progress_callback(0, 0, t("ollama.waiting"), 0)
-    log.info("Warte auf Ollama-API...")
-    deadline = time.time() + 180
-    while time.time() < deadline:
-        if cancel_event and cancel_event.is_set():
-            raise InterruptedError("Abgebrochen")
-        running, _ = check_ollama()
-        if running:
-            log.info("Ollama ist bereit")
-            try: os.remove(installer_path)
-            except OSError: pass
-            return True
-        time.sleep(2)
+        # Phase 3: Warte bis API erreichbar (mit Cancel)
+        if progress_callback:
+            progress_callback(0, 0, t("ollama.waiting"), 0)
+        log.info("Warte auf Ollama-API...")
+        deadline = time.monotonic() + 180
+        while time.monotonic() < deadline:
+            if cancel_event and cancel_event.is_set():
+                raise InterruptedError("Abgebrochen")
+            running, _ = check_ollama()
+            if running:
+                log.info("Ollama ist bereit")
+                return True
+            time.sleep(1.5)
 
-    raise RuntimeError(t("err.ollama_timeout"))
+        raise RuntimeError(t("err.ollama_timeout"))
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def _download_ollama_installer(url, dest, progress_callback, cancel_event):
@@ -359,8 +369,7 @@ def _download_ollama_installer(url, dest, progress_callback, cancel_event):
     with urllib.request.urlopen(req, timeout=30) as resp:
         total = int(resp.headers.get("Content-Length", 0))
         downloaded = 0
-        start_time = time.time()
-        last_update = start_time
+        last_update = time.monotonic()
         last_bytes = 0
 
         with open(dest, "wb") as f:
@@ -373,7 +382,7 @@ def _download_ollama_installer(url, dest, progress_callback, cancel_event):
                 f.write(chunk)
                 downloaded += len(chunk)
 
-                now = time.time()
+                now = time.monotonic()
                 if now - last_update >= 0.2:
                     delta_bytes = downloaded - last_bytes
                     delta_time = now - last_update
@@ -405,7 +414,7 @@ def ensure_ready(progress_callback=None, cancel_event=None, model: str = MODEL) 
         if not path:
             raise RuntimeError(t("ollama.not_found"))
         if not start_ollama(path):
-            raise RuntimeError("Ollama-Start fehlgeschlagen (Timeout)")
+            raise RuntimeError(t("err.ollama_start_timeout"))
         state = get_ollama_state(model)
     if cancel_event and cancel_event.is_set():
         raise InterruptedError("Abgebrochen")
@@ -430,11 +439,14 @@ def pull_model(model_name: str, progress_callback=None, cancel_event=None) -> bo
         method="POST",
     )
 
-    last_update = time.time()
+    last_update = time.monotonic()
     last_completed = 0
+    last_total = 0
 
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        # Grosszuegiger Read-Timeout: Ollama pausiert den Stream beim
+        # Verifizieren grosser Layer-Digests fuer >30 s auf langsamen Platten
+        with _local_urlopen(req, timeout=120) as resp:
             for line in resp:
                 if cancel_event and cancel_event.is_set():
                     raise InterruptedError("Abgebrochen")
@@ -448,11 +460,15 @@ def pull_model(model_name: str, progress_callback=None, cancel_event=None) -> bo
                 status = msg.get("status", "")
                 total = int(msg.get("total", 0))
                 completed = int(msg.get("completed", 0))
+                # Layer-Wechsel: completed startet wieder bei 0
+                if total != last_total or completed < last_completed:
+                    last_completed = completed
+                    last_total = total
 
-                now = time.time()
+                now = time.monotonic()
                 delta_t = now - last_update
                 if delta_t >= 0.2:
-                    delta_bytes = completed - last_completed
+                    delta_bytes = max(0, completed - last_completed)
                     speed = delta_bytes / delta_t if delta_t > 0 else 0
                     if progress_callback:
                         # Ollamas eigener Status ("pulling manifest") ist

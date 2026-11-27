@@ -19,7 +19,6 @@ from src.errors import VCREDIST_URL, check_vcredist
 from src.transcriber import Transcriber, is_setup_complete
 from src.hotkey import HotkeyManager
 from src.tray import TrayApp
-from src.settings_gui import SettingsWindow
 from src.hardware import detect_gpu_cached, effective_gpu_type, get_backend_name
 from src.overlay import RecordingOverlay
 from src.text_processor import TextProcessor, prompt_language, start_ollama_if_needed
@@ -175,6 +174,9 @@ def _run_cycle(skip_settings: bool = False) -> str:
     if skip_settings and is_setup_complete(config["model_size"]):
         log.info("Autostart: Settings uebersprungen, direkt in den Tray-Betrieb")
     else:
+        # Lazy-Import: spart beim --autostart ~90 ms und ~7 MB RAM (customtkinter)
+        from src.settings_gui import SettingsWindow
+
         settings = SettingsWindow(
             config=config,
             gpu_info=(detected_gpu, gpu_name),
@@ -186,6 +188,11 @@ def _run_cycle(skip_settings: bool = False) -> str:
             return "quit"
 
         config = result
+        # Frischen Hintergrund-GPU-Cache nicht mit dem alten Stand ueberschreiben
+        disk_cfg = load_config()
+        if (disk_cfg.get("gpu_cache_at") or 0) > (config.get("gpu_cache_at") or 0):
+            for k in ("gpu_cache_type", "gpu_cache_name", "gpu_cache_at"):
+                config[k] = disk_cfg[k]
         save_config(config)
         gpu_type = effective_gpu_type(config.get("gpu_type"), detected_gpu)
         backend_name = get_backend_name(gpu_type)
@@ -238,6 +245,7 @@ def _run_cycle(skip_settings: bool = False) -> str:
     return_to_settings = threading.Event()
     overlay = None
     hotkey_mgr = None
+    worker_thread = None
 
     # Ab hier laufen Hintergrundprozesse (whisper-server, Audio-Stream) —
     # das finally raeumt auch bei einem Crash auf, sonst leakt pro
@@ -253,19 +261,22 @@ def _run_cycle(skip_settings: bool = False) -> str:
                      config["idle_unload_min"])
 
         if config.get("show_overlay", True):
-            overlay = RecordingOverlay()
+            overlay = RecordingOverlay(get_level=lambda: recorder.current_level)
             if overlay.start():
                 state.on_change(overlay.update_state)
             else:
                 overlay = None  # nicht mit totem Overlay weiterlaufen
 
-        # Stream persistent oeffnen: eliminiert die Geraete-Open-Latenz beim
-        # Hotkey-Druck. Schlaegt das fehl, versucht start_recording() es erneut.
-        try:
-            recorder.open_stream()
-        except Exception:
-            log.exception("Audio-Stream konnte nicht geoeffnet werden — "
-                          "erneuter Versuch beim Aufnahmestart")
+        # Stream persistent oeffnen — ausser im Bluetooth-/Leerlauf-Modus, dort
+        # oeffnet start_recording() erst beim Hotkey-Druck (Headset bleibt Stereo).
+        if config.get("release_mic_idle", False):
+            log.info("Mikrofon-Leerlauf aktiv — Stream oeffnet erst bei Aufnahme")
+        else:
+            try:
+                recorder.open_stream()
+            except Exception:
+                log.exception("Audio-Stream konnte nicht geoeffnet werden — "
+                              "erneuter Versuch beim Aufnahmestart")
 
         session = RunSession(
             config=config, state=state, recorder=recorder, transcriber=transcriber,
@@ -290,7 +301,9 @@ def _run_cycle(skip_settings: bool = False) -> str:
             except Exception:
                 log.exception("Konnte Log nicht oeffnen")
 
-        threading.Thread(target=session.transcription_worker, daemon=True).start()
+        worker_thread = threading.Thread(
+            target=session.transcription_worker, daemon=True, name="transcription-worker")
+        worker_thread.start()
 
         hotkey_mgr = HotkeyManager(
             hotkey_str=config["hotkey"],
@@ -312,6 +325,8 @@ def _run_cycle(skip_settings: bool = False) -> str:
             on_open_settings=on_open_settings,
             on_open_log=on_open_log,
             history=history,
+            is_model_loaded=lambda: transcriber.loaded,
+            memsave=bool(config.get("idle_unload_min", 0)),
         )
         # First-Run: einmalig zeigen, wie es losgeht
         if overlay and not config.get("first_run_done", False):
@@ -328,6 +343,8 @@ def _run_cycle(skip_settings: bool = False) -> str:
                 hotkey_mgr.stop()
             except Exception:
                 log.exception("Hotkey-Stop fehlgeschlagen")
+        if worker_thread is not None and worker_thread.is_alive():
+            worker_thread.join(timeout=2.0)
         transcriber.shutdown()
         recorder.close_stream()
         if overlay:
@@ -341,24 +358,23 @@ def _run_cycle(skip_settings: bool = False) -> str:
 def _set_auto_start(enabled: bool):
     try:
         import winreg
-        key = winreg.OpenKey(
+        with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Run",
             0, winreg.KEY_SET_VALUE,
-        )
-        if enabled:
-            # --autostart: beim Boot direkt in den Tray, kein Settings-Fenster
-            if getattr(sys, "frozen", False):
-                cmd = f'"{sys.executable}" --autostart'
+        ) as key:
+            if enabled:
+                # --autostart: beim Boot direkt in den Tray, kein Settings-Fenster
+                if getattr(sys, "frozen", False):
+                    cmd = f'"{sys.executable}" --autostart'
+                else:
+                    script = os.path.abspath(sys.argv[0])
+                    cmd = f'"{sys.executable}" "{script}" --autostart'
+                winreg.SetValueEx(key, "VoZii", 0, winreg.REG_SZ, cmd)
             else:
-                script = os.path.abspath(sys.argv[0])
-                cmd = f'"{sys.executable}" "{script}" --autostart'
-            winreg.SetValueEx(key, "VoZii", 0, winreg.REG_SZ, cmd)
-        else:
-            try:
-                winreg.DeleteValue(key, "VoZii")
-            except FileNotFoundError:
-                pass
-        winreg.CloseKey(key)
+                try:
+                    winreg.DeleteValue(key, "VoZii")
+                except FileNotFoundError:
+                    pass
     except Exception:
         log.exception("Autostart-Konfiguration fehlgeschlagen")

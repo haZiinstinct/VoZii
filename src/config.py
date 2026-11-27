@@ -37,6 +37,9 @@ DEFAULT_CONFIG = {
     # (0 = immer geladen lassen). Laedt beim naechsten Hotkey parallel zur
     # Aufnahme nach.
     "idle_unload_min": 30,
+    # Mikrofon im Leerlauf freigeben (schont Bluetooth-Headsets / A2DP-Stereo
+    # und blendet das Win11-Mikrofon-Symbol im Leerlauf aus)
+    "release_mic_idle": False,
     "restore_clipboard": True,
     "history_enabled": True,
     "update_check": True,
@@ -64,7 +67,7 @@ _ALLOWED_VALUES = {
 _BOOL_KEYS = {
     "audio_feedback", "show_overlay", "auto_start", "use_server",
     "restore_clipboard", "history_enabled", "first_run_done", "update_check",
-    "parakeet_hint_shown", "live_preview",
+    "parakeet_hint_shown", "live_preview", "release_mic_idle",
 }
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")

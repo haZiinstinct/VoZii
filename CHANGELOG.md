@@ -11,6 +11,73 @@ Versionierung: [Semantic Versioning](https://semver.org/lang/de/)
 
 ---
 
+## [1.14.0] — 2026-11-27
+
+Großes Qualitäts-, Tempo- und Sparsamkeits-Update.
+
+### Neu
+- **Mikrofon im Leerlauf freigeben (Bluetooth-Modus)** unter Optionen: gibt
+  den Audio-Stream nach 30 s ohne Diktat frei, sodass Bluetooth-Headsets im
+  Stereo-Modus (A2DP) bleiben und das Windows-11-Mikrofonsymbol im Leerlauf
+  verschwindet.
+- **Status-Anzeige (Overlay) aufgewertet:** dezente 1-px-Kontur für dunkle
+  Hintergründe, Live-Timer (`REC  0:04`) und 4-Balken-Pegelanzeige während der
+  Aufnahme, dynamisch mitwachsende Live-Vorschau-Breite sowie Per-Monitor-DPI.
+- **Tray-Verbesserungen:** 2× supersampled/antialiased Tray-Icon, Linksklick
+  öffnet direkt die Einstellungen, Anzeige der aktiven Engine inkl.
+  Lade-/Sparmodus-Status im Menü.
+
+### Behoben
+- **`Ctrl+<Buchstabe>`-Hotkeys unter Windows:** `Ctrl+R`, `Ctrl+K` usw.
+  lieferten bisher Steuerzeichen (`\x12`), scheiterten beim Aufnehmen und
+  lösten nicht aus. Jetzt sauber über den Virtual-Key-Code aufgelöst
+  (inkl. `Shift+<Ziffer>`); `Escape` bricht die Hotkey-Aufnahme sauber ab.
+- **Windows-11-Privatsphäre beim Einfügen:** temporäre Zwischenablage-Inhalte
+  setzen jetzt `ExcludeClipboardContentFromMonitorProcessing`,
+  `CanIncludeInClipboardHistory = 0` und `CanUploadToCloudClipboard = 0`,
+  damit Offline-Diktate weder `Win+V` füllen noch in die Microsoft-Cloud
+  synchronisiert werden. Restore nutzt `GetClipboardSequenceNumber()` und
+  bewahrt bei schnellen Doppel-Diktaten den ursprünglichen Inhalt.
+- **Arabische Wortreihenfolge (BiDi):** `Inter` hat keine arabischen Glyphen,
+  wodurch Tk 8.6 an jedem Leerzeichen die Schrift wechselte und Wörter
+  rückwärts darstellte. Im RTL-Modus nutzt VoZii jetzt `Segoe UI` für
+  korrekte native Rechts-nach-Links-Darstellung.
+- **Download-Resume & Proxy-Härtung:** HTTP 416 bei fertiger/veralteter
+  `.part`-Datei startet sauber neu statt endlos zu scheitern; HTTP-Sockets
+  werden garantiert geschlossen; lokale Anfragen an `whisper-server` und
+  Ollama umgehen System-/VPN-Proxys (`ProxyHandler({})`).
+- **Stabilität & Ressourcen:** Thread-Lock im `HotkeyManager` inkl.
+  Toggle-Stuck-Recovery; sauberes Schließen des Windows-Job-Object-Handles
+  beim Server-Stopp; `gc.collect()` bei `ParakeetBackend.shutdown()`;
+  GUI-Schließen/Sprachwechsel bricht laufende Downloads und den 3-s-Mikrofontest
+  sofort ab; Schutzgrenze gegen vergessene Endlos-Aufnahmen (10 min);
+  AMD-Erkennung prüft `vulkan-1.dll`; sofortige Fehlermeldung schon beim ersten
+  Transkriptionsfehler; `amara`-Filter trifft keine Namen wie „Tamara“/„Samara“
+  mehr; Ollama-Installer nutzt ein eigenes Temp-Verzeichnis, dynamisches
+  `num_predict` mit Kürzungs-Schutz sowie Umlaute im deutschen Korrektur-Prompt.
+
+### Geändert & Optimiert
+- **~2,1 s schnellerer Start des Einstellungsfensters:** Ollama-Statuscheck
+  läuft asynchron über `127.0.0.1` statt synchron auf `localhost` zu blockieren.
+- **~150–200 ms weniger Latenz pro Diktat:** sofortige Zwischenablage-Prüfung
+  ohne pauschales 150-ms-Sleep sowie In-Memory-Audio-Pipeline ohne WAV-Umweg
+  über die Festplatte (für `whisper-server` und Parakeet).
+- **Sparsamer & schneller:** gecachtes `float32`-Polyphase-Resampling,
+  allokationsfreie RMS-Berechnung, Lazy-Import von `customtkinter` beim
+  `--autostart`, Streaming-SHA256 beim Modell-Download (kein zweites Einlesen
+  bei 100 %), Tot-Stille-Abkürzung bei stummem Mikrofon, Whisper `-sns` und
+  `--carry-initial-prompt`, adaptives Server-Health-Polling.
+- **Aufgeräumtere Oberfläche:** leere Fortschrittsbalken unter Modell und
+  Mikrofon erst bei Aktivität sichtbar, bündige volle Dropdown-Breiten,
+  Auto-Stop-Zeile nur im Umschalt-Modus sichtbar.
+- **Schlankere `.exe` (39,8 MB statt 50,1 MB, 338 statt 1.151 Dateien):**
+  `pyperclip` entfernt, ungenutzte `PIL`-Codecs (`_avif`, `_webp`,
+  `_imagingcms`), ungenutzte `onnx_asr`-Präprozessoren, 32-Bit-PortAudio und
+  Tcl-Ballast ausgeschlossen — schnellerer Download und schnelleres Entpacken
+  beim Kaltstart.
+
+---
+
 ## [1.13.0] — 2026-11-24
 
 Ergebnis des Audits vom 24.11.2026 (`docs/audit/2026-11-24/`).

@@ -18,7 +18,7 @@ IS_WINDOWS = sys.platform == "win32"
 def system32(*parts: str) -> str:
     """Absoluter Pfad unter System32. Systemwerkzeuge nie ueber PATH
     aufloesen — ein beschreibbares Verzeichnis davor koennte sie ersetzen."""
-    root = os.environ.get("SystemRoot", r"C:\Windows")
+    root = os.environ.get("SYSTEMROOT", r"C:\Windows")
     return os.path.join(root, "System32", *parts)
 
 
@@ -126,6 +126,16 @@ def assign_process_to_job(job, pid: int) -> bool:
         return False
 
 
+def close_handle(handle) -> None:
+    """Schliesst ein Windows-Kernel-Handle sicher (z. B. Job-Object)."""
+    if not IS_WINDOWS or not handle:
+        return
+    try:
+        ctypes.windll.kernel32.CloseHandle(handle)
+    except Exception:
+        log.debug("CloseHandle fehlgeschlagen", exc_info=True)
+
+
 class _MONITORINFO(ctypes.Structure):
     _fields_ = [
         ("cbSize", wintypes.DWORD),
@@ -133,6 +143,29 @@ class _MONITORINFO(ctypes.Structure):
         ("rcWork", wintypes.RECT),
         ("dwFlags", wintypes.DWORD),
     ]
+
+
+def monitor_dpi_scale(x: int | None = None, y: int | None = None) -> float:
+    """DPI-Skalierungsfaktor des Monitors unter (x, y) bzw. dem Mauszeiger."""
+    if not IS_WINDOWS:
+        return 1.0
+    try:
+        pt = wintypes.POINT()
+        if x is None or y is None:
+            ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+        else:
+            pt.x, pt.y = int(x), int(y)
+        mon = ctypes.windll.user32.MonitorFromPoint(pt, 2)  # MONITOR_DEFAULTTONEAREST
+        dpi_x = wintypes.UINT()
+        dpi_y = wintypes.UINT()
+        # MDT_EFFECTIVE_DPI = 0
+        res = ctypes.windll.shcore.GetDpiForMonitor(
+            mon, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y))
+        if res == 0 and dpi_x.value >= 96:
+            return dpi_x.value / 96.0
+    except Exception:
+        log.debug("Monitor-DPI nicht ermittelbar", exc_info=True)
+    return 1.0
 
 
 def work_area() -> dict:

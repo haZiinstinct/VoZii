@@ -89,6 +89,15 @@ def test_backend_fuegt_bloecke_zusammen(tmp_path, monkeypatch):
     assert backend.last_error_hint == ""
 
 
+def test_backend_transkribiert_in_memory_array(monkeypatch):
+    model = FakeModel()
+    backend = ParakeetBackend(threads=2)
+    monkeypatch.setattr(backend, "_load", lambda: model)
+
+    assert backend.transcribe(_tone(5)) == "teil1"
+    assert len(model.calls) == 1
+
+
 def test_backend_ladefehler_setzt_hinweis(tmp_path, monkeypatch):
     wav = tmp_path / "a.wav"
     _write_wav(wav, _tone(1))

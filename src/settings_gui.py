@@ -27,6 +27,7 @@ from src.parakeet import supports_language
 from src.transcriber import is_setup_complete
 from src.text_processor import (
     MODEL as OLLAMA_MODEL, ensure_ready as ollama_ensure_ready, get_ollama_state,
+    is_ollama_installed,
 )
 
 log = logging.getLogger(__name__)
@@ -95,10 +96,22 @@ _SWITCH_STYLE = dict(
 ROW_H = 32
 
 
-# Schreibrichtung: Arabisch laeuft von rechts nach links — dann beginnt jede
-# Zeile rechts. Als Funktionen, weil die Sprache zur Laufzeit wechseln kann
-# (das Fenster wird dann neu aufgebaut). Kopfzeile und Credit bleiben
-# bewusst links-nach-rechts (Markenname, Versionsnummer, Domain).
+# Schreibrichtung & Schrift: Arabisch laeuft von rechts nach links — dann
+# beginnt jede Zeile rechts. Inter hat keine arabischen Glyphen, weshalb Tk 8.6
+# bei jedem Leerzeichen die Schrift wechselt und die Wortreihenfolge umdreht;
+# Segoe UI rendert komplettes Arabisch in einem GDI-Run korrekt rechts-nach-links.
+def _body_font() -> str:
+    return "Segoe UI" if is_rtl() else FONT_BODY
+
+
+def _seg_style() -> dict:
+    return dict(_SEG_STYLE, font=(_body_font(), 13))
+
+
+def _switch_style() -> dict:
+    return dict(_SWITCH_STYLE, font=(_body_font(), 13))
+
+
 def _start() -> str:
     return "right" if is_rtl() else "left"
 
@@ -162,7 +175,7 @@ class Tooltip:
         self._tip.overrideredirect(True)
         self._tip.attributes("-topmost", True)
         tk.Label(self._tip, text=self.text, bg=BRAND["card_hover"], fg=BRAND["text"],
-                 font=(FONT_BODY, 10), justify=_start(), padx=10, pady=6,
+                 font=(_body_font(), 10), justify=_start(), padx=10, pady=6,
                  wraplength=300).pack()
         self._tip.update_idletasks()
         x = self.widget.winfo_rootx() + 10
@@ -195,17 +208,57 @@ class SettingsWindow:
         self._preselect_parakeet()
         self.available_devices = available_devices
         self._recording_hotkey = False
+        self._hotkey_lock = threading.Lock()
+        self._hotkey_reset_job = None
         self._pressed_keys = set()
         self._current_combo = []
         self._kb_listener = None
         self._mouse_listener = None
         self._result = None
         self._relaunch = False
+        self._closed = False
         self._downloading = False
         self._cancel_download = threading.Event()
+        self._mic_stop = threading.Event()
         self._ollama_busy = False
         self._ollama_cancel = None  # threading.Event waehrend des Modell-Downloads
-        self._refresh_ollama_state()
+        # Sofortiger lokaler Startzustand ohne blockierenden TCP-Check (~2,1 s schneller!);
+        # der echte API-Status wird nach dem Fensteroeffnen asynchron abgefragt.
+        self._ollama_state = "installed_not_running" if is_ollama_installed() else "not_installed"
+
+    def _safe_after(self, ms: int, fn):
+        """Plant fn im Tk-Thread, ignoriert Aufrufe nach Fenster-Abbau."""
+        if self._closed:
+            return None
+        root = getattr(self, "root", None)
+        if root is None:
+            return None
+
+        def _guarded():
+            if self._closed:
+                return
+            try:
+                if root.winfo_exists():
+                    fn()
+            except Exception:
+                pass
+
+        try:
+            return root.after(ms, _guarded)
+        except Exception:
+            return None
+
+    def _refresh_ollama_async(self):
+        """Prueft Ollama-API im Hintergrund, ohne den Fensterstart zu blockieren."""
+        def _probe():
+            state = get_ollama_state(OLLAMA_MODEL)
+            def _apply():
+                self._ollama_state = state
+                if not self._ollama_busy:
+                    self._render_ollama_section()
+            self._safe_after(0, _apply)
+
+        threading.Thread(target=_probe, daemon=True, name="ollama-probe").start()
 
     def _preselect_parakeet(self):
         """Erststart ohne GPU: Parakeet vorauswaehlen (nur Vorauswahl — der
@@ -221,11 +274,9 @@ class SettingsWindow:
         cfg["model_size"] = PARAKEET_MODEL
         cfg["parakeet_hint_shown"] = True
 
-    def _refresh_ollama_state(self):
-        """Refresh Ollama status: ready / no_model / installed_not_running / not_installed."""
-        self._ollama_state = get_ollama_state(OLLAMA_MODEL)
-
     def run(self):
+        self._closed = False
+        self._mic_stop.clear()
         self.root = ctk.CTk()
         # Schon hier: Abschnittskoepfe und Links melden sich beim Aufbau an
         self._keynav = KeyNav(BRAND["cyan"])
@@ -260,7 +311,7 @@ class SettingsWindow:
         ui_lang_menu = ctk.CTkOptionMenu(
             head, values=list(UI_LANGUAGES.values()),
             variable=ctk.StringVar(value=cur_uilang),
-            width=130, font=(FONT_BODY, 12), height=ROW_H, **_menu_style(),
+            width=130, font=(_body_font(), 12), height=ROW_H, **_menu_style(),
             command=self._on_ui_language_change)
         ui_lang_menu.pack(side="right", pady=(2, 0))
         Tooltip(ui_lang_menu, t("header.ui_lang_tooltip"))
@@ -331,7 +382,7 @@ class SettingsWindow:
         start_bar = ctk.CTkFrame(self.root, fg_color="transparent")
         start_bar.pack(side="bottom", fill="x", padx=24, pady=(8, 8))
         self.start_btn = ctk.CTkButton(
-            start_bar, text=t("btn.start"), height=44, font=(FONT_BODY, 16, "bold"),
+            start_bar, text=t("btn.start"), height=44, font=(_body_font(), 16, "bold"),
             fg_color=BRAND["cyan"], text_color=BRAND["bg"],
             hover_color=BRAND["cyan_dim"], corner_radius=10,
             border_width=1, border_color=BRAND["cyan"], command=self._save)
@@ -362,6 +413,7 @@ class SettingsWindow:
 
         self._keynav.attach(self.root)
         self._fit_window()
+        self._refresh_ollama_async()
         self.root.mainloop()
         if self._relaunch:
             self._relaunch = False
@@ -473,10 +525,10 @@ class SettingsWindow:
         header.pack(fill="x", pady=(0, 4))
         closed = "◂" if is_rtl() else "▸"
         arrow = ctk.CTkLabel(header, text=closed if collapsed else "▾",
-                             font=(FONT_BODY, 12, "bold"),
+                             font=(_body_font(), 12, "bold"),
                              text_color=BRAND["text_dim"], width=14)
         arrow.pack(side=_start())
-        label = ctk.CTkLabel(header, text=title.upper(), font=(FONT_BODY, 12, "bold"),
+        label = ctk.CTkLabel(header, text=title.upper(), font=(_body_font(), 12, "bold"),
                              text_color=BRAND["text_dim"])
         label.pack(side=_start(), padx=(4, 0))
 
@@ -526,7 +578,7 @@ class SettingsWindow:
         self.hotkey_label = ctk.CTkLabel(hk, text=self.config["hotkey"].upper().replace("+", " + "),
                                          font=(FONT_MONO, 18, "bold"), text_color=BRAND["text_bright"])
         self.hotkey_label.pack(side=_start())
-        ctk.CTkButton(hk, text=t("btn.change"), width=80, height=ROW_H, font=(FONT_BODY, 12),
+        ctk.CTkButton(hk, text=t("btn.change"), width=80, height=ROW_H, font=(_body_font(), 12),
                       fg_color=BRAND["card"], text_color=BRAND["text"],
                       hover_color=BRAND["card_hover"], corner_radius=8,
                       border_width=1, border_color=BRAND["border"],
@@ -541,16 +593,17 @@ class SettingsWindow:
                                            t("hotkey.mode.ptt")))
         ctk.CTkSegmentedButton(c, values=list(self._hkmode_label_to_code),
                                variable=self.hkmode_var, command=self._on_hkmode_change,
-                               **_SEG_STYLE).pack(fill="x", pady=(0, 6))
+                               **_seg_style()).pack(fill="x", pady=(0, 6))
 
-        # Auto-Stop bei Stille — nur im Umschalt-Modus sinnvoll
-        autostop_row = ctk.CTkFrame(c, fg_color="transparent")
-        autostop_row.pack(fill="x", pady=(0, 14))
+        # Auto-Stop bei Stille — nur im Umschalt-Modus sichtbar (spart Platz im Halten-Modus)
+        self._autostop_anchor = ctk.CTkFrame(c, fg_color="transparent", height=0)
+        self._autostop_anchor.pack(fill="x", pady=(0, 6))
+        self._autostop_row = autostop_row = ctk.CTkFrame(c, fg_color="transparent")
         cur_autostop = float(self.config.get("auto_stop_silence_s", 0) or 0)
         self.autostop_var = ctk.BooleanVar(value=cur_autostop > 0)
         self.autostop_switch = ctk.CTkSwitch(
             autostop_row, text=t("opt.autostop"), variable=self.autostop_var,
-            **_SWITCH_STYLE)
+            **_switch_style())
         self.autostop_switch.pack(side=_start())
         Tooltip(self.autostop_switch, t("opt.autostop.tooltip"))
         self._autostop_label_to_s = {"2 s": 2.0, "3 s": 3.0, "5 s": 5.0}
@@ -559,10 +612,10 @@ class SettingsWindow:
         self.autostop_secs_var = ctk.StringVar(value=cur_label)
         self.autostop_menu = ctk.CTkOptionMenu(
             autostop_row, values=list(self._autostop_label_to_s),
-            variable=self.autostop_secs_var, width=80, font=(FONT_BODY, 12),
+            variable=self.autostop_secs_var, width=80, font=(_body_font(), 12),
             height=ROW_H, **_menu_style())
         self.autostop_menu.pack(side=_end())
-        self._on_hkmode_change()
+        self._on_hkmode_change(initial=True)
 
     def _build_model_section(self, c):
         self._heading(c, t("section.model"))
@@ -575,7 +628,7 @@ class SettingsWindow:
             value=t("engine.parakeet") if parakeet_on else t("engine.whisper"))
         ctk.CTkSegmentedButton(c, values=list(self._engine_label_to_code),
                                variable=self.engine_var, command=self._on_engine_change,
-                               **_SEG_STYLE).pack(fill="x", pady=(0, 6))
+                               **_seg_style()).pack(fill="x", pady=(0, 6))
 
         mr = ctk.CTkFrame(c, fg_color="transparent")
         mr.pack(fill="x", pady=(0, 4))
@@ -592,47 +645,47 @@ class SettingsWindow:
         self._model_label_to_key = {v: k for k, v in labels.items()}
         self.model_var = ctk.StringVar(
             value=self._parakeet_label if parakeet_on else self._whisper_label)
+        gap_pad = (8, 0) if is_rtl() else (0, 8)
         self.model_menu = model_menu = ctk.CTkOptionMenu(
                           mr, values=[self._parakeet_label] if parakeet_on else self._whisper_labels,
                           variable=self.model_var,
-                          font=(FONT_BODY, 13),
-                          width=260, height=ROW_H, **_menu_style(),
+                          font=(_body_font(), 13),
+                          width=10, height=ROW_H, **_menu_style(),
                           command=self._on_model_change)
-        model_menu.pack(side=_start())
-        self.dl_btn = ctk.CTkButton(mr, text=t("btn.download"), width=120, height=ROW_H,
-                                     font=(FONT_BODY, 12, "bold"), fg_color=BRAND["cyan"],
+        model_menu.pack(side=_start(), fill="x", expand=True, padx=gap_pad)
+        self.dl_btn = ctk.CTkButton(mr, text=t("btn.download"), width=124, height=ROW_H,
+                                     font=(_body_font(), 12, "bold"), fg_color=BRAND["cyan"],
                                      text_color=BRAND["bg"], hover_color=BRAND["cyan_dim"],
                                      corner_radius=8, command=self._download_current_model)
         self.dl_btn.pack(side=_end())
 
-        self.model_desc = ctk.CTkLabel(c, text="", font=(FONT_BODY, 12),
+        self.model_desc = ctk.CTkLabel(c, text="", font=(_body_font(), 12),
                                        text_color=BRAND["text_dim"], anchor=_anchor(),
                                        justify=_start(), wraplength=400)
-        self.model_desc.pack(fill="x", pady=(0, 2))
+        self.model_desc.pack(fill="x", pady=(0, 8))
         self._update_model_desc()
 
-        self.progress = ctk.CTkProgressBar(c, progress_color=BRAND["cyan"],
+        # Fortschrittsbalken + Status erst bei Aktivitaet/Meldung zeigen (Audit D3)
+        self._dl_status_box = ctk.CTkFrame(c, fg_color="transparent")
+        self.progress = ctk.CTkProgressBar(self._dl_status_box, progress_color=BRAND["cyan"],
                                             fg_color=BRAND["card"], height=4, corner_radius=2)
-        self.progress.pack(fill="x", pady=(4, 2))
         self._set_bar(self.progress, 0)
-        self.progress_text = ctk.CTkLabel(c, text="", font=(FONT_BODY, 12),
-                                           text_color=BRAND["text_dim"], height=16)
-        self.progress_text.pack(anchor=_anchor(), pady=(0, 10))
+        self.progress_text = ctk.CTkLabel(self._dl_status_box, text="", font=(_body_font(), 12),
+                                           text_color=BRAND["text_dim"], anchor=_anchor(),
+                                           justify=_start(), wraplength=400)
         self._update_dl_button()
 
     def _build_language_section(self, c):
         # DIKTAT-SPRACHE (Auto deckt alle ~99 Whisper-Sprachen ab)
         self._heading(c, t("section.language"))
-        dic_labels = {t("lang.auto"): "auto"}
-        for code, name in DICTATION_LANGS.items():
-            dic_labels[name] = code
+        dic_labels = {t("lang.auto"): "auto", **{name: code for code, name in DICTATION_LANGS.items()}}
         self._diclang_label_to_code = dic_labels
         code_to_label = {v: k for k, v in dic_labels.items()}
         self.lang_var = ctk.StringVar(
             value=code_to_label.get(self.config.get("language", "auto"), t("lang.auto")))
-        ctk.CTkOptionMenu(c, values=list(dic_labels), variable=self.lang_var, font=(FONT_BODY, 13),
+        ctk.CTkOptionMenu(c, values=list(dic_labels), variable=self.lang_var, font=(_body_font(), 13),
                           height=ROW_H, **_menu_style(),
-                          command=lambda _: self._update_model_desc()).pack(fill="x", pady=(0, 14))
+                          command=lambda _: self._update_model_desc()).pack(fill="x", pady=(0, 12))
         self._update_model_desc()
 
     def _build_mic_section(self, c):
@@ -646,12 +699,14 @@ class SettingsWindow:
                     break
         self.mic_var = ctk.StringVar(value=cur_dev)
         mic_row = ctk.CTkFrame(c, fg_color="transparent")
-        mic_row.pack(fill="x", pady=(0, 4))
-        ctk.CTkOptionMenu(mic_row, values=devs, variable=self.mic_var, font=(FONT_BODY, 13),
-                          width=280, height=ROW_H, **_menu_style()).pack(side=_start())
+        mic_row.pack(fill="x", pady=(0, 14))
+        gap_pad = (8, 0) if is_rtl() else (0, 8)
+        ctk.CTkOptionMenu(mic_row, values=devs, variable=self.mic_var, font=(_body_font(), 13),
+                          width=10, height=ROW_H, **_menu_style()).pack(
+            side=_start(), fill="x", expand=True, padx=gap_pad)
         self._mic_testing = False
         self.mic_test_btn = ctk.CTkButton(
-            mic_row, text=t("btn.test"), width=80, height=ROW_H, font=(FONT_BODY, 12),
+            mic_row, text=t("btn.test"), width=84, height=ROW_H, font=(_body_font(), 12),
             fg_color=BRAND["card"], text_color=BRAND["text"],
             hover_color=BRAND["card_hover"], corner_radius=8,
             border_width=1, border_color=BRAND["border"],
@@ -659,19 +714,20 @@ class SettingsWindow:
         self.mic_test_btn.pack(side=_end())
         Tooltip(self.mic_test_btn, t("mic.tooltip"))
 
-        # Live-Pegel waehrend des Tests
-        self.mic_level = ctk.CTkProgressBar(c, progress_color=BRAND["cyan"],
+        # Live-Pegel + Status erst beim Mikrofontest einblenden (Audit D3)
+        self._mic_status_anchor = mic_row
+        self._mic_status_box = ctk.CTkFrame(c, fg_color="transparent")
+        self.mic_level = ctk.CTkProgressBar(self._mic_status_box, progress_color=BRAND["cyan"],
                                             fg_color=BRAND["card"], height=4, corner_radius=2)
-        self.mic_level.pack(fill="x", pady=(4, 2))
         self._set_bar(self.mic_level, 0)
-        self.mic_test_label = ctk.CTkLabel(c, text="", font=(FONT_BODY, 12),
-                                           text_color=BRAND["text_dim"], height=16)
-        self.mic_test_label.pack(anchor=_anchor(), pady=(0, 10))
+        self.mic_test_label = ctk.CTkLabel(self._mic_status_box, text="", font=(_body_font(), 12),
+                                           text_color=BRAND["text_dim"], anchor=_anchor(),
+                                           justify=_start(), wraplength=400)
 
     def _build_vocab_section(self, c):
         # EIGENE BEGRIFFE (Whisper initial_prompt: Namen/Fachwoerter als Kontext)
         self.vocab_box = ctk.CTkTextbox(
-            c, height=56, font=(FONT_BODY, 13), fg_color=BRAND["card"],
+            c, height=56, font=(_body_font(), 13), fg_color=BRAND["card"],
             text_color=BRAND["text"], border_width=1, border_color=BRAND["border"],
             corner_radius=8, wrap="word")
         self.vocab_box.pack(fill="x", pady=(0, 2))
@@ -683,7 +739,7 @@ class SettingsWindow:
         if self.config.get("initial_prompt"):
             self.vocab_box.insert("1.0", self.config["initial_prompt"])
         ctk.CTkLabel(c, text=t("vocab.hint"),
-                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor=_anchor(),
+                     font=(_body_font(), 12), text_color=BRAND["text_dim"], anchor=_anchor(),
                      justify=_start(), wraplength=390).pack(fill="x", pady=(0, 4))
 
     def _build_transcription_section(self, c):
@@ -693,10 +749,10 @@ class SettingsWindow:
         self.perf_var = ctk.StringVar(
             value=perf_code_to_label.get(self.config.get("performance_mode", "speed"), t("perf.fast")))
         self.perf_seg = ctk.CTkSegmentedButton(c, values=list(self._perf_label_to_code),
-                                               variable=self.perf_var, **_SEG_STYLE)
+                                               variable=self.perf_var, **_seg_style())
         self.perf_seg.pack(fill="x", pady=(0, 2))
         self.perf_desc = ctk.CTkLabel(
-            c, text=t("perf.desc"), font=(FONT_BODY, 12),
+            c, text=t("perf.desc"), font=(_body_font(), 12),
             text_color=BRAND["text_dim"], anchor=_anchor(),
             justify=_start(), wraplength=400)
         self.perf_desc.pack(fill="x", pady=(0, 4))
@@ -715,17 +771,17 @@ class SettingsWindow:
             value=mode_code_to_label.get(self.config.get("post_processing_mode", "off"), t("mode.off")))
         self.mode_btn = ctk.CTkSegmentedButton(
             c, values=list(self._mode_label_to_code), variable=self.mode_var,
-            command=self._on_postproc_mode_change, **_SEG_STYLE,
+            command=self._on_postproc_mode_change, **_seg_style(),
         )
         self.mode_btn.pack(fill="x", pady=(0, 2))
         ctk.CTkLabel(c, text=t("mode.desc", model=OLLAMA_MODEL),
-                     font=(FONT_BODY, 12), text_color=BRAND["text_dim"], anchor=_anchor(),
+                     font=(_body_font(), 12), text_color=BRAND["text_dim"], anchor=_anchor(),
                      wraplength=400, justify=_start()).pack(fill="x", pady=(0, 4))
 
         self.ollama_status_row = ctk.CTkFrame(c, fg_color="transparent")
         self.ollama_status_row.pack(fill="x", pady=(0, 2))
         self.ollama_status_label = ctk.CTkLabel(
-            self.ollama_status_row, text="", font=(FONT_BODY, 12),
+            self.ollama_status_row, text="", font=(_body_font(), 12),
             text_color=BRAND["text_dim"], anchor=_anchor(),
         )
         self.ollama_status_label.pack(side=_start(), fill="x", expand=True)
@@ -751,14 +807,14 @@ class SettingsWindow:
         # Detail-Zeile: "650 MB / 2 GB · 12 MB/s · Status"
         self.ollama_detail_label = ctk.CTkLabel(
             self.ollama_dl_frame, text="",
-            font=(FONT_BODY, 12), text_color=BRAND["text_dim"],
+            font=(_body_font(), 12), text_color=BRAND["text_dim"],
         )
         self.ollama_detail_label.pack(anchor=_anchor(), pady=(0, 6))
 
         # Cancel-Button
         self.ollama_cancel_btn = ctk.CTkButton(
             self.ollama_dl_frame, text=t("btn.cancel"),
-            height=ROW_H, font=(FONT_BODY, 12),
+            height=ROW_H, font=(_body_font(), 12),
             fg_color="transparent", text_color=BRAND["text_dim"],
             border_width=1, border_color=BRAND["border"],
             hover_color=BRAND["card_hover"], corner_radius=8,
@@ -785,11 +841,11 @@ class SettingsWindow:
             value=code_to_label.get(self.config.get("gpu_type", "auto"), t("accel.auto")))
         row = ctk.CTkFrame(c, fg_color="transparent")
         row.pack(fill="x", pady=(0, 6))
-        ctk.CTkLabel(row, text=t("accel.label"), font=(FONT_BODY, 13),
+        ctk.CTkLabel(row, text=t("accel.label"), font=(_body_font(), 13),
                      text_color=BRAND["text"]).pack(side=_start())
         ctk.CTkOptionMenu(
             row, values=list(self._accel_label_to_code), variable=self.accel_var,
-            command=self._on_accel_change, width=220, font=(FONT_BODY, 12),
+            command=self._on_accel_change, width=220, font=(_body_font(), 12),
             height=ROW_H, **_menu_style()).pack(side=_end())
 
     def _on_accel_change(self, label):
@@ -825,42 +881,48 @@ class SettingsWindow:
         # naechsten Hotkey parallel zur Aufnahme nach
         self.memsave_var = ctk.BooleanVar(value=bool(self.config.get("idle_unload_min", 30)))
         mem_switch = ctk.CTkSwitch(c, text=t("opt.memsave"), variable=self.memsave_var,
-                      **_SWITCH_STYLE)
+                      **_switch_style())
         mem_switch.pack(anchor=_anchor(), pady=(0, 6))
         Tooltip(mem_switch, t("opt.memsave.tooltip",
                                 minutes=self.config.get("idle_unload_min") or 30))
 
+        self.mic_idle_var = ctk.BooleanVar(value=self.config.get("release_mic_idle", False))
+        mic_idle_switch = ctk.CTkSwitch(c, text=t("opt.mic_idle"), variable=self.mic_idle_var,
+                      **_switch_style())
+        mic_idle_switch.pack(anchor=_anchor(), pady=(0, 6))
+        Tooltip(mic_idle_switch, t("opt.mic_idle.tooltip"))
+
         self.overlay_var = ctk.BooleanVar(value=self.config.get("show_overlay", True))
         ov_switch = ctk.CTkSwitch(c, text=t("opt.overlay"), variable=self.overlay_var,
                       command=self._sync_live_switch,
-                      **_SWITCH_STYLE)
+                      **_switch_style())
         ov_switch.pack(anchor=_anchor(), pady=(0, 6))
         Tooltip(ov_switch, t("opt.overlay.tooltip"))
 
         self.live_var = ctk.BooleanVar(value=self.config.get("live_preview", True))
         self._live_switch = live_switch = ctk.CTkSwitch(c, text=t("opt.live_preview"), variable=self.live_var,
-                      **_SWITCH_STYLE)
+                      **_switch_style())
         live_switch.pack(anchor=_anchor(), pady=(0, 6))
         Tooltip(live_switch, t("opt.live_preview.tooltip"))
         self._sync_live_switch()
 
         self.sound_var = ctk.BooleanVar(value=self.config.get("audio_feedback", True))
         ctk.CTkSwitch(c, text=t("opt.sound"), variable=self.sound_var,
-                      **_SWITCH_STYLE).pack(anchor=_anchor(), pady=(0, 6))
+                      **_switch_style()).pack(anchor=_anchor(), pady=(0, 6))
 
         self.clipres_var = ctk.BooleanVar(value=self.config.get("restore_clipboard", True))
         clip_switch = ctk.CTkSwitch(c, text=t("opt.clipboard"), variable=self.clipres_var,
-                      **_SWITCH_STYLE)
+                      **_switch_style())
         clip_switch.pack(anchor=_anchor(), pady=(0, 6))
         Tooltip(clip_switch, t("opt.clipboard.tooltip"))
 
         self.autostart_var = ctk.BooleanVar(value=self.config.get("auto_start", False))
         ctk.CTkSwitch(c, text=t("opt.autostart"), variable=self.autostart_var,
-                      **_SWITCH_STYLE).pack(anchor=_anchor(), pady=(0, 6))
+                      **_switch_style()).pack(anchor=_anchor(), pady=(0, 6))
 
         self.updchk_var = ctk.BooleanVar(value=self.config.get("update_check", True))
         upd_switch = ctk.CTkSwitch(c, text=t("opt.update_check"), variable=self.updchk_var,
-                      **_SWITCH_STYLE)
+                      **_switch_style())
         upd_switch.pack(anchor=_anchor(), pady=(0, 6))
         Tooltip(upd_switch, t("opt.update_check.tooltip"))
 
@@ -869,11 +931,11 @@ class SettingsWindow:
         hist_row = ctk.CTkFrame(c, fg_color="transparent")
         hist_row.pack(fill="x", pady=(0, 6))
         ctk.CTkSwitch(hist_row, text=t("opt.history"), variable=self.history_var,
-                      **_SWITCH_STYLE).pack(side=_start())
+                      **_switch_style()).pack(side=_start())
         self._hist_confirm = False
         self.hist_clear_btn = ctk.CTkButton(
             hist_row, text=self._hist_clear_label(), width=110, height=ROW_H,
-            font=(FONT_BODY, 12), fg_color="transparent",
+            font=(_body_font(), 12), fg_color="transparent",
             text_color=BRAND["text_dim"], border_width=1,
             border_color=BRAND["border"], hover_color=BRAND["card_hover"],
             corner_radius=8, command=self._clear_history)
@@ -881,13 +943,28 @@ class SettingsWindow:
 
     # --- Mikrofontest ---
 
+    def _show_mic_status(self, show_bar: bool):
+        if not self._mic_status_box.winfo_ismapped():
+            self._mic_status_box.pack(fill="x", after=self._mic_status_anchor, pady=(0, 8))
+        if show_bar:
+            if not self.mic_level.winfo_ismapped():
+                self.mic_level.pack(fill="x", pady=(0, 4))
+        elif self.mic_level.winfo_ismapped():
+            self.mic_level.pack_forget()
+        if not self.mic_test_label.winfo_ismapped():
+            self.mic_test_label.pack(fill="x")
+        self._fit_window(center=False)
+
     def _test_microphone(self):
         """3s aufnehmen, Live-Pegel zeigen, Ergebnis melden."""
         if self._mic_testing:
             return
         self._mic_testing = True
+        self._mic_stop.clear()
         self.mic_test_btn.configure(state="disabled", text=t("mic.testing"))
         self.mic_test_label.configure(text=t("mic.speak_now"), text_color=BRAND["text_dim"])
+        self._set_bar(self.mic_level, 0)
+        self._show_mic_status(show_bar=True)
 
         device_index = None
         if self.mic_var.get() != t("mic.default"):
@@ -897,39 +974,57 @@ class SettingsWindow:
                     break
 
         def run():
-            import time
-
             import numpy as np
             import sounddevice as sd
 
             peak = [0.0]
 
-            def cb(indata, frames, t, status):
-                rms = float(np.sqrt(np.mean(np.square(indata))))
+            def cb(indata, frames, t_info, status):
+                if self._mic_stop.is_set() or self._closed:
+                    return
+                flat = indata.reshape(-1)
+                rms = float(np.sqrt(float(np.dot(flat, flat)) / flat.size)) if flat.size else 0.0
                 peak[0] = max(peak[0], rms)
                 # 0.125 rms ~ Vollausschlag; normale Sprache landet gut sichtbar
                 level = min(1.0, rms * 8)
-                self.root.after(0, lambda v=level: self._set_bar(self.mic_level, v))
+                self._safe_after(0, lambda v=level: self._set_bar(self.mic_level, v))
 
             try:
                 with sd.InputStream(device=device_index, channels=1,
                                     dtype="float32", callback=cb):
-                    time.sleep(3)
+                    if self._mic_stop.wait(3.0):
+                        return  # Fenster geschlossen / Sprache gewechselt -> sofort frei
                 if peak[0] > 0.005:
                     msg, color = t("mic.signal_ok"), BRAND["green"]
                 else:
                     msg, color = t("mic.no_signal"), BRAND["red"]
             except Exception as e:
                 msg, color = t("mic.error", error=e), BRAND["red"]
-            self.root.after(0, lambda: self._mic_test_done(msg, color))
+            self._safe_after(0, lambda: self._mic_test_done(msg, color))
 
-        threading.Thread(target=run, daemon=True).start()
+        threading.Thread(target=run, daemon=True, name="mic-test").start()
 
     def _mic_test_done(self, msg, color):
         self._mic_testing = False
         self.mic_test_btn.configure(state="normal", text=t("btn.test"))
         self.mic_test_label.configure(text=msg, text_color=color)
         self._set_bar(self.mic_level, 0)
+        self._show_mic_status(show_bar=False)
+
+    def _cleanup_window(self):
+        """Stoppt laufende Hintergrund-Aktionen und Listener beim Fensterschliessen."""
+        self._closed = True
+        self._cancel_download.set()
+        self._mic_stop.set()
+        if self._ollama_cancel is not None:
+            self._ollama_cancel.set()
+        if self._hotkey_reset_job is not None:
+            try:
+                self.root.after_cancel(self._hotkey_reset_job)
+            except Exception:
+                pass
+            self._hotkey_reset_job = None
+        self._stop_listeners()
 
     def _on_ui_language_change(self, _native):
         """Oberflaechen-Sprache wechseln: speichern + Fenster neu aufbauen."""
@@ -944,7 +1039,7 @@ class SettingsWindow:
             log.exception("ui_language speichern fehlgeschlagen")
         set_language(code)
         self._relaunch = True
-        self._stop_listeners()
+        self._cleanup_window()
         self.root.destroy()
 
     def _collect_into_config(self):
@@ -964,6 +1059,7 @@ class SettingsWindow:
             "audio_feedback": self.sound_var.get(),
             "restore_clipboard": self.clipres_var.get(),
             "update_check": self.updchk_var.get(),
+            "release_mic_idle": self.mic_idle_var.get(),
             # Eigener Minutenwert aus config.yaml bleibt erhalten, Schalter
             # setzt nur an (Default 30) bzw. aus (0)
             "idle_unload_min": ((self.config.get("idle_unload_min") or 30)
@@ -1010,7 +1106,7 @@ class SettingsWindow:
         bar.set(value)
 
     def _heading(self, parent, text):
-        ctk.CTkLabel(parent, text=text.upper(), font=(FONT_BODY, 12, "bold"),
+        ctk.CTkLabel(parent, text=text.upper(), font=(_body_font(), 12, "bold"),
                      text_color=BRAND["text_dim"]).pack(anchor=_anchor(), pady=(0, 4))
 
     # Model
@@ -1067,12 +1163,32 @@ class SettingsWindow:
             # Ausgegraut ohne Grund wirkt kaputt — die Zeile darunter sagt, warum
             self.perf_desc.configure(text=t("perf.parakeet" if parakeet else "perf.desc"))
 
-    def _on_hkmode_change(self, _=None):
-        """Auto-Stop-Controls nur im Umschalt-Modus bedienbar."""
+    def _on_hkmode_change(self, _=None, initial: bool = False):
+        """Auto-Stop-Zeile nur im Umschalt-Modus zeigen."""
         toggle = self._hkmode_label_to_code.get(self.hkmode_var.get()) == "toggle"
         state = "normal" if toggle else "disabled"
         self.autostop_switch.configure(state=state)
         self.autostop_menu.configure(state=state)
+        if toggle:
+            if not self._autostop_row.winfo_ismapped():
+                self._autostop_row.pack(fill="x", after=self._autostop_anchor, pady=(0, 8))
+        elif self._autostop_row.winfo_ismapped():
+            self._autostop_row.pack_forget()
+        if not initial and hasattr(self, "_chrome"):
+            self._fit_window(center=False)
+
+    def _show_dl_status(self, show_bar: bool):
+        if not self._dl_status_box.winfo_ismapped():
+            self._dl_status_box.pack(fill="x", after=self.model_desc, pady=(0, 8))
+        if show_bar:
+            if not self.progress.winfo_ismapped():
+                self.progress.pack(fill="x", pady=(0, 4))
+        elif self.progress.winfo_ismapped():
+            self.progress.pack_forget()
+        if not self.progress_text.winfo_ismapped():
+            self.progress_text.pack(fill="x")
+        if hasattr(self, "_chrome"):
+            self._fit_window(center=False)
 
     def _update_dl_button(self):
         size = self._get_model_size()
@@ -1117,6 +1233,8 @@ class SettingsWindow:
         size = self._get_model_size()
         self._downloading = True
         self._cancel_download.clear()
+        self._set_bar(self.progress, 0)
+        self._show_dl_status(show_bar=True)
         self.dl_btn.configure(text=t("btn.cancel"), fg_color=BRAND["red"],
                               hover_color=BRAND["red_hover"])
 
@@ -1136,17 +1254,17 @@ class SettingsWindow:
                                 model="Parakeet v3" if is_parakeet(size) else size))
                     download_model(size, self._checked_progress)
                 if self._cancel_download.is_set(): raise InterruptedError
-                self.root.after(0, self._dl_done)
+                self._safe_after(0, self._dl_done)
             except InterruptedError:
-                self.root.after(0, lambda: self._dl_fail(t("download.cancelled")))
+                self._safe_after(0, lambda: self._dl_fail(t("download.cancelled")))
             except Exception as e:
                 # str(e) vor dem Lambda binden — e ist nach dem except-Block weg
                 msg = str(e)
-                self.root.after(0, lambda m=msg: self._dl_fail(m))
+                self._safe_after(0, lambda m=msg: self._dl_fail(m))
             finally:
                 self._downloading = False
 
-        threading.Thread(target=run, daemon=True).start()
+        threading.Thread(target=run, daemon=True, name="model-download").start()
 
     def _checked_progress(self, dl, total, speed_bps=0):
         if self._cancel_download.is_set(): raise InterruptedError
@@ -1155,39 +1273,54 @@ class SettingsWindow:
         if speed_bps > 0 and total > dl:
             eta = f"  ·  {speed_bps / 1048576:.1f} MB/s  ·  {_fmt_eta((total - dl) / speed_bps)}"
         text = f"{dl // 1048576} / {total // 1048576} MB{eta}"
-        self.root.after(0, lambda: self._set_bar(self.progress, f))
-        self.root.after(0, lambda: self.progress_text.configure(text=text))
+        self._safe_after(0, lambda: (
+            self._set_bar(self.progress, f),
+            self.progress_text.configure(text=text),
+        ))
 
-    def _msg(self, t):
-        self.root.after(0, lambda: self.progress_text.configure(text=t, text_color=BRAND["text_dim"]))
+    def _msg(self, text):
+        self._safe_after(0, lambda: (
+            self._show_dl_status(show_bar=True),
+            self.progress_text.configure(text=text, text_color=BRAND["text_dim"]),
+        ))
 
     def _dl_done(self):
         self._set_bar(self.progress, 1.0)
         hotkey = self.config.get("hotkey", "ctrl+shift+space").upper().replace("+", " + ")
         self.progress_text.configure(text=t("download.done", hotkey=hotkey),
                                      text_color=BRAND["green"])
+        self._show_dl_status(show_bar=False)
         self._update_dl_button()
 
     def _dl_fail(self, msg):
         self._set_bar(self.progress, 0)
         self.progress_text.configure(text=msg, text_color=BRAND["red"])
+        self._show_dl_status(show_bar=False)
         self._update_dl_button()
 
     # --- Ollama Section Rendering + Handlers ---
 
     def _render_ollama_section(self):
         """Rendert UI je nach State: ready/no_model/installed_not_running/not_installed/busy."""
+        layout_changed = False
         if self._ollama_busy:
             # Waehrend der Einrichtung: Fortschritt statt Status zeigen
-            self.ollama_status_row.pack_forget()
+            if self.ollama_status_row.winfo_ismapped():
+                self.ollama_status_row.pack_forget()
+                layout_changed = True
             if not self.ollama_dl_frame.winfo_ismapped():
                 self.ollama_dl_frame.pack(fill="x", pady=(4, 0))
+                layout_changed = True
+            if layout_changed and hasattr(self, "_chrome"):
+                self._fit_window(center=False)
             return
 
         if self.ollama_dl_frame.winfo_ismapped():
             self.ollama_dl_frame.pack_forget()
+            layout_changed = True
         if not self.ollama_status_row.winfo_ismapped():
             self.ollama_status_row.pack(fill="x", pady=(0, 2))
+            layout_changed = True
 
         state = self._ollama_state
         if state == "ready":
@@ -1205,15 +1338,14 @@ class SettingsWindow:
         if (state in ("not_installed", "no_model")
                 and self._mode_label_to_code.get(self.mode_var.get()) == "correct"):
             self.mode_var.set(t("mode.off"))
+        if layout_changed and hasattr(self, "_chrome"):
+            self._fit_window(center=False)
 
     def _on_postproc_mode_change(self, label):
         """Korrektur gewaehlt -> Ollama bei Bedarf installieren, starten und
         das Modell laden. Schlaegt das fehl, springt der Modus auf Aus."""
         if self._mode_label_to_code.get(label) != "correct" or self._ollama_busy:
             return
-        self._refresh_ollama_state()
-        # Nur "ready" ist sicher: bei installed_not_running laesst sich nicht
-        # pruefen, ob das Modell da ist -> ensure_ready startet und laedt nach
         if self._ollama_state == "ready":
             self._render_ollama_section()
             return
@@ -1227,14 +1359,14 @@ class SettingsWindow:
         def run():
             try:
                 ollama_ensure_ready(self._on_ollama_progress, self._ollama_cancel)
-                self.root.after(0, self._ollama_action_done)
+                self._safe_after(0, self._ollama_action_done)
             except InterruptedError:
-                self.root.after(0, lambda: self._ollama_action_fail(t("download.cancelled")))
+                self._safe_after(0, lambda: self._ollama_action_fail(t("download.cancelled")))
             except Exception as e:
                 msg = str(e)
-                self.root.after(0, lambda m=msg: self._ollama_action_fail(m))
+                self._safe_after(0, lambda m=msg: self._ollama_action_fail(m))
 
-        threading.Thread(target=run, daemon=True).start()
+        threading.Thread(target=run, daemon=True, name="ollama-setup").start()
 
     def _cancel_ollama_action(self):
         """User klickt Cancel - setzt das Event."""
@@ -1244,7 +1376,7 @@ class SettingsWindow:
 
     def _on_ollama_progress(self, completed, total, status, speed):
         """Thread-safe Progress-Update."""
-        self.root.after(0, lambda: self._update_ollama_progress(completed, total, status, speed))
+        self._safe_after(0, lambda: self._update_ollama_progress(completed, total, status, speed))
 
     def _update_ollama_progress(self, completed, total, status, speed):
         """Aktualisiert Download-UI: %, Progress-Bar, Detail-Zeile."""
@@ -1272,8 +1404,9 @@ class SettingsWindow:
         self._ollama_cancel = None
         self.mode_btn.configure(state="normal")
         self.ollama_cancel_btn.configure(text=t("btn.cancel"), state="normal")
-        self._refresh_ollama_state()
+        self._ollama_state = "ready"
         self._render_ollama_section()
+        self._refresh_ollama_async()
 
     def _ollama_action_fail(self, msg):
         self._ollama_busy = False
@@ -1281,75 +1414,122 @@ class SettingsWindow:
         self.mode_btn.configure(state="normal")
         self.mode_var.set(t("mode.off"))
         self.ollama_cancel_btn.configure(text=t("btn.cancel"), state="normal")
-        self._refresh_ollama_state()
         self._render_ollama_section()
         self.ollama_status_label.configure(text=t("error.generic", error=msg), text_color=BRAND["red"])
+        self._refresh_ollama_async()
 
     # Hotkey Recording
+    def _cancel_hotkey_reset_job(self):
+        if self._hotkey_reset_job is not None:
+            try:
+                self.root.after_cancel(self._hotkey_reset_job)
+            except Exception:
+                pass
+            self._hotkey_reset_job = None
+
     def _start_recording(self):
-        if self._recording_hotkey:
-            return
+        with self._hotkey_lock:
+            if self._recording_hotkey:
+                return
+            self._recording_hotkey = True
+            self._pressed_keys = set()
+            self._current_combo = []
+        self._cancel_hotkey_reset_job()
         # Fokus vom Button nehmen: sonst loest die Leertaste, die als Hotkey
         # aufgenommen werden soll, den Button gleich noch einmal aus
         self.root.focus_set()
-        self._recording_hotkey = True
-        self._pressed_keys = set()
-        self._current_combo = []
         self.hotkey_label.configure(text=t("hotkey.press"), text_color=BRAND["amber"])
         self._kb_listener = keyboard.Listener(on_press=self._on_kp, on_release=self._on_kr)
         self._kb_listener.start()
         self._mouse_listener = mouse.Listener(on_click=self._on_mc)
         self._mouse_listener.start()
 
+    def _cancel_hotkey_recording(self):
+        with self._hotkey_lock:
+            if not self._recording_hotkey:
+                return
+            self._recording_hotkey = False
+        self._stop_listeners()
+        d = self.config.get("hotkey", "ctrl+shift+space").upper().replace("+", " + ")
+        self._safe_after(0, lambda: self.hotkey_label.configure(text=d, text_color=BRAND["text_bright"]))
+
     def _on_kp(self, key):
-        if not self._recording_hotkey: return
-        n = key_to_name(key)
-        if n not in self._pressed_keys:
-            self._pressed_keys.add(n)
-            self._current_combo.append(n)
-            self._show_combo()
+        if key == keyboard.Key.esc:
+            self._cancel_hotkey_recording()
+            return
+        with self._hotkey_lock:
+            if not self._recording_hotkey:
+                return
+            n = key_to_name(key)
+            if n not in self._pressed_keys:
+                self._pressed_keys.add(n)
+                self._current_combo.append(n)
+                combo_copy = list(self._current_combo)
+            else:
+                return
+        self._show_combo(combo_copy)
 
     def _on_mc(self, x, y, btn, pressed):
-        if not self._recording_hotkey: return
-        if btn in (mouse.Button.left, mouse.Button.right): return
-        n = mouse_button_to_name(btn)
-        if pressed and n not in self._pressed_keys:
-            self._pressed_keys.add(n)
-            self._current_combo.append(n)
-            self._show_combo()
-        elif not pressed and self._current_combo:
+        if btn in (mouse.Button.left, mouse.Button.right):
+            return
+        finalize = False
+        combo_copy = None
+        with self._hotkey_lock:
+            if not self._recording_hotkey:
+                return
+            n = mouse_button_to_name(btn)
+            if pressed and n not in self._pressed_keys:
+                self._pressed_keys.add(n)
+                self._current_combo.append(n)
+                combo_copy = list(self._current_combo)
+            elif not pressed and self._current_combo:
+                finalize = True
+        if combo_copy is not None:
+            self._show_combo(combo_copy)
+        elif finalize:
             self._finalize()
 
     def _on_kr(self, key):
-        if self._recording_hotkey and self._current_combo:
+        with self._hotkey_lock:
+            should_finalize = self._recording_hotkey and bool(self._current_combo)
+        if should_finalize:
             self._finalize()
 
-    def _show_combo(self):
-        d = " + ".join(k.upper() for k in self._current_combo)
-        self.root.after(0, lambda: self.hotkey_label.configure(text=d))
+    def _show_combo(self, combo=None):
+        items = combo if combo is not None else self._current_combo
+        d = " + ".join(k.upper() for k in items)
+        self._safe_after(0, lambda: self.hotkey_label.configure(text=d))
 
     def _finalize(self):
-        if not self._recording_hotkey: return
-        self._recording_hotkey = False
+        with self._hotkey_lock:
+            if not self._recording_hotkey:
+                return
+            self._recording_hotkey = False
+            combo = "+".join(self._current_combo)
         self._stop_listeners()
-        combo = "+".join(self._current_combo)
         if not _is_valid_hotkey(combo):
             # Taste, die der HotkeyManager nicht kennt (Win, Numpad, Medien:
             # key_to_name liefert z. B. "Key.cmd"). Frueher wurde sie
             # gespeichert, der Hotkey war in dieser Sitzung tot und beim
             # naechsten Start setzte load_config() still den Default.
             log.warning("Hotkey-Aufnahme verworfen (nicht abbildbar): %r", combo)
-            combo = self.config.get("hotkey", "ctrl+shift+space")
-            d = combo.upper().replace("+", " + ")
-            # Kurz erklaeren statt still den alten Hotkey zurueckzuholen
-            self.root.after(0, lambda: self.hotkey_label.configure(
-                text=t("hotkey.unsupported"), text_color=BRAND["amber"]))
-            self.root.after(2000, lambda: self.hotkey_label.configure(
-                text=d, text_color=BRAND["text_bright"]))
+            old = self.config.get("hotkey", "ctrl+shift+space")
+            d = old.upper().replace("+", " + ")
+
+            def _warn():
+                self._cancel_hotkey_reset_job()
+                self.hotkey_label.configure(text=t("hotkey.unsupported"), text_color=BRAND["amber"])
+                self._hotkey_reset_job = self._safe_after(
+                    2000, lambda: self.hotkey_label.configure(text=d, text_color=BRAND["text_bright"]))
+
+            self._safe_after(0, _warn)
             return
         self.config["hotkey"] = combo
         d = combo.upper().replace("+", " + ")
-        self.root.after(0, lambda: self.hotkey_label.configure(text=d, text_color=BRAND["text_bright"]))
+        self._safe_after(0, lambda: (
+            self._cancel_hotkey_reset_job(),
+            self.hotkey_label.configure(text=d, text_color=BRAND["text_bright"]),
+        ))
 
     def _stop_listeners(self):
         for l in (self._kb_listener, self._mouse_listener):
@@ -1379,7 +1559,7 @@ class SettingsWindow:
             self._dl_fail(t("parakeet.lang_block"))
             return
         self._result = self.config
-        self._stop_listeners()
+        self._cleanup_window()
         self.root.destroy()
 
     def _on_return_key(self, event=None):
@@ -1397,5 +1577,5 @@ class SettingsWindow:
 
     def _cancel(self):
         self._result = None
-        self._stop_listeners()
+        self._cleanup_window()
         self.root.destroy()

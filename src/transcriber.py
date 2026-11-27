@@ -38,10 +38,22 @@ from src.downloader import (
 from src.errors import VCREDIST_URL, classify_win_exit_code
 from src.i18n import t
 from src.parakeet import ParakeetBackend, supports_language
-from src.paths import BASE_DIR
-from src.winutil import assign_process_to_job, create_kill_on_close_job
+from src.paths import BASE_DIR, TMP_DIR
+from src.winutil import assign_process_to_job, close_handle, create_kill_on_close_job
 
 log = logging.getLogger(__name__)
+
+# Loopback-Opener ohne System-Proxy: auf Firmen-/VPN-Rechnern schickt
+# urllib.request.urlopen() Anfragen an 127.0.0.1 sonst ueber den Proxy und
+# liest zudem bei jedem Aufruf die Windows-Registry aus.
+_LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_ORIG_URLOPEN = urllib.request.urlopen
+
+
+def _local_urlopen(req, timeout: float):
+    if urllib.request.urlopen is not _ORIG_URLOPEN:
+        return urllib.request.urlopen(req, timeout=timeout)
+    return _LOCAL_OPENER.open(req, timeout=timeout)
 
 WHISPER_DIR = os.path.join(BASE_DIR, "whisper-cpp")
 WHISPER_CLI = os.path.join(WHISPER_DIR, "whisper-cli.exe")
@@ -96,16 +108,19 @@ def _clean_output(text: str) -> str:
     return " ".join(text.split()).strip()
 
 
-def _timeout_for(wav_path: str) -> int:
+def _timeout_for(audio_or_path) -> int:
     """Timeout passend zur Aufnahmelaenge (Minimum _REQUEST_TIMEOUT_S).
 
     Faustregel: bis zum Vierfachen der Audiolaenge plus Anlauf — deckt auch
     den Qualitaetsmodus (Beam 5) auf reiner CPU ab.
     """
-    try:
-        duration = os.path.getsize(wav_path) / _WAV_BYTES_PER_S
-    except OSError:
-        duration = 0.0
+    if isinstance(audio_or_path, np.ndarray):
+        duration = len(audio_or_path) / 16000.0
+    else:
+        try:
+            duration = os.path.getsize(audio_or_path) / _WAV_BYTES_PER_S
+        except OSError:
+            duration = 0.0
     return max(_REQUEST_TIMEOUT_S, int(duration * 4) + 30)
 
 
@@ -171,54 +186,74 @@ class CliBackend:
         self.last_error_hint = ""
         self.last_returncode = None
 
-    def transcribe(self, wav_path: str) -> str:
+    def transcribe(self, audio_or_path: str | np.ndarray) -> str:
         self.last_returncode = None
-        timeout_s = _timeout_for(wav_path)
-        q = _quality_args(self.performance_mode)
-        cmd = [
-            WHISPER_CLI,
-            "-m", self.model_path,
-            "-f", wav_path,
-            "-l", self.language,
-            "-nt",
-            "-t", str(_threads()),
-            "-bo", str(q["best_of"]),
-            "-bs", str(q["beam_size"]),
-        ]
-        if self.initial_prompt:
-            # Eigene Begriffe (Namen, Fachwoerter) als Erkennungs-Kontext
-            cmd += ["--prompt", self.initial_prompt]
-        if self.no_gpu:
-            cmd.append("-ng")
+        temp_wav = None
+        if isinstance(audio_or_path, np.ndarray):
+            os.makedirs(TMP_DIR, exist_ok=True)
+            temp_wav = os.path.join(TMP_DIR, f"vozii_cli_{os.getpid()}_{uuid.uuid4().hex[:8]}.wav")
+            with open(temp_wav, "wb") as f:
+                f.write(_wav_bytes(audio_or_path))
+            wav_path = temp_wav
+        else:
+            wav_path = audio_or_path
 
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout_s,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                cwd=WHISPER_DIR,
-                env=_child_env(),
-            )
-        except subprocess.TimeoutExpired:
-            log.warning("whisper-cli Timeout nach %ds", timeout_s)
-            return ""
-        except FileNotFoundError as e:
-            log.error("whisper-cli nicht gefunden: %s", e)
-            return ""
+            timeout_s = _timeout_for(wav_path)
+            q = _quality_args(self.performance_mode)
+            cmd = [
+                WHISPER_CLI,
+                "-m", self.model_path,
+                "-f", wav_path,
+                "-l", self.language,
+                "-nt",
+                "-sns",
+                "-t", str(_threads()),
+                "-bo", str(q["best_of"]),
+                "-bs", str(q["beam_size"]),
+            ]
+            if self.initial_prompt:
+                # Eigene Begriffe (Namen, Fachwoerter) als Erkennungs-Kontext —
+                # carry-initial-prompt haelt sie auch ueber 30 s hinaus aktiv
+                cmd += ["--prompt", self.initial_prompt, "--carry-initial-prompt"]
+            if self.no_gpu:
+                cmd.append("-ng")
 
-        self.last_returncode = result.returncode
-        if result.returncode != 0:
-            self.last_error_hint = _exit_code_hint(result.returncode)
-            log.error("whisper-cli Fehler (code %d): %s %s",
-                      result.returncode, result.stderr[:500], self.last_error_hint)
-            return ""
+            try:
+                result = subprocess.run(
+                    cmd,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=timeout_s,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    cwd=WHISPER_DIR,
+                    env=_child_env(),
+                )
+            except subprocess.TimeoutExpired:
+                log.warning("whisper-cli Timeout nach %ds", timeout_s)
+                return ""
+            except FileNotFoundError as e:
+                log.error("whisper-cli nicht gefunden: %s", e)
+                return ""
 
-        self.last_error_hint = ""
-        return result.stdout.strip()
+            self.last_returncode = result.returncode
+            if result.returncode != 0:
+                self.last_error_hint = _exit_code_hint(result.returncode)
+                log.error("whisper-cli Fehler (code %d): %s %s",
+                          result.returncode, result.stderr[:500], self.last_error_hint)
+                return ""
+
+            self.last_error_hint = ""
+            return result.stdout.strip()
+        finally:
+            if temp_wav is not None:
+                try:
+                    os.remove(temp_wav)
+                except OSError:
+                    pass
 
 
 class ServerBackend:
@@ -282,12 +317,15 @@ class ServerBackend:
             cwd=WHISPER_DIR,
             env=_child_env(),
         )
+        if self._job is None:
+            self._job = create_kill_on_close_job()
         if self._job:
             assign_process_to_job(self._job, self._proc.pid)
         atexit.register(self.shutdown)
 
-        deadline = time.time() + _SERVER_START_TIMEOUT_S
-        while time.time() < deadline:
+        started_at = time.monotonic()
+        deadline = started_at + _SERVER_START_TIMEOUT_S
+        while time.monotonic() < deadline:
             if self._proc.poll() is not None:
                 code = self._proc.returncode
                 self._proc = None
@@ -295,22 +333,23 @@ class ServerBackend:
                 hint = f"\n{self.last_error_hint}" if self.last_error_hint else ""
                 raise RuntimeError(f"whisper-server sofort beendet (Code {code}){hint}")
             try:
-                with urllib.request.urlopen(
+                with _local_urlopen(
                         f"http://127.0.0.1:{self._port}/health", timeout=2) as resp:
                     if resp.status == 200:
-                        log.info("whisper-server bereit")
+                        log.info("whisper-server bereit (%.2fs)", time.monotonic() - started_at)
                         return
             except (urllib.error.URLError, OSError):
                 pass  # laedt noch (503) oder lauscht noch nicht
-            time.sleep(0.25)
+            elapsed = time.monotonic() - started_at
+            time.sleep(0.05 if elapsed < 2.0 else (0.15 if elapsed < 8.0 else 0.25))
 
         self.shutdown()
         raise RuntimeError(f"whisper-server Start-Timeout ({_SERVER_START_TIMEOUT_S}s)")
 
-    def transcribe(self, wav_path: str) -> str:
+    def transcribe(self, audio_or_path: str | np.ndarray) -> str:
         self.ensure_started()
         try:
-            return self._request(wav_path)
+            return self._request(audio_or_path)
         except Exception as e:
             # Timeout bei laufendem Server = Aufnahme zu lang, kein Crash
             if _is_timeout(e) and self._proc is not None and self._proc.poll() is None:
@@ -319,7 +358,7 @@ class ServerBackend:
             log.warning("whisper-server Request fehlgeschlagen (%s) — Neustart", e)
             self.shutdown()
             self.ensure_started()
-            return self._request(wav_path)
+            return self._request(audio_or_path)
 
     def preview(self, audio) -> str | None:
         """Live-Vorschau: greedy, kurzer Timeout, kein Neustart. Laeuft der
@@ -332,10 +371,13 @@ class ServerBackend:
             log.debug("Vorschau-Request fehlgeschlagen: %s", e)
             return None
 
-    def _request(self, wav_path: str) -> str:
-        with open(wav_path, "rb") as f:
-            wav_data = f.read()
-        return self._post(wav_data, self.performance_mode, _timeout_for(wav_path))
+    def _request(self, audio_or_path: str | np.ndarray) -> str:
+        if isinstance(audio_or_path, np.ndarray):
+            wav_data = _wav_bytes(audio_or_path)
+        else:
+            with open(audio_or_path, "rb") as f:
+                wav_data = f.read()
+        return self._post(wav_data, self.performance_mode, _timeout_for(audio_or_path))
 
     def _post(self, wav_data: bytes, performance_mode: str, timeout_s: float) -> str:
         q = _quality_args(performance_mode)
@@ -356,7 +398,7 @@ class ServerBackend:
             headers={"Content-Type": content_type},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+        with _local_urlopen(req, timeout=timeout_s) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
         if data.get("error"):
             raise RuntimeError(f"whisper-server: {data['error']}")
@@ -366,18 +408,22 @@ class ServerBackend:
         atexit.unregister(self.shutdown)
         with self._lock:
             proc, self._proc = self._proc, None
-        if proc is None or proc.poll() is not None:
-            return
-        log.info("Beende whisper-server")
-        proc.terminate()
+            job, self._job = getattr(self, "_job", None), None
         try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+            if proc is None or proc.poll() is not None:
+                return
+            log.info("Beende whisper-server")
+            proc.terminate()
             try:
-                proc.wait(timeout=2)
+                proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                log.warning("whisper-server liess sich nicht beenden")
+                proc.kill()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    log.warning("whisper-server liess sich nicht beenden")
+        finally:
+            close_handle(job)
 
 
 def _build_multipart(fields: dict, file_field: str, filename: str,
@@ -426,8 +472,9 @@ class Transcriber:
             whisper_model = model_size
         self.whisper_model = whisper_model
         self.model_path = os.path.join(MODELS_DIR, MODEL_FILES.get(whisper_model, "ggml-small.bin"))
+        self._is_gpu = self._gpu_backend()
 
-        if (is_parakeet(model_size) or self._gpu_backend()) and supports_language(language) \
+        if (is_parakeet(model_size) or self._is_gpu) and supports_language(language) \
                 and is_model_installed(PARAKEET_MODEL):
             # Bei Whisper-auf-GPU nur als CPU-Reserve angelegt (laedt erst bei Bedarf)
             self._parakeet = ParakeetBackend(_threads())
@@ -540,9 +587,12 @@ class Transcriber:
         ohnehin hinterher."""
         if self.engine == "parakeet":
             return self._parakeet
-        # _no_gpu zuerst: _gpu_backend() geht ans Dateisystem
-        if self._server is not None and not self._no_gpu and self._gpu_backend():
-            return self._server
+        if self._server is not None and not self._no_gpu:
+            is_gpu = getattr(self, "_is_gpu", None)
+            if is_gpu is None:
+                is_gpu = self._gpu_backend()
+            if is_gpu:
+                return self._server
         return None
 
     @property

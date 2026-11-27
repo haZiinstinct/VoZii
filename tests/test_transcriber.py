@@ -134,9 +134,21 @@ def test_cli_cmd_enthaelt_prompt_nur_wenn_gesetzt(monkeypatch, tmp_path):
     CliBackend("m.bin", "de", "speed", initial_prompt="haZii, VoZii").transcribe("a.wav")
     idx = captured["cmd"].index("--prompt")
     assert captured["cmd"][idx + 1] == "haZii, VoZii"
+    assert "--carry-initial-prompt" in captured["cmd"]
+    assert "-sns" in captured["cmd"]
 
     CliBackend("m.bin", "de", "speed").transcribe("a.wav")
     assert "--prompt" not in captured["cmd"]
+    assert "--carry-initial-prompt" not in captured["cmd"]
+
+
+def test_server_request_accepts_in_memory_ndarray(fake_server):
+    import numpy as np
+
+    _Handler.response_payload = {"text": "  ram audio  "}
+    backend = _backend_on(fake_server.server_address[1])
+    assert backend._request(np.zeros(16000, dtype=np.float32)) == "ram audio"
+    assert b"RIFF" in _Handler.last_body and b"WAVE" in _Handler.last_body
 
 
 def test_server_request_raises_on_error_payload(fake_server, tmp_path):

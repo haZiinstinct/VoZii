@@ -138,8 +138,10 @@ class ParakeetBackend:
             self._ensure_loaded_locked()
             self._model.recognize(np.zeros(_SAMPLE_RATE, dtype=np.float32))
 
-    def transcribe(self, wav_path: str) -> str:
-        audio = _read_wav(wav_path)
+    def transcribe(self, audio_or_path: str | np.ndarray) -> str:
+        audio = (audio_or_path.astype(np.float32, copy=False)
+                 if isinstance(audio_or_path, np.ndarray)
+                 else _read_wav(audio_or_path))
         parts = []
         # Laden und Rechnen unter EINEM Lock: release() aus dem Leerlauf-
         # Watchdog darf das Modell nicht zwischen beiden Schritten wegnehmen
@@ -184,4 +186,7 @@ class ParakeetBackend:
 
     def shutdown(self):
         with self._lock:
+            had_model = self._model is not None
             self._model = None
+        if had_model:
+            gc.collect()

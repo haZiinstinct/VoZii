@@ -169,6 +169,36 @@ def test_empty_text():
     assert not is_hallucination("", 0.5, 0.0)
 
 
+def test_amara_does_not_filter_real_names_and_multilingual_phantoms():
+    assert not is_hallucination("Tamara", 0.5, 0.002)
+    assert not is_hallucination("Samara kommt", 0.5, 0.002)
+    assert is_hallucination("Merci d'avoir regardé!", 1.5, 0.002)
+    assert is_hallucination("Gracias por ver", 1.5, 0.002)
+    assert is_hallucination("ご視聴ありがとうございました", 1.5, 0.002)
+
+
+def test_stop_recording_pcm_returns_in_memory_float32():
+    rec = _recorder_with_buffer(_sine(440, 48000, 1.0), 48000)
+    audio, duration, rms = rec.stop_recording_pcm()
+    assert isinstance(audio, np.ndarray)
+    assert audio.dtype == np.float32
+    assert len(audio) == SAMPLE_RATE
+    assert abs(duration - 1.0) < 0.01
+    assert 0.6 < rms < 0.8
+
+
+def test_max_duration_auto_stops_forgotten_recording():
+    r, _ = _recorder_for_autostop(0)
+    fired = []
+    r.set_max_duration(0.5, lambda: fired.append(1))
+    _feed(r, 0.05, 0.4)
+    assert fired == []
+    _feed(r, 0.05, 0.2)
+    assert fired == [1]
+    _feed(r, 0.05, 0.5)
+    assert fired == [1]
+
+
 # --- Auto-Stop bei Stille (M6) ---
 
 def _recorder_for_autostop(timeout_s: float):

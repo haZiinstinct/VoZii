@@ -21,28 +21,37 @@ def _hex_to_rgb(hex_color):
 
 
 def _create_icon(color, size=64):
-    """Sauberes VoZii Icon — V auf solidem Hintergrund, keine Transparenz-Artefakte."""
+    """Gestochen scharfes VoZii-Icon (2x Supersampling + LANCZOS-Downscale)."""
     bg = _hex_to_rgb(BRAND["bg"])
     fg = _hex_to_rgb(color)
+    border = _hex_to_rgb(BRAND["border"])
 
-    img = Image.new("RGB", (size, size), bg)
+    hi = size * 2
+    img = Image.new("RGB", (hi, hi), bg)
     draw = ImageDraw.Draw(img)
 
-    # V zeichnen
-    cx, cy = size // 2, size // 2
-    lw = max(2, size // 10)
-    ox = size * 35 // 100
-    oy = size * 30 // 100
+    # Dezenter Rahmen fuer dunkle Taskleisten
+    pad = max(2, hi // 32)
+    draw.rounded_rectangle(
+        (pad, pad, hi - 1 - pad, hi - 1 - pad),
+        radius=hi // 6, fill=bg, outline=border, width=max(2, hi // 32),
+    )
 
-    draw.line([(cx - ox, cy - oy), (cx, cy + oy)], fill=fg, width=lw)
-    draw.line([(cx + ox, cy - oy), (cx, cy + oy)], fill=fg, width=lw)
+    # V zeichnen (saubere Spitze ueber Polygon/Joint statt zwei getrennter Linien)
+    cx, cy = hi // 2, hi // 2
+    lw = max(4, hi // 9)
+    ox = hi * 30 // 100
+    oy = hi * 26 // 100
+    pts = [(cx - ox, cy - oy), (cx, cy + oy), (cx + ox, cy - oy)]
+    draw.line(pts, fill=fg, width=lw, joint="curve")
 
-    return img
+    return img.resize((size, size), Image.Resampling.LANCZOS)
 
 
 class TrayApp:
     def __init__(self, state_manager, on_quit, hotkey_str="", backend_name="",
-                 mic_name="", on_open_settings=None, on_open_log=None, history=None):
+                 mic_name="", on_open_settings=None, on_open_log=None, history=None,
+                 is_model_loaded=None, memsave: bool = False):
         self.state_manager = state_manager
         self.on_quit = on_quit
         self.hotkey_str = hotkey_str
@@ -51,8 +60,20 @@ class TrayApp:
         self.on_open_settings = on_open_settings
         self.on_open_log = on_open_log
         self.history = history
+        self._is_model_loaded = is_model_loaded
+        self._memsave = memsave
         self._icons = {s: _create_icon(c) for s, c in STATE_COLORS.items()}
         self._icon = None
+
+    def _engine_label(self) -> str:
+        if self._is_model_loaded is not None and self._memsave:
+            try:
+                loaded = bool(self._is_model_loaded())
+            except Exception:
+                loaded = True
+            suffix = t("tray.model_loaded") if loaded else t("tray.model_sleeping")
+            return t("tray.engine", backend=f"{self.backend_name} ({suffix})")
+        return t("tray.engine", backend=self.backend_name)
 
     def _menu_items(self):
         """Generator — pystray ruft ihn bei jedem Oeffnen neu auf, daher sind
@@ -60,18 +81,21 @@ class TrayApp:
         yield pystray.MenuItem(
             t("tray.title", state=self._state_label(self.state_manager.state)),
             None, enabled=False)
+        if self.backend_name:
+            yield pystray.MenuItem(self._engine_label(), None, enabled=False)
         if self.hotkey_str:
             yield pystray.MenuItem(
                 t("tray.hotkey", hotkey=self.hotkey_str.upper().replace("+", " + ")),
                 None, enabled=False)
         if self.mic_name:
-            mic = self.mic_name if len(self.mic_name) <= 35 else self.mic_name[:32] + "..."
+            mic = self.mic_name if len(self.mic_name) <= 35 else self.mic_name[:34] + "…"
             yield pystray.MenuItem(t("tray.mic", mic=mic), None, enabled=False)
         yield pystray.Menu.SEPARATOR
         if self.history is not None:
             yield pystray.MenuItem(t("tray.history"), pystray.Menu(self._history_items))
         if self.on_open_settings:
-            yield pystray.MenuItem(t("tray.settings"), self._open_settings)
+            # default=True: Klick/Doppelklick aufs Tray-Icon oeffnet Einstellungen direkt
+            yield pystray.MenuItem(t("tray.settings"), self._open_settings, default=True)
         if self.on_open_log:
             yield pystray.MenuItem(t("tray.open_log"), self._open_log)
         yield pystray.MenuItem(t("tray.quit"), self._quit)
@@ -85,7 +109,7 @@ class TrayApp:
         for entry in entries:
             label = " ".join(entry["text"].split())
             if len(label) > 40:
-                label = label[:37] + "..."
+                label = label[:39] + "…"
             yield pystray.MenuItem(label, self._make_copy_action(entry["text"]))
 
     @staticmethod

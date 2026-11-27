@@ -254,8 +254,8 @@ def test_cancel_im_download_loop_bleibt_interrupted_error(tmp_path, fake_urlopen
     'Schreiben fehlgeschlagen (Festplatte voll)' statt 'Abgebrochen'."""
     import itertools
 
-    clock = itertools.count(0, 1.0)  # jeder time.time()-Aufruf +1 s -> Callback feuert im Loop
-    monkeypatch.setattr(downloader.time, "time", lambda: float(next(clock)))
+    clock = itertools.count(0, 1.0)  # jeder monotonic()-Aufruf +1 s -> Callback feuert im Loop
+    monkeypatch.setattr(downloader.time, "monotonic", lambda: float(next(clock)))
     dest = str(tmp_path / "file.bin")
     fake_urlopen["response"] = FakeResponse(b"x" * 200_000)
 
@@ -309,10 +309,12 @@ def test_download_model_zu_kleine_bin_und_part_kollidieren_nicht(tmp_path, monke
 
 
 def test_hash_wird_vor_dem_umbenennen_geprueft(tmp_path, fake_urlopen, monkeypatch):
-    """Unter dem Zielnamen liegt nie eine ungepruefte Datei — auch nicht,
-    wenn der Prozess mitten in der Pruefung stirbt (Audit 2026-11, S1)."""
+    """Unter dem Zielnamen liegt nie eine ungepruefte Datei — auch nicht beim
+    Resume, wenn der Prozess mitten in der Pruefung stirbt (Audit 2026-11, S1)."""
     dest = str(tmp_path / "file.bin")
-    fake_urlopen["response"] = FakeResponse(b"content")
+    with open(dest + ".part", "wb") as f:
+        f.write(b"pre")
+    fake_urlopen["response"] = FakeResponse(b"content", status=206, headers={"Content-Length": "7"})
 
     def crash(path):
         assert not os.path.exists(dest), "Zieldatei existiert schon vor der Pruefung"
@@ -322,3 +324,54 @@ def test_hash_wird_vor_dem_umbenennen_geprueft(tmp_path, fake_urlopen, monkeypat
     with pytest.raises(KeyboardInterrupt):
         downloader.download_file("https://example.com/f", dest, expected_sha256="00" * 32)
     assert not os.path.exists(dest)
+
+
+def test_fresh_download_hashes_streaming_without_reread(tmp_path, fake_urlopen, monkeypatch):
+    """Frischer Download prueft SHA256 im Stream ohne zweites Einlesen von Platte."""
+    dest = str(tmp_path / "file.bin")
+    data = b"streamed payload"
+    fake_urlopen["response"] = FakeResponse(data)
+
+    def fail_reread(_path):
+        raise AssertionError("_sha256_of darf bei frischem Download nicht noetig sein")
+
+    monkeypatch.setattr(downloader, "_sha256_of", fail_reread)
+    downloader.download_file("https://example.com/f", dest,
+                             expected_sha256=hashlib.sha256(data).hexdigest())
+    assert open(dest, "rb").read() == data
+
+
+def test_resume_416_restarts_cleanly(tmp_path, monkeypatch):
+    """HTTP 416 (fertige/zu grosse .part) verwirft .part und laedt frisch."""
+    import urllib.error
+
+    dest = str(tmp_path / "file.bin")
+    with open(dest + ".part", "wb") as f:
+        f.write(b"stale-full-data")
+
+    calls = []
+
+    def fake_urlopen(req, *args, **kwargs):
+        calls.append(req.get_header("Range"))
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(req.full_url, 416, "Range Not Satisfiable", {}, None)
+        return FakeResponse(b"fresh-data")
+
+    monkeypatch.setattr(downloader.urllib.request, "urlopen", fake_urlopen)
+    downloader.download_file("https://example.com/f", dest)
+    assert calls == ["bytes=15-", None]
+    assert open(dest, "rb").read() == b"fresh-data"
+
+
+def test_download_closes_response_on_error(tmp_path, monkeypatch):
+    closed = []
+
+    class TrackedResp(FakeResponse):
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(downloader.urllib.request, "urlopen",
+                        lambda req, **kw: TrackedResp(b"hello"))
+    dest = str(tmp_path / "file.bin")
+    downloader.download_file("https://example.com/f", dest)
+    assert closed == [True]

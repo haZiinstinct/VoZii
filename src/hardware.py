@@ -126,6 +126,10 @@ def _has_cuda_driver() -> bool:
     return os.path.isfile(system32("nvcuda.dll"))
 
 
+def _has_vulkan_driver() -> bool:
+    return os.path.isfile(system32("vulkan-1.dll"))
+
+
 def effective_gpu_type(configured: str | None, detected: str) -> str:
     """Manuelle Wahl (Settings/config.yaml) schlaegt die Erkennung."""
     return configured if configured in BINARY_URLS else detected
@@ -161,7 +165,9 @@ def detect_gpu() -> tuple[str, str]:
     for line in lines:
         upper = line.upper()
         if "AMD" in upper or "RADEON" in upper:
-            return ("amd", line)
+            if _has_vulkan_driver():
+                return ("amd", line)
+            log.warning("AMD-Adapter %r ohne vulkan-1.dll — ignoriert", line)
     for line in lines:
         upper = line.upper()
         if "INTEL" in upper:

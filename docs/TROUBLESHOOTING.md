@@ -81,12 +81,16 @@ build, update — the workaround for all of them was restarting VoZii.
 
 Since v1.9.0 a watchdog checks the hotkey hooks and the audio stream every 15
 seconds and repairs both on its own, and a dead microphone shows up as
-`ERR:MIC` in the overlay instead of doing nothing.
+`ERR: MIC` in the overlay instead of doing nothing.
 
 ## Microphone issues
 
 - Use the built-in **Test** button (settings → Microphone) — a live level meter
   confirms the signal.
+- **Bluetooth headset switches to muffled mono mode?** Enable **Release
+  microphone when idle** under Settings → Options so VoZii frees the microphone
+  after 30 seconds without dictation and lets the headset switch back to stereo
+  (A2DP).
 - If your configured microphone was unplugged, VoZii automatically falls back
   to the system default and logs a warning.
 - USB microphones sometimes re-enumerate after standby; VoZii reopens the
@@ -128,7 +132,7 @@ seconds and repairs both on its own, and a dead microphone shows up as
   `python scripts/bench_stt.py your.wav --whisper large-v3-turbo-q5_0`.
 - With Whisper on weak CPUs prefer the **Recommended** (turbo q5) model over
   *Best*, and the **Fast** decoding mode.
-- Overlay shows **`GPU ERROR → CPU`**: the CUDA/Vulkan backend crashed (driver,
+- Overlay shows **`SLOWER MODE (CPU)`**: the CUDA/Vulkan backend crashed (driver,
   VRAM). VoZii switches to the CPU for the rest of the session — Parakeet if
   installed, otherwise whisper.cpp with `--no-gpu`. Updating the graphics
   driver usually fixes the root cause.

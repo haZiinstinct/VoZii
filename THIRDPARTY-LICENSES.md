@@ -82,13 +82,6 @@ Alle bleiben unter ihrer jeweiligen Lizenz.
 - **Lizenz:** LGPL v3
 - **URL:** https://github.com/moses-palmer/pystray
 
-### pyperclip
-- **Autor:** Al Sweigart
-- **Lizenz:** BSD 3-Clause
-- **URL:** https://github.com/asweigart/pyperclip
-- **Hinweis:** nur noch Fallback ausserhalb von Windows; unter Windows nutzt
-  VoZii die Zwischenablage direkt ueber die Win32-API (`src/winclip.py`).
-
 ---
 
 ## Runtime

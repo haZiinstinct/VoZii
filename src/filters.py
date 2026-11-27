@@ -15,6 +15,9 @@ log = logging.getLogger(__name__)
 # Empirisch: normales Sprechen liegt deutlich ueber 0.01 RMS (float32, -1..1);
 # Raumstille mit offenem Mikro typischerweise unter 0.005.
 RMS_SILENCE_THRESHOLD = 0.008
+# Digitale Tot-Stille (stummgeschaltetes Mikrofon): darunter ist keine Sprache
+# enthalten — Inferenz kann komplett uebersprungen werden.
+RMS_DEAD_SILENCE = 0.0005
 
 # Maximaldauer in Sekunden, unter der eine Aufnahme als "sehr kurz" gilt
 SHORT_DURATION_S = 1.0
@@ -36,6 +39,12 @@ PHANTOM_EXACT = {
     "bye",
     "the end",
     "ende",
+    "merci",
+    "gracias",
+    "obrigado",
+    "спасибо",
+    "谢谢",
+    "ありがとう",
 }
 
 # Substring-Treffer — nur lange, eindeutige Phantom-Phrasen
@@ -44,13 +53,23 @@ PHANTOM_SUBSTRINGS = (
     "untertitel im auftrag des zdf",
     "untertitel von stephanie geiges",
     "untertitelung aerzte ohne grenzen",
-    "amara",  # "Untertitel der Amara.org-Community"
+    "amaraorg",  # "Untertitel der Amara.org-Community" (kein Treffer auf Tamara/Samara)
+    "amara org",
     "copyright wdr",
     "swr 2021",
     "thanks for watching",
     "thank you for watching",
     "please subscribe",
     "subtitles by",
+    "sous titres réalisés",
+    "merci davoir regardé",
+    "subtítulos realizados",
+    "gracias por ver",
+    "obrigado por assistir",
+    "спасибо за просмотр",
+    "субтитры сделал",
+    "ご視聴ありがとうございました",
+    "感谢观看",
 )
 
 

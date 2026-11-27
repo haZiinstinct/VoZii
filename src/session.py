@@ -6,6 +6,7 @@ injiziert; _run_cycle baut nur zusammen, startet die Threads und raeumt auf.
 """
 
 import logging
+import math
 import os
 import queue
 import threading
@@ -13,7 +14,7 @@ import time
 
 import numpy as np
 
-from src.filters import RMS_SILENCE_THRESHOLD, is_hallucination
+from src.filters import RMS_DEAD_SILENCE, RMS_SILENCE_THRESHOLD, is_hallucination
 from src.i18n import t
 from src.state import AppState
 from src.text_inserter import insert_text
@@ -31,6 +32,16 @@ LIVE_MIN_S = 0.8
 ERROR_FLASH_MS = 8000
 # Ist das Ende des Fensters so lange still, laeuft kein neuer Durchlauf
 LIVE_PAUSE_S = 1.5
+# Bluetooth-/Leerlauf-Modus: nach so vielen Sekunden ohne Diktat wird der
+# Audio-Stream wieder freigegeben (Headset wechselt zurueck auf Stereo A2DP)
+MIC_IDLE_CLOSE_S = 30.0
+
+
+def _rms(audio: np.ndarray) -> float:
+    flat = audio.reshape(-1)
+    if flat.size == 0:
+        return 0.0
+    return math.sqrt(float(np.dot(flat, flat)) / flat.size)
 
 
 class RunSession:
@@ -57,6 +68,7 @@ class RunSession:
         self._hint_shown = False
         # Leerlauf-Entladen: 0 = Modell bleibt dauerhaft im RAM
         self.idle_unload_s = max(0, config.get("idle_unload_min", 0)) * 60
+        self.release_mic_idle = bool(config.get("release_mic_idle", False))
         self._last_used = time.monotonic()
         # Live-Vorschau im Overlay. Abschaltbar (Akku/Leistung): dann startet
         # kein Thread und es entsteht keine zusaetzliche Last.
@@ -95,7 +107,7 @@ class RunSession:
 
     def on_activate(self):
         try:
-            if self.state.state == AppState.TRANSCRIBING:
+            if self.state.state != AppState.IDLE:
                 return
             self.state.set_state(AppState.RECORDING)
             self.beep_start()
@@ -123,10 +135,13 @@ class RunSession:
             # Zuerst die Vorschau stoppen, damit sie der Transkription keinen
             # Rechen-Slot mehr wegnimmt
             self._stop_live()
-            wav_path, duration, rms = self.recorder.stop_recording()
-            if wav_path:
+            stop_pcm = getattr(self.recorder, "stop_recording_pcm", None)
+            audio_or_path, duration, rms = (
+                stop_pcm() if stop_pcm is not None else self.recorder.stop_recording()
+            )
+            if audio_or_path is not None:
                 self.state.set_state(AppState.TRANSCRIBING)
-                self.audio_queue.put((wav_path, duration, rms))
+                self.audio_queue.put((audio_or_path, duration, rms))
             elif duration == 0 and not self.recorder.is_stream_healthy():
                 # Kein einziges Sample vom Mikrofon. Frueher passierte
                 # hier gar nichts — der Nutzer druckte den Hotkey und
@@ -134,7 +149,8 @@ class RunSession:
                 self.state.set_state(AppState.IDLE)
                 log.error("Aufnahme ohne Audiodaten — Mikrofon-Stream tot")
                 self.notify("err_mic")
-                self.recorder.ensure_stream()
+                if not self.release_mic_idle:
+                    self.recorder.ensure_stream()
             else:
                 self.state.set_state(AppState.IDLE)
                 self.notify("short", 2000)
@@ -176,15 +192,17 @@ class RunSession:
         # haelt frueher Gesprochenes den Pegel oben und jede Denkpause
         # rechnet dasselbe Audio alle LIVE_INTERVAL_S neu
         tail = audio[-int(LIVE_PAUSE_S * 16000):]
-        if float(np.sqrt(np.mean(np.square(tail)))) < RMS_SILENCE_THRESHOLD:
+        if _rms(tail) < RMS_SILENCE_THRESHOLD:
             return last_total  # Sprechpause: letzten Text stehen lassen
-        rms = float(np.sqrt(np.mean(np.square(audio))))
+        rms = _rms(audio)
         text = self.transcriber.preview(audio)
         if not text or is_hallucination(text, len(audio) / 16000, rms):
             return last_total
         if total > LIVE_WINDOW_S:
             # Fensteranfang schneidet mitten ins Wort — erstes Wort weglassen
-            text = "… " + text.split(" ", 1)[-1]
+            # (nur wenn es ein normales Leerzeichen-Wort ist, sonst CJK bewahren)
+            parts = text.split(" ", 1)
+            text = "… " + (parts[1] if len(parts) == 2 and len(parts[0]) <= 24 else text)
         if self.state.state == AppState.RECORDING:
             self.overlay.preview(text)
         return total
@@ -214,13 +232,23 @@ class RunSession:
         if self.config.get("mode") == "toggle" and auto_stop_s:
             self.recorder.set_auto_stop(auto_stop_s, self.auto_stop)
             log.info("Auto-Stop bei Stille: %.1fs", auto_stop_s)
+        set_max = getattr(self.recorder, "set_max_duration", None)
+        if set_max is not None:
+            from src.audio import MAX_RECORDING_S
+            set_max(MAX_RECORDING_S, self.auto_stop)
 
     # --- Transkription ---
 
-    def process(self, wav_path: str, duration: float, rms: float):
-        """Eine Aufnahme transkribieren, einfuegen, WAV loeschen, zurueck auf IDLE."""
+    def process(self, audio_or_path, duration: float, rms: float):
+        """Eine Aufnahme transkribieren, einfuegen, ggf. WAV loeschen, zurueck auf IDLE."""
         try:
-            text = self.transcriber.transcribe(wav_path)
+            # Stummgeschaltetes Mikrofon / digitale Tot-Stille -> Inferenz sparen
+            if rms < RMS_DEAD_SILENCE:
+                log.info("Aufnahme komplett stumm (%.1fs, rms %.5f) — uebersprungen",
+                         duration, rms)
+                self.notify("empty", 2000)
+                return
+            text = self.transcriber.transcribe(audio_or_path)
             pop_notice = getattr(self.transcriber, "pop_notice", None)
             if pop_notice and pop_notice() == "cpu_fallback":
                 # GPU-Backend abgestuerzt, laeuft ab jetzt auf der CPU
@@ -261,16 +289,17 @@ class RunSession:
         except Exception:
             log.exception("Transkription fehlgeschlagen")
             self._error_count += 1
-            if self._error_count >= 2:
-                self.notify("err_whisper")
-                self._error_count = 0
+            # Sofort melden: beim ersten Fehler darf ein verlorenes Diktat nicht
+            # komplett kommentarlos verschwinden
+            self.notify("err_whisper")
         finally:
-            try:
-                os.remove(wav_path)
-            except OSError:
-                pass
+            if isinstance(audio_or_path, str):
+                try:
+                    os.remove(audio_or_path)
+                except OSError:
+                    pass
             self._last_used = time.monotonic()
-        self.state.set_state(AppState.IDLE)
+            self.state.set_state(AppState.IDLE)
 
     def transcription_worker(self):
         while not self.shutdown_event.is_set():
@@ -325,7 +354,13 @@ class RunSession:
             log.exception("Hotkey-Watchdog fehlgeschlagen")
         try:
             if self.state.state == AppState.IDLE:
-                self.recorder.ensure_stream()
+                if self.release_mic_idle:
+                    if (time.monotonic() - self._last_used >= MIC_IDLE_CLOSE_S
+                            and self.recorder.is_stream_healthy()):
+                        log.info("Mikrofon-Leerlauf: gebe Audio-Stream frei (Bluetooth-Modus)")
+                        self.recorder.close_stream()
+                else:
+                    self.recorder.ensure_stream()
         except Exception:
             log.exception("Audio-Watchdog fehlgeschlagen")
         self.release_if_idle()

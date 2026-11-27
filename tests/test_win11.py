@@ -118,6 +118,17 @@ def test_release_if_stuck_ignores_toggle_mode():
     assert m.release_if_stuck() is False
 
 
+def test_release_if_stuck_clears_stale_pressed_parts_in_toggle(monkeypatch):
+    m = HotkeyManager("f9", on_activate=lambda: None, on_deactivate=lambda: None,
+                      mode="toggle")
+    m._active = True
+    m._pressed_parts.add("f9")
+    monkeypatch.setattr(m, "_part_physically_held", lambda _p: False)
+    assert m.release_if_stuck() is False
+    assert m._active is True  # Toggle-Aufnahme laeuft weiter
+    assert m._pressed_parts == set()  # haengende Taste freigeraeumt
+
+
 # --- GPU-Cache ---
 
 def test_gpu_cache_hit_skips_detection(monkeypatch):
@@ -154,12 +165,20 @@ def test_gpu_cache_invalid_value_triggers_detection(monkeypatch):
 
 # --- detect_gpu (Parsing der Adapterliste, D3) ---
 
-def _gpu_output(monkeypatch, output, cuda=True):
+def _gpu_output(monkeypatch, output, cuda=True, vulkan=True):
     monkeypatch.setattr(hardware, "_try_registry", lambda: output)
     monkeypatch.setattr(hardware, "_try_wmic", lambda: None)
     monkeypatch.setattr(hardware, "_try_powershell", lambda: None)
-    monkeypatch.setattr(hardware.os.path, "isfile",
-                        lambda p: cuda and p.lower().endswith("nvcuda.dll"))
+
+    def _isfile(p: str) -> bool:
+        low = p.lower()
+        if low.endswith("nvcuda.dll"):
+            return cuda
+        if low.endswith("vulkan-1.dll"):
+            return vulkan
+        return False
+
+    monkeypatch.setattr(hardware.os.path, "isfile", _isfile)
 
 
 def test_detect_gpu_prioritaet_nvidia_vor_amd_vor_intel(monkeypatch):
@@ -181,6 +200,12 @@ def test_detect_gpu_nvidia_treiberleiche_ohne_nvcuda(monkeypatch):
     -> nicht CUDA waehlen, sondern den naechsten Treffer."""
     _gpu_output(monkeypatch, "NVIDIA GeForce GTX 1060\nAMD Radeon RX 7800 XT", cuda=False)
     assert hardware.detect_gpu() == ("amd", "AMD Radeon RX 7800 XT")
+
+
+def test_detect_gpu_amd_treiberleiche_ohne_vulkan(monkeypatch):
+    """Alter AMD-Eintrag ohne vulkan-1.dll -> Fallback auf CPU statt kaputtem Vulkan."""
+    _gpu_output(monkeypatch, "AMD Radeon RX 580", vulkan=False)
+    assert hardware.detect_gpu() == ("cpu", "AMD Radeon RX 580")
 
 
 def test_effective_gpu_type_override():
@@ -313,11 +338,55 @@ def test_winclip_sequence_number_advances_on_write():
     previous = winclip.get_text()
     try:
         before = winclip.sequence_number()
-        winclip.set_text("vozii-seq-test")
+        winclip.set_text("vozii-seq-test", private=True)
         assert winclip.sequence_number() != before
+        assert winclip.get_text() == "vozii-seq-test"
+        # Win11-Privatsphaere-Marker muessen in der Ablage gesetzt sein
+        for fmt in winclip._get_private_formats():
+            assert winclip._user32.IsClipboardFormatAvailable(fmt)
     finally:
         if previous is not None:
-            winclip.set_text(previous)
+            winclip.set_text(previous, private=True)
+
+
+def test_rapid_double_dictation_preserves_original_clipboard(monkeypatch):
+    """Zweites Diktat vor Ablauf des Restore-Timers bewahrt den urspruenglichen Inhalt."""
+    clip = _FakeClipboard(initial="original")
+    seq = [10]
+    orig_set = clip.set_text
+
+    def set_with_seq(text, **_kw):
+        ok = orig_set(text)
+        if ok:
+            seq[0] += 1
+        return ok
+
+    monkeypatch.setattr(text_inserter.winclip, "set_text", set_with_seq)
+    monkeypatch.setattr(text_inserter.winclip, "get_text", clip.get_text)
+    monkeypatch.setattr(text_inserter.winclip, "sequence_number", lambda: seq[0])
+    monkeypatch.setattr(text_inserter, "_wait_for_modifier_release", lambda *a: True)
+    monkeypatch.setattr(text_inserter.winclip, "send_ctrl_v", lambda: True)
+    monkeypatch.setattr(text_inserter.time, "sleep", lambda *a: None)
+
+    captured_restores = []
+
+    def fake_restore(previous, ours, delay_s=0, expected_seq=0):
+        with text_inserter._restore_lock:
+            text_inserter._restore_gen += 1
+            text_inserter._pending_restore = {
+                "previous": previous, "ours": ours, "seq": expected_seq,
+            }
+        captured_restores.append((previous, ours, expected_seq))
+
+    monkeypatch.setattr(text_inserter, "_restore_later", fake_restore)
+    try:
+        assert text_inserter.insert_text("diktat 1", restore_clipboard=True) is True
+        assert text_inserter.insert_text("diktat 2", restore_clipboard=True) is True
+        assert captured_restores[0][0] == "original"
+        assert captured_restores[1][0] == "original"  # nicht "diktat 1"!
+    finally:
+        with text_inserter._restore_lock:
+            text_inserter._pending_restore = None
 
 
 def test_restart_keeps_dispatcher_alive(monkeypatch):

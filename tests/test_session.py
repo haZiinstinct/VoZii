@@ -175,9 +175,55 @@ def test_worker_loescht_wav_auch_bei_exception(tmp_path):
     assert not wav.exists()
     assert inserted == []
     assert s.state.state == AppState.IDLE
-    assert s.overlay.flashes == []  # erst ab dem zweiten Fehler in Folge
-    s.process(str(_wav(tmp_path)), 2.0, 0.1)
-    assert s.overlay.flashes == ["err_whisper"]
+    assert s.overlay.flashes == ["err_whisper"]  # sofort melden, nicht still schlucken
+
+
+def test_worker_ueberspringt_totstille():
+    calls = []
+
+    class CountingTranscriber(FakeTranscriber):
+        def transcribe(self, audio):
+            calls.append(audio)
+            return "phantom"
+
+    s, inserted = _session(transcriber=CountingTranscriber())
+    s.process(np.zeros(16000, dtype=np.float32), 1.0, 0.0)
+    assert calls == []
+    assert inserted == []
+    assert s.overlay.flashes == ["empty"]
+    assert s.state.state == AppState.IDLE
+
+
+def test_on_activate_ignoriert_doppelstart_waehrend_recording():
+    rec = FakeRecorder()
+    s, _ = _session(recorder=rec)
+    s.on_activate()
+    s.on_activate()
+    assert rec.started == 1
+
+
+def test_release_mic_idle_schliesst_stream_nach_pause():
+    closed = []
+
+    class ClosableRecorder(FakeRecorder):
+        def close_stream(self):
+            closed.append(True)
+            self.healthy = False
+
+    class FakeMgr:
+        def is_healthy(self):
+            return True
+
+        def release_if_stuck(self):
+            return False
+
+    rec = ClosableRecorder()
+    s, _ = _session(config={"release_mic_idle": True}, recorder=rec)
+    s.hotkey_mgr = FakeMgr()
+    s._last_used -= session_mod.MIC_IDLE_CLOSE_S + 5
+    s.health_check()
+    assert closed == [True]
+    assert rec.ensured == 0  # im Bluetooth-Modus nicht sofort wieder oeffnen
 
 
 def test_worker_timeout_meldet_too_long(tmp_path):

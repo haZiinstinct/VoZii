@@ -96,7 +96,7 @@ or `ERR: MIC` / `RECOGNITION FAILED` — plus a live timer and level bars while 
 | 🖥️ **Compute** | NVIDIA CUDA · AMD Vulkan · CPU (Parakeet or whisper.cpp) — auto-detected and cached |
 | 🎚️ **Decoding** | **Fast** (greedy) for everyday use · **Accurate** (beam search) when it matters |
 | 🔧 **Extras** | Persistent audio stream (no clipped first syllable) · microphone level test · autostart with Windows |
-| 🆕 **v1.10** | **Parakeet engine** — fast dictation on any laptop CPU · switch Whisper ↔ Parakeet any time · **GPU→CPU fallback** when the graphics driver crashes |
+| 🆕 **v1.14** | **40&nbsp;MB single `.exe`** (10&nbsp;MB slimmer) · ~2&nbsp;s faster settings launch · **Bluetooth idle mic release** · **Win&nbsp;11 clipboard privacy** · live timer &amp; 4-bar level meter in overlay |
 
 ## 🚀 Get VoZii
 
